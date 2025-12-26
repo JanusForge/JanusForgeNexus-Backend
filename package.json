@@ -1,45 +1,28 @@
 {
-  "name": "janusforgenexus-backend",
+  "name": "janusforge-nexus-backend",
   "version": "1.0.0",
-  "description": "Backend for Janus Forge Nexus - AI conversation ecosystem",
-  "main": "dist/server.js",
+  "description": "Backend for Janus Forge Nexus AI platform",
+  "main": "src/server-ai-enhanced.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "nodemon src/server.ts",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "start": "node src/server-ai-enhanced.js",
+    "dev": "nodemon src/server-ai-enhanced.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [
-    "ai",
-    "conversation",
-    "debate",
-    "real-time"
-  ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@prisma/client": "^5.22.0",
-    "bcryptjs": "^2.4.3",
-    "cookie-parser": "^1.4.6",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.2",
-    "pg": "^8.16.3",
-    "socket.io": "^4.7.2"
+    "cors": "^2.8.5",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1",
+    "openai": "^4.28.0",
+    "@anthropic-ai/sdk": "^0.17.0"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cookie-parser": "^1.4.6",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/jsonwebtoken": "^9.0.5",
-    "@types/node": "^20.10.0",
-    "nodemon": "^3.0.2",
-    "prisma": "^5.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.2"
-  }
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["ai", "conversation", "debate", "platform"],
+  "author": "Janus Forge",
+  "license": "MIT"
 }
