@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserTier {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum AIParticipant {
+  GROK
+  GEMINI_PRO
+  CLAUDE
+  CHATGPT
+  DEEPSEEK
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  username      String     @unique
+  password_hash String     @map("password_hash")
+  tier          String     @default("FREE")  // Changed from UserTier enum
+  token_balance Int        @default(0) @map("token_balance")
+  refresh_token String?    @map("refresh_token")
+  created_at    DateTime   @default(now()) @map("created_at")
+  updated_at    DateTime   @updatedAt @map("updated_at")
+  posts         Post[]
+  ai_responses  AIResponse[]
+  debate_votes  DebateVote[]
+  token_transactions TokenTransaction[]
+  @@map("users")
+}
+
+model Conversation {
+  id          String    @id @default(uuid())
+  title       String?
+  is_daily_forge Boolean   @default(false) @map("is_daily_forge")
+  daily_topic String?   @map("daily_topic")
+  forge_date  DateTime? @map("forge_date")
+  council_members AIParticipant[] @map("council_members")
+  created_at  DateTime  @default(now()) @map("created_at")
+  expires_at  DateTime? @map("expires_at")
+  posts       Post[]
+  debate_votes DebateVote[]
+  @@map("conversations")
+}
+
+model Post {
+  id              String    @id @default(uuid())
+  content         String    @db.Text
+  is_human        Boolean   @default(true) @map("is_human")
+  ai_model        AIParticipant? @map("ai_model")
+  user_id         String?   @map("user_id")
+  conversation_id String    @map("conversation_id")
+  parent_post_id  String?   @map("parent_post_id")
+  likes           Int       @default(0)
+  required_tier   String?   @map("required_tier")
+  created_at      DateTime  @default(now()) @map("created_at")
+  user            User?     @relation(fields: [user_id], references: [id])
+  conversation    Conversation @relation(fields: [conversation_id], references: [id])
+  parent          Post?     @relation("PostReplies", fields: [parent_post_id], references: [id])
+  replies         Post[]    @relation("PostReplies")
+  ai_response     AIResponse?
+  @@map("posts")
+}
+
+model AIResponse {
+  id              String    @id @default(uuid())
+  post_id         String    @unique @map("post_id")
+  ai_model        AIParticipant @map("ai_model")
+  raw_response    String    @db.Text @map("raw_response")
+  processing_time Int       @map("processing_time")
+  tokens_used     Int       @map("tokens_used")
+  cost_cents      Int       @map("cost_cents")
+  user_id         String    @map("user_id")
+  created_at      DateTime  @default(now()) @map("created_at")
+  post            Post      @relation(fields: [post_id], references: [id])
+  user            User      @relation(fields: [user_id], references: [id])
+  @@map("ai_responses")
+}
+
+model DebateVote {
+  id              String    @id @default(uuid())
+  user_id         String    @map("user_id")
+  conversation_id String    @map("conversation_id")
+  ai_model        AIParticipant @map("ai_model")
+  score           Int
+  created_at      DateTime  @default(now()) @map("created_at")
+  user            User      @relation(fields: [user_id], references: [id])
+  conversation    Conversation @relation(fields: [conversation_id], references: [id])
+  @@unique([user_id, conversation_id, ai_model])
+  @@map("debate_votes")
+}
+
+model TokenTransaction {
+  id              String    @id @default(uuid())
+  user_id         String    @map("user_id")
+  amount          Int
+  transaction_type String   @map("transaction_type")
+  description     String?
+  created_at      DateTime  @default(now()) @map("created_at")
+  user            User      @relation(fields: [user_id], references: [id])
+  @@map("token_transactions")
+}
+
+model TierConfiguration {
+  id        String   @id @default(uuid())
+  tier      String   @unique
+  ai_models String[] @map("ai_models")  // Changed from AIParticipant[]
+  token_allowance Int @map("token_allowance")
+  price_cents Int    @map("price_cents")
+  @@map("tier_configurations")
+}
