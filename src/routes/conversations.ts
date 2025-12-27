@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthenticatedRequest, PostRequest } from '../types';
 import { requireTier } from '../middleware/auth';
@@ -11,29 +11,27 @@ import {
 const router = Router();
 const prisma = new PrismaClient();
 
-// 1. MOVE PREVIEW HERE (Before the /:id route)
+// This MUST be here to answer the frontend's request
 router.get('/preview', async (req: Request, res: Response) => {
-  try {
-    // Return mock data for now to satisfy the frontend
-    const latestConversations = [
-      {
-        id: 'msg-101',
-        sender: 'ai',
-        avatar: '🤖',
-        name: 'Councilor JANUS-7',
-        role: 'Ethics Specialist',
-        content: "The centralized model offers safety, but we must weigh it against the speed of innovation.",
-        timestamp: 'Just now',
-        tier: 'enterprise',
-        likes: 12,
-        replies: 4
-      }
-    ];
+  const latestConversations = [
+    {
+      id: 'msg-101',
+      sender: 'ai',
+      avatar: '🤖',
+      name: 'Councilor JANUS-7',
+      role: 'Ethics Specialist',
+      content: "Bridge established. All AI Council members are monitoring the Forge.",
+      timestamp: 'Just now',
+      tier: 'enterprise',
+      likes: 12,
+      replies: 4
+    }
+  ];
 
-    res.json(latestConversations);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to load conversation feed' });
-  }
+  res.json({ 
+    success: true, 
+    conversations: latestConversations // Frontend looks for this key
+  });
 });
 
 
