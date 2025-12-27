@@ -38,11 +38,14 @@ app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
 // Socket.IO setup
+// Update this block in src/server.ts
 const io = new Server(httpServer, {
   cors: {
     origin: process.env.FRONTEND_URL?.split(',') || ['http://localhost:3000', 'https://janusforge.ai'],
     credentials: true
-  }
+  },
+  transports: ['polling', 'websocket'], // Add this line to allow fallback
+  allowEIO3: true
 });
 
 // WebSocket connection handling
@@ -75,13 +78,15 @@ io.on('connection', (socket) => {
 // Make io accessible to routes
 app.set('io', io);
 
-// Public routes
+// --- Change this section in src/server.ts ---
+
+// Public routes (No token needed)
 app.use('/api/health', healthRoutes);
 app.use('/api/daily-forge', dailyForgeRoutes);
+app.use('/api/conversations', conversationRoutes); // Moved here and removed authenticateToken
 
-// Protected routes
+// Protected routes (Token required)
 app.use('/api/auth', authRoutes);
-app.use('/api/conversations', authenticateToken, conversationRoutes);
 app.use('/api/debates', authenticateToken, debateRoutes);
 
 // Error handling middleware
