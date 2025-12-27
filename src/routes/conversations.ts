@@ -11,85 +11,31 @@ import {
 const router = Router();
 const prisma = new PrismaClient();
 
-// Get all conversations (for feed)
-router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+// 1. MOVE PREVIEW HERE (Before the /:id route)
+router.get('/preview', async (req: Request, res: Response) => {
   try {
-    const { page = '1', limit = '20' } = req.query;
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
-    const skip = (pageNum - 1) * limitNum;
-
-    // Get conversations with latest posts
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        OR: [
-          { isDailyForge: false },
-          { isDailyForge: true, expiresAt: { gt: new Date() } }
-        ]
-      },
-      include: {
-        posts: {
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                tier: true
-              }
-            },
-            aiResponse: {
-              select: {
-                aiModel: true,
-                processingTime: true
-              }
-            }
-          },
-          where: {
-            OR: [
-              { requiredTier: null },
-              { requiredTier: req.user?.tier }
-            ]
-          }
-        },
-        _count: {
-          select: { posts: true }
-        }
-      },
-      orderBy: {
-        posts: {
-          _count: 'desc'
-        }
-      },
-      skip,
-      take: limitNum
-    });
-
-    const total = await prisma.conversation.count({
-      where: {
-        OR: [
-          { isDailyForge: false },
-          { isDailyForge: true, expiresAt: { gt: new Date() } }
-        ]
+    // Return mock data for now to satisfy the frontend
+    const latestConversations = [
+      {
+        id: 'msg-101',
+        sender: 'ai',
+        avatar: '🤖',
+        name: 'Councilor JANUS-7',
+        role: 'Ethics Specialist',
+        content: "The centralized model offers safety, but we must weigh it against the speed of innovation.",
+        timestamp: 'Just now',
+        tier: 'enterprise',
+        likes: 12,
+        replies: 4
       }
-    });
+    ];
 
-    res.json({
-      conversations,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
-    });
-
+    res.json(latestConversations);
   } catch (error) {
-    console.error('Get conversations error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ error: 'Failed to load conversation feed' });
   }
 });
+
 
 // Get single conversation with posts
 router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
