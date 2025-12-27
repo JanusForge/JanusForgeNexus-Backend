@@ -10,6 +10,7 @@ import authRoutes from './routes/auth';
 import conversationRoutes from './routes/conversations';
 import debateRoutes from './routes/debates';
 import healthRoutes from './routes/health';
+import dailyForgeRoutes from './routes/dailyForge';
 
 // Import services
 import { initializeTierConfigurations } from './services/tierService';
@@ -76,6 +77,7 @@ app.set('io', io);
 
 // Public routes
 app.use('/api/health', healthRoutes);
+app.use('/api/daily-forge', dailyForgeRoutes);
 
 // Protected routes
 app.use('/api/auth', authRoutes);

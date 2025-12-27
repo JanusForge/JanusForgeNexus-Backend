@@ -500,4 +500,29 @@ router.post('/posts/:postId/like', async (req: AuthenticatedRequest, res: Respon
   }
 });
 
+// GET /api/conversations/preview
+router.get('/preview', async (req: Request, res: Response) => {
+  try {
+    // Eventually, this will use your DATABASE_URL to pull real posts
+    const latestConversations = [
+      {
+        id: 'msg-101',
+        sender: 'ai',
+        avatar: '🤖',
+        name: 'Councilor JANUS-7',
+        role: 'Ethics Specialist',
+        content: "The centralized model offers safety, but we must weigh it against the speed of innovation.",
+        timestamp: 'Just now',
+        tier: 'enterprise',
+        likes: 12,
+        replies: 4
+      }
+    ];
+
+    res.json(latestConversations);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to load conversation feed' });
+  }
+});
+
 export default router;
