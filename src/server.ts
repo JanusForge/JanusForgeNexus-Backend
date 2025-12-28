@@ -15,7 +15,7 @@ const httpServer = createServer(app);
 const prisma = new PrismaClient();
 
 // --- CRITICAL MIDDLEWARE STACK ---
-// Must be above all routes to prevent 'undefined' bodies
+// These MUST be at the top to parse login data correctly
 const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json()); 
@@ -23,22 +23,20 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- REST API ROUTES ---
 
-// Health Check
+// Health Check for Render Monitoring
 app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', database: 'connected' });
 });
 
-// Update the Login Route in src/server.ts
+// LOGIN ROUTE: Handles the "admin-access" bypass to fix the 404/undefined errors
 app.post('/api/auth/login', async (req, res) => {
-  // 1. Robust Body Extraction
   const username = req.body?.username || req.body?.email || req.body?.identifier;
   
-  console.log(`🔐 Attempting login for identifier: ${username}`);
+  console.log(`🔐 Login attempt for identifier: ${username}`);
 
-  // 2. CRITICAL: PRE-EMPTIVE ADMIN BYPASS
-  // We check this BEFORE Prisma to avoid the "username: undefined" crash
+  // EMERGENCY ADMIN BYPASS: Intercepts before Prisma to prevent crashes
   if (username === 'admin-access') {
-    console.log('💎 God Mode Bypass Authenticated');
+    console.log('💎 Admin God Mode Bypass Triggered');
     return res.json({
       user: {
         id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000',
@@ -50,13 +48,11 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  // 3. SAFE DATABASE QUERY
   if (!username) {
     return res.status(400).json({ message: "Username or Email is required." });
   }
 
   try {
-    // Only query if username exists
     const user = await prisma.user.findUnique({ 
       where: { username: String(username) } 
     });
@@ -92,6 +88,7 @@ io.on('connection', (socket) => {
     const isAdmin = name === 'admin-access' || userId === ADMIN_UUID;
 
     try {
+      // 2. ADMIN BYPASS: Skip DB check if verified admin
       if (!isAdmin) {
         try {
           const userRecord = await prisma.user.findUnique({ where: { id: userId } });
@@ -101,11 +98,12 @@ io.on('connection', (socket) => {
           }
         } catch (dbError) {
           console.error("Database Connection Error:", dbError);
-          socket.emit('error', { message: 'Nexus database unreachable. Try again later.' });
+          socket.emit('error', { message: 'Nexus database unreachable.' });
           return;
         }
       }
 
+      // Broadcast user message
       io.emit('post:incoming', {
         id: `user-${Date.now()}`,
         sender: 'user',
@@ -117,17 +115,16 @@ io.on('connection', (socket) => {
       let sharedContext = `The user asked: "${content}"`;
 
       const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
+        // God Mode Bypass for deductions
         if (!isAdmin) {
           try {
             await prisma.user.update({
               where: { id: userId },
               data: { token_balance: { decrement: cost } }
             });
-          } catch (e) {
-            console.error("Token deduction failed:", e);
-          }
+          } catch (e) { console.error("Deduction failed:", e); }
         }
-
+        
         io.emit('ai:response', {
           id: `ai-${modelName}-${Date.now()}`,
           sender: 'ai',
