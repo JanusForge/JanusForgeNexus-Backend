@@ -82,9 +82,8 @@ io.on('connection', (socket) => {
     console.log(`    📍 Socket ${socket.id} left conversation:${conversationId}`);
   });
 
-
   socket.on('post:new', async (postData) => {
-    // 1. Send the User's message back to the room immediately
+    // 1. Create a clean user message and relay it immediately
     const userMsg = {
       id: `user-${Date.now()}`,
       sender: 'user',
@@ -93,11 +92,13 @@ io.on('connection', (socket) => {
       role: 'Participant',
       content: postData.content,
       timestamp: new Date().toISOString(),
-      tier: postData.tier || 'basic'
+      tier: postData.tier || 'free'
     };
+  
+    // Send human message to the room
     io.to(`conversation:${postData.conversationId}`).emit('post:incoming', userMsg);
 
-    // 2. Simulate AI Response
+    // 2. TRIGGER THE AI REPLY
     setTimeout(() => {
       const aiMsg = {
         id: `ai-${Date.now()}`,
@@ -105,17 +106,18 @@ io.on('connection', (socket) => {
         avatar: '🤖',
         name: 'Councilor JANUS-7',
         role: 'Nexus Overseer',
-        content: `Transmission received: "${postData.content.substring(0, 30)}...". The Council is processing your input.`,
+        content: `I have analyzed your input: "${postData.content.substring(0, 30)}...". The Nexus synchronization is complete.`,
         timestamp: new Date().toISOString(),
         tier: 'enterprise',
-        likes: 0,
-        replies: 0
+        likes: 5,
+        replies: 2
       };
 
-      // CRITICAL: Emit the message directly, NOT wrapped in a 'post' object
+      // CRITICAL: Send the message directly so the frontend listener catches it
       io.to(`conversation:${postData.conversationId}`).emit('ai:response', aiMsg);
     }, 1500);
-  }); 
+  });
+   
 
 
   socket.on('ai:response', (responseData) => {
