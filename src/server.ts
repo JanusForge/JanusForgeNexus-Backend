@@ -14,11 +14,12 @@ const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 
-// CRITICAL: Middleware to parse JSON bodies from login requests
-app.use(express.json());
-
+// --- CRITICAL MIDDLEWARE STACK ---
+// Must be above all routes to prevent 'undefined' bodies
 const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(express.json()); 
+app.use(express.urlencoded({ extended: true }));
 
 // --- REST API ROUTES ---
 
@@ -30,14 +31,15 @@ app.get('/api/health', (req, res) => {
 // LOGIN ROUTE: Handles the "admin-access" bypass
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
-  
+
   console.log(`🔐 Login attempt for: ${username}`);
 
-  // EMERGENCY ADMIN BYPASS
+  // EMERGENCY ADMIN BYPASS: Bypasses DB for the God Mode user
   if (username === 'admin-access') {
+    console.log('💎 Admin God Mode Bypass Triggered');
     return res.json({
-      user: { 
-        id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000', 
+      user: {
+        id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000',
         username: 'admin-access',
         token_balance: 999999,
         tier: 'enterprise'
@@ -49,10 +51,11 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user) return res.status(404).json({ message: "User not found" });
-    
+
     // Note: In a real app, verify password_hash here
     res.json({ user, token: 'mock-jwt-token' });
   } catch (error) {
+    console.error("Login Error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -125,6 +128,8 @@ io.on('connection', (socket) => {
           isVerdict: modelName === 'JANUS VERDICT'
         });
       };
+
+      // --- AI COUNCIL WATERFALL ---
 
       // GEMINI
       io.emit('ai:typing', { councilor: 'GEMINI' });
