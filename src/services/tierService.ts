@@ -1,124 +1,86 @@
-import { PrismaClient, AIParticipant, UserTier } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Based on your pricing image
-export const TIER_CONFIGURATIONS = {
+// Define local types to avoid Prisma export conflicts
+export type UserTier = 'FREE' | 'BASIC' | 'PROFESSIONAL' | 'ENTERPRISE';
+export type AIParticipant = 'JANUS' | 'NEXUS' | 'FORGE' | 'COUNCIL' | 'ARCHIVE';
+
+interface TierConfig {
+  tier: UserTier;
+  ai_models: AIParticipant[];
+  tokenAllowance: number;
+  priceCents: number;
+  features: string[];
+}
+
+export const TIER_CONFIGURATIONS: Record<UserTier, TierConfig> = {
   FREE: {
-    tier: 'FREE' as UserTier,
-    aiModels: ['CHATGPT', 'DEEPSEEK'] as AIParticipant[], // 2 cheapest models
-    tokenAllowance: 50,
+    tier: 'FREE',
+    ai_models: ['JANUS', 'NEXUS'],
+    tokenAllowance: 100,
     priceCents: 0,
-    features: [
-      '2 AI models per debate',
-      '50 tokens/month',
-      'Basic human engagement',
-      'Community support',
-      '7-day debate history'
-    ]
+    features: ['Basic AI Responses', 'Daily Forge Access']
   },
   BASIC: {
-    tier: 'BASIC' as UserTier,
-    aiModels: ['CHATGPT', 'DEEPSEEK', 'GEMINI_PRO'] as AIParticipant[], // 3 models
-    tokenAllowance: 250,
-    priceCents: 900, // $9.00
-    features: [
-      '3 AI models per debate',
-      '250 tokens/month',
-      'Enhanced human engagement',
-      'Email support',
-      '30-day debate history',
-      'Custom debate topics'
-    ]
+    tier: 'BASIC',
+    ai_models: ['JANUS', 'NEXUS', 'FORGE'],
+    tokenAllowance: 1000,
+    priceCents: 1000,
+    features: ['Faster Responses', '3 AI Models']
   },
   PROFESSIONAL: {
-    tier: 'PROFESSIONAL' as UserTier,
-    aiModels: ['GROK', 'GEMINI_PRO', 'CLAUDE', 'CHATGPT', 'DEEPSEEK'] as AIParticipant[], // All 5 models
-    tokenAllowance: 1000,
-    priceCents: 2900, // $29.00
-    features: [
-      'All 5 AI models',
-      '1000 tokens/month',
-      'Priority human engagement',
-      'Phone & email support',
-      '90-day debate history',
-      'Advanced analytics',
-      'API access (coming soon)'
-    ]
+    tier: 'PROFESSIONAL',
+    ai_models: ['JANUS', 'NEXUS', 'FORGE', 'COUNCIL'],
+    tokenAllowance: 5000,
+    priceCents: 2500,
+    features: ['Priority Access', '4 AI Models']
   },
   ENTERPRISE: {
-    tier: 'ENTERPRISE' as UserTier,
-    aiModels: ['GROK', 'GEMINI_PRO', 'CLAUDE', 'CHATGPT', 'DEEPSEEK'] as AIParticipant[], // All by default
-    tokenAllowance: 50000, // $500+ worth of tokens
-    priceCents: 9900, // $99.00
-    features: [
-      'Custom AI model selection',
-      '$500+ tokens/month',
-      'Dedicated human moderator',
-      '24/7 priority support',
-      'Unlimited debate history',
-      'Advanced analytics dashboard',
-      'Full API access',
-      'Custom feature development',
-      'SLA guarantee'
-    ]
+    tier: 'ENTERPRISE',
+    ai_models: ['JANUS', 'NEXUS', 'FORGE', 'COUNCIL', 'ARCHIVE'],
+    tokenAllowance: 20000,
+    priceCents: 10000,
+    features: ['Full Council Access', 'All Models']
   }
 };
 
-// AI model cost in cents per 1K tokens (approximate - adjust based on your actual costs)
-export const AI_MODEL_COSTS: Record<AIParticipant, number> = {
-  DEEPSEEK: 0.14,      // $0.14 per 1K tokens
-  CHATGPT: 1.50,       // $1.50 per 1K tokens (GPT-3.5 Turbo)
-  GEMINI_PRO: 1.25,    // $1.25 per 1K tokens
-  CLAUDE: 8.00,        // $8.00 per 1K tokens
-  GROK: 2.00           // $2.00 per 1K tokens (estimated)
+export const getTierConfiguration = (tier: UserTier): TierConfig => {
+  return TIER_CONFIGURATIONS[tier] || TIER_CONFIGURATIONS.FREE;
 };
 
 export const getAvailableModelsForTier = (tier: UserTier): AIParticipant[] => {
-  switch (tier) {
-    case 'FREE':
-      return TIER_CONFIGURATIONS.FREE.aiModels;
-    case 'BASIC':
-      return TIER_CONFIGURATIONS.BASIC.aiModels;
-    case 'PROFESSIONAL':
-      return TIER_CONFIGURATIONS.PROFESSIONAL.aiModels;
-    case 'ENTERPRISE':
-      return TIER_CONFIGURATIONS.ENTERPRISE.aiModels;
-    default:
-      return TIER_CONFIGURATIONS.FREE.aiModels;
-  }
+  const config = getTierConfiguration(tier);
+  return config.ai_models;
 };
 
-export const getTierConfiguration = (tier: UserTier) => {
-  return TIER_CONFIGURATIONS[tier];
+export const calculateAICost = (model: AIParticipant, tokens: number): number => {
+  const baseRate = 0.002; // Cents per token
+  return Math.ceil(tokens * baseRate);
 };
 
-export const calculateAICost = (model: AIParticipant, tokensUsed: number): number => {
-  const costPer1KTokens = AI_MODEL_COSTS[model];
-  return Math.ceil((tokensUsed / 1000) * costPer1KTokens * 100); // Return in cents
-};
-
-// Initialize tier configurations in database
-export const initializeTierConfigurations = async () => {
+export const initializeTierConfigs = async () => {
   try {
-    for (const [tierKey, config] of Object.entries(TIER_CONFIGURATIONS)) {
+    for (const config of Object.values(TIER_CONFIGURATIONS)) {
       await prisma.tierConfiguration.upsert({
         where: { tier: config.tier },
         update: {
-          aiModels: config.aiModels,
-          tokenAllowance: config.tokenAllowance,
-          priceCents: config.priceCents
+          ai_models: config.ai_models,
+          token_allowance: config.tokenAllowance,
+          price_cents: config.priceCents,
+          features: config.features
         },
         create: {
           tier: config.tier,
-          aiModels: config.aiModels,
-          tokenAllowance: config.tokenAllowance,
-          priceCents: config.priceCents
+          ai_models: config.ai_models,
+          token_allowance: config.tokenAllowance,
+          price_cents: config.priceCents,
+          features: config.features
         }
       });
     }
     console.log('✅ Tier configurations initialized');
   } catch (error) {
-    console.error('Error initializing tier configurations:', error);
+    console.error('❌ Failed to initialize tier configs:', error);
   }
 };
