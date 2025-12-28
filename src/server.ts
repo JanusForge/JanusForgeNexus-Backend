@@ -83,14 +83,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('post:new', async (postData) => {
-    // 1. Immediately broadcast the human message to everyone in the room
+    // 1. Relay the human message so you see it in the feed immediately
     io.to(`conversation:${postData.conversationId}`).emit('post:incoming', postData);
+    console.log(`💬 Message from ${postData.name}: ${postData.content}`);
 
-    // 2. Trigger the AI Council Response
-    console.log(`🧠 AI Council triggered by ${postData.name}`);
-  
-    // For now, let's simulate the Council "Thinking"
-    // In the next step, we will connect this to your actual AI Services
+    // 2. TRIGGER THE AI RESPONSE
+    // For now, we simulate the "Council" responding. 
+    // This satisfies the frontend's 'ai:response' listener.
     setTimeout(() => {
       const aiResponse = {
         id: `ai-${Date.now()}`,
@@ -98,14 +97,18 @@ io.on('connection', (socket) => {
         avatar: '🤖',
         name: 'Councilor JANUS-7',
         role: 'Nexus Overseer',
-        content: `I have analyzed your query regarding "${postData.content.substring(0, 20)}...". The Nexus is preparing a multi-perspective synthesis.`,
+        content: `I have received your transmission, ${postData.name}. The Council is analyzing "${postData.content.substring(0, 30)}..." for the Daily Forge.`,
         timestamp: new Date().toISOString(),
-        tier: 'enterprise'
+        tier: 'enterprise',
+        likes: 0,
+        replies: 0
       };
-    
+
+      // This is the specific event your frontend is waiting for!
       io.to(`conversation:${postData.conversationId}`).emit('ai:response', { post: aiResponse });
-    }, 1500);
-  });  
+      console.log(`🤖 Council responded to ${postData.id}`);
+    }, 2000); // 2-second delay to make it feel like "thinking"
+  }); 
 
   socket.on('ai:response', (responseData) => {
     io.to(`conversation:${responseData.conversationId}`).emit('ai:response', responseData);
