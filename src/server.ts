@@ -83,41 +83,39 @@ io.on('connection', (socket) => {
   });
 
   socket.on('post:new', async (postData) => {
-    // 1. Create a clean user message and relay it immediately
-    const userMsg = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      avatar: '👤',
-      name: postData.name || 'Anonymous',
-      role: 'Participant',
-      content: postData.content,
+  // 1. Relay the user's message back to the room immediately
+  const userMsg = {
+    id: `user-${Date.now()}`,
+    sender: 'user',
+    avatar: '👤',
+    name: postData.name || 'Anonymous',
+    role: 'Participant',
+    content: postData.content,
+    timestamp: new Date().toISOString(),
+    tier: postData.tier || 'free'
+  };
+  io.to(`conversation:${postData.conversationId}`).emit('post:incoming', userMsg);
+
+  // 2. TRIGGER THE AI REPLY
+  setTimeout(() => {
+    const aiMsg = {
+      id: `ai-${Date.now()}`,
+      sender: 'ai',
+      avatar: '🤖',
+      name: 'Councilor JANUS-7',
+      role: 'Nexus Overseer',
+      // Dynamic response to prove it's live
+      content: `Direct Directive Received: "${postData.content.substring(0, 25)}...". The Nexus synchronization is 100% complete.`,
       timestamp: new Date().toISOString(),
-      tier: postData.tier || 'free'
+      tier: 'enterprise',
+      likes: 7,
+      replies: 1
     };
-  
-    // Send human message to the room
-    io.to(`conversation:${postData.conversationId}`).emit('post:incoming', userMsg);
 
-    // 2. TRIGGER THE AI REPLY
-    setTimeout(() => {
-      const aiMsg = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        avatar: '🤖',
-        name: 'Councilor JANUS-7',
-        role: 'Nexus Overseer',
-        content: `I have analyzed your input: "${postData.content.substring(0, 30)}...". The Nexus synchronization is complete.`,
-        timestamp: new Date().toISOString(),
-        tier: 'enterprise',
-        likes: 5,
-        replies: 2
-      };
-
-      // CRITICAL: Send the message directly so the frontend listener catches it
-      io.to(`conversation:${postData.conversationId}`).emit('ai:response', aiMsg);
-    }, 1500);
-  });
-   
+    // CRITICAL: Emit the object DIRECTLY (not wrapped in { post: ... })
+    io.to(`conversation:${postData.conversationId}`).emit('ai:response', aiMsg);
+  }, 1500);
+}); 
 
 
   socket.on('ai:response', (responseData) => {
