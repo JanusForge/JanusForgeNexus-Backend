@@ -28,15 +28,17 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', database: 'connected' });
 });
 
-// LOGIN ROUTE: Handles the "admin-access" bypass
+// Update the Login Route in src/server.ts
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body;
+  // 1. Robust Body Extraction
+  const username = req.body?.username || req.body?.email || req.body?.identifier;
+  
+  console.log(`🔐 Attempting login for identifier: ${username}`);
 
-  console.log(`🔐 Login attempt for: ${username}`);
-
-  // EMERGENCY ADMIN BYPASS: Bypasses DB for the God Mode user
+  // 2. CRITICAL: PRE-EMPTIVE ADMIN BYPASS
+  // We check this BEFORE Prisma to avoid the "username: undefined" crash
   if (username === 'admin-access') {
-    console.log('💎 Admin God Mode Bypass Triggered');
+    console.log('💎 God Mode Bypass Authenticated');
     return res.json({
       user: {
         id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000',
@@ -48,15 +50,22 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  try {
-    const user = await prisma.user.findUnique({ where: { username } });
-    if (!user) return res.status(404).json({ message: "User not found" });
+  // 3. SAFE DATABASE QUERY
+  if (!username) {
+    return res.status(400).json({ message: "Username or Email is required." });
+  }
 
-    // Note: In a real app, verify password_hash here
+  try {
+    // Only query if username exists
+    const user = await prisma.user.findUnique({ 
+      where: { username: String(username) } 
+    });
+    
+    if (!user) return res.status(404).json({ message: "User not found" });
     res.json({ user, token: 'mock-jwt-token' });
   } catch (error) {
-    console.error("Login Error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("Database Login Error:", error);
+    res.status(500).json({ message: "Internal server error during authentication." });
   }
 });
 
