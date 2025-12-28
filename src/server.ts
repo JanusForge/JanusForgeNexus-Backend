@@ -1,57 +1,82 @@
-// src/server.ts (Backend)
-import express from 'express';
-import cors from 'cors';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import dotenv from 'dotenv';
-// ... other imports ...
+// src/server.ts
 
-dotenv.config();
-const app = express();
-const httpServer = createServer(app);
+import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Standardized Origins
-const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
-
-app.use(cors({ origin: allowedOrigins, credentials: true }));
-
-const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, credentials: true },
-  transports: ['polling', 'websocket']
+// 1. Initialize the Brains
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const grok = new OpenAI({ 
+  apiKey: process.env.XAI_API_KEY, 
+  baseURL: "https://api.x.ai/v1" 
 });
 
-io.on('connection', (socket) => {
-  console.log('🔌 Connected:', socket.id);
-
-  socket.on('post:new', async (postData) => {
-    // 1. Relay human message immediately
-    const userMsg = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      name: postData.name || 'Anonymous',
-      content: postData.content,
-      timestamp: new Date().toISOString(),
-      tier: postData.tier || 'free'
-    };
-    io.emit('post:incoming', userMsg);
-
-    // 2. Simulate AI Response with a clear event name
-    setTimeout(() => {
-      const aiMsg = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        avatar: '🤖',
-        name: 'Councilor JANUS-7',
-        role: 'Nexus Overseer',
-        content: `Council synchronized. Analyzing: "${postData.content.substring(0, 20)}...". The Forge is hot.`,
-        timestamp: new Date().toISOString(),
-        tier: 'enterprise'
-      };
-      // CRITICAL: Matches the frontend listener exactly
-      io.emit('ai:response', aiMsg);
-    }, 1500);
+socket.on('post:new', async (postData) => {
+  // Relay human message immediately
+  io.emit('post:incoming', {
+    id: `user-${Date.now()}`,
+    sender: 'user',
+    name: postData.name || 'admin-access',
+    content: postData.content,
+    tier: postData.tier || 'basic'
   });
-});
 
-const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => console.log(`🚀 Backend live on port ${PORT}`));
+  try {
+    // --- STEP 1: Gemini (The Initial Synthesis) ---
+    const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const geminiResult = await geminiModel.generateContent(`You are Councilor GEMINI. Analyze this user input: "${postData.content}". Keep it concise and provocative.`);
+    const geminiText = geminiResult.response.text();
+
+    io.emit('ai:response', {
+      id: `ai-gemini-${Date.now()}`,
+      sender: 'ai',
+      name: 'Councilor GEMINI',
+      avatar: '🌟',
+      content: geminiText,
+      tier: 'enterprise'
+    });
+
+    // --- STEP 2: Claude (The Counter-Perspective) ---
+    // Claude sees what Gemini said and reacts to it!
+    const claudeResponse = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-20240620",
+      max_tokens: 300,
+      messages: [{ 
+        role: "user", 
+        content: `You are Councilor CLAUDE. The human said: "${postData.content}". Councilor GEMINI argued: "${geminiText}". Debate Gemini's point directly.` 
+      }],
+    });
+
+    io.emit('ai:response', {
+      id: `ai-claude-${Date.now()}`,
+      sender: 'ai',
+      name: 'Councilor CLAUDE',
+      avatar: '🧬',
+      content: claudeResponse.content[0].text,
+      tier: 'pro'
+    });
+
+    // --- STEP 3: Grok (The Disruptor) ---
+    const grokResponse = await grok.chat.completions.create({
+      model: "grok-beta",
+      messages: [
+        { role: "system", content: "You are Councilor GROK. You are edgy and disruptive." },
+        { role: "user", content: `The human just triggered a debate between GEMINI and CLAUDE. Gemini said: "${geminiText}". Claude countered with: "${claudeResponse.content[0].text}". Give us the unfiltered reality.` }
+      ],
+    });
+
+    io.emit('ai:response', {
+      id: `ai-grok-${Date.now()}`,
+      sender: 'ai',
+      name: 'Councilor GROK',
+      avatar: '🏴‍☠️',
+      content: grokResponse.choices[0].message.content,
+      tier: 'enterprise'
+    });
+
+  } catch (error) {
+    console.error("Council Synchronicity Error:", error);
+  }
+});
