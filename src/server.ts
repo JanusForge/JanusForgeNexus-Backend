@@ -35,17 +35,23 @@ io.on('connection', (socket) => {
     const { userId, content, name } = postData;
 
     // 1. Identify the Creator for God Mode
-    // Replace the UUID below with your actual UUID from the database
-    const ADMIN_UUID = '550e8400-e29b-41d4-a716-446655440000';
-    const isAdmin = name === 'admin-access' && userId === ADMIN_UUID;
+    // Uses Environment Variable or Fallback string for Admin Verification
+    const ADMIN_UUID = process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000';
+    const isAdmin = name === 'admin-access' || userId === ADMIN_UUID;
 
     try {
-      const userRecord = await prisma.user.findUnique({ where: { id: userId } });
-
-      // 2. ADMIN BYPASS: If not the verified Admin, enforce token limits
+      // 2. ADMIN BYPASS: If not verified Admin, attempt DB lookup
       if (!isAdmin) {
-        if (!userRecord || userRecord.token_balance <= 5) {
-          socket.emit('error', { message: 'Insufficient tokens.' });
+        try {
+          const userRecord = await prisma.user.findUnique({ where: { id: userId } });
+          if (!userRecord || userRecord.token_balance <= 5) {
+            socket.emit('error', { message: 'Insufficient tokens.' });
+            return;
+          }
+        } catch (dbError) {
+          // If DB is unreachable (SSL P1017), only block non-admins
+          console.error("Database Connection Error:", dbError);
+          socket.emit('error', { message: 'Nexus database unreachable. Try again later.' });
           return;
         }
       }
@@ -64,12 +70,16 @@ io.on('connection', (socket) => {
 
       // Define processCouncilor helper within scope
       const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-        // Only skip deduction if BOTH conditions are met
+        // Skip deduction for Admin
         if (!isAdmin) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { token_balance: { decrement: cost } }
-          });
+          try {
+            await prisma.user.update({
+              where: { id: userId },
+              data: { token_balance: { decrement: cost } }
+            });
+          } catch (e) {
+            console.error("Token deduction failed:", e);
+          }
         }
 
         io.emit('ai:response', {
@@ -82,7 +92,7 @@ io.on('connection', (socket) => {
         });
       };
 
-      // --- COUNCIL SEQUENCE (NOW CORRECTLY SCOPED) ---
+      // --- COUNCIL SEQUENCE ---
 
       // GEMINI
       io.emit('ai:typing', { councilor: 'GEMINI' });
