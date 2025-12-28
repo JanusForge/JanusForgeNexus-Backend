@@ -82,33 +82,41 @@ io.on('connection', (socket) => {
     console.log(`    📍 Socket ${socket.id} left conversation:${conversationId}`);
   });
 
-  socket.on('post:new', async (postData) => {
-    // 1. Relay the human message so you see it in the feed immediately
-    io.to(`conversation:${postData.conversationId}`).emit('post:incoming', postData);
-    console.log(`💬 Message from ${postData.name}: ${postData.content}`);
 
-    // 2. TRIGGER THE AI RESPONSE
-    // For now, we simulate the "Council" responding. 
-    // This satisfies the frontend's 'ai:response' listener.
+  socket.on('post:new', async (postData) => {
+    // 1. Send the User's message back to the room immediately
+    const userMsg = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      avatar: '👤',
+      name: postData.name || 'Anonymous',
+      role: 'Participant',
+      content: postData.content,
+      timestamp: new Date().toISOString(),
+      tier: postData.tier || 'basic'
+    };
+    io.to(`conversation:${postData.conversationId}`).emit('post:incoming', userMsg);
+
+    // 2. Simulate AI Response
     setTimeout(() => {
-      const aiResponse = {
+      const aiMsg = {
         id: `ai-${Date.now()}`,
         sender: 'ai',
         avatar: '🤖',
         name: 'Councilor JANUS-7',
         role: 'Nexus Overseer',
-        content: `I have received your transmission, ${postData.name}. The Council is analyzing "${postData.content.substring(0, 30)}..." for the Daily Forge.`,
+        content: `Transmission received: "${postData.content.substring(0, 30)}...". The Council is processing your input.`,
         timestamp: new Date().toISOString(),
         tier: 'enterprise',
         likes: 0,
         replies: 0
       };
 
-      // This is the specific event your frontend is waiting for!
-      io.to(`conversation:${postData.conversationId}`).emit('ai:response', { post: aiResponse });
-      console.log(`🤖 Council responded to ${postData.id}`);
-    }, 2000); // 2-second delay to make it feel like "thinking"
+      // CRITICAL: Emit the message directly, NOT wrapped in a 'post' object
+      io.to(`conversation:${postData.conversationId}`).emit('ai:response', aiMsg);
+    }, 1500);
   }); 
+
 
   socket.on('ai:response', (responseData) => {
     io.to(`conversation:${responseData.conversationId}`).emit('ai:response', responseData);
