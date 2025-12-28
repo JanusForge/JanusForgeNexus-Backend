@@ -68,14 +68,15 @@ export const initializeTierConfigs = async () => {
           ai_models: config.ai_models,
           token_allowance: config.tokenAllowance,
           price_cents: config.priceCents,
-          features: config.features
+          // Commenting out features temporarily to bypass schema mismatch
+          // features: config.features 
         },
         create: {
           tier: config.tier,
           ai_models: config.ai_models,
           token_allowance: config.tokenAllowance,
           price_cents: config.priceCents,
-          features: config.features
+          // features: config.features
         }
       });
     }
