@@ -12,30 +12,21 @@ const router = Router();
 const prisma = new PrismaClient();
 
 // GET /api/conversations/preview
-router.get('/preview', async (req: Request, res: Response) => {
-  try {
-    const latestConversations = [
-      {
-        id: 'msg-101',
-        sender: 'ai',
-        avatar: '🤖',
-        name: 'Councilor JANUS-7',
-        role: 'Ethics Specialist',
-        content: "The centralized model offers safety, but we must weigh it against the speed of innovation.",
-        timestamp: 'Just now',
-        tier: 'enterprise',
-        likes: 12,
-        replies: 4
-      }
-    ];
+// src/routes/conversations.ts
 
-    res.json({
-      success: true,
-      conversations: latestConversations
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to load preview' });
-  }
+router.get('/preview', async (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    conversations: [
+      {
+        id: 'initial-1',
+        sender: 'ai',
+        name: 'Councilor JANUS-7',
+        content: "The Janus Forge Nexus is officially ONLINE. Awaiting your first command.",
+        tier: 'enterprise'
+      }
+    ]
+  });
 });
 
 // Get all conversations (for feed)
