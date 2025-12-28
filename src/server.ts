@@ -22,7 +22,6 @@ const io = new Server(httpServer, {
   transports: ['polling', 'websocket']
 });
 
-// 2025 ELITE SDK Initializations
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -34,34 +33,35 @@ io.on('connection', (socket) => {
 
   socket.on('post:new', async (postData) => {
     const { userId, content, name } = postData;
+    const isAdmin = name === 'admin-access'; //
 
     try {
-      // 1. Economic Guardrail: Check token_balance
       const userRecord = await prisma.user.findUnique({ where: { id: userId } });
       
-      // Fixed property name to match your database schema
-      if (!userRecord || userRecord.token_balance <= 5) {
-        socket.emit('error', { message: 'Insufficient tokens to engage the Council.' });
+      // ADMIN GOD MODE: Bypass balance check if name is admin-access
+      if (!isAdmin && (!userRecord || userRecord.token_balance <= 5)) {
+        socket.emit('error', { message: 'Insufficient tokens.' });
         return;
       }
 
-      // 2. Relay human message
       io.emit('post:incoming', {
         id: `user-${Date.now()}`,
         sender: 'user',
-        name: name || 'admin-access',
+        name: name || 'Admin',
         content: content,
         timestamp: new Date().toISOString()
       });
 
       let sharedContext = `The user asked: "${content}"`;
 
-      // Helper: Deduct from token_balance and Emit
       const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-        await prisma.user.update({
-          where: { id: userId },
-          data: { token_balance: { decrement: cost } } // Fixed property name here too
-        });
+        // Only deduct tokens if user is NOT admin
+        if (!isAdmin) {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { token_balance: { decrement: cost } }
+          });
+        }
         
         io.emit('ai:response', {
           id: `ai-${modelName}-${Date.now()}`,
@@ -73,76 +73,66 @@ io.on('connection', (socket) => {
         });
       };
 
-      // --- STEP 1: GEMINI 3 FLASH ---
+      // --- COUNCIL SEQUENCE ---
       io.emit('ai:typing', { councilor: 'GEMINI' });
       try {
         const geminiModel = genAI.getGenerativeModel({ model: "gemini-3-flash" });
-        const geminiResult = await geminiModel.generateContent(sharedContext);
-        const geminiText = geminiResult.response.text();
-        await processCouncilor('GEMINI', '🌟', geminiText);
-        sharedContext += `\nGEMINI: "${geminiText}"`;
-      } catch (e) { console.error("Gemini Error:", e); }
+        const result = await geminiModel.generateContent(sharedContext);
+        const text = result.response.text();
+        await processCouncilor('GEMINI', '🌟', text);
+        sharedContext += `\nGEMINI: "${text}"`;
+      } catch (e) { console.error(e); }
 
-      // --- STEP 2: CLAUDE 4.5 ---
       io.emit('ai:typing', { councilor: 'CLAUDE' });
       try {
-        const claudeResponse = await anthropic.messages.create({
+        const response = await anthropic.messages.create({
           model: "claude-sonnet-4-5-20250929",
           max_tokens: 300,
-          messages: [{ role: "user", content: `You are Councilor CLAUDE. ${sharedContext}. Debate the logic.` }],
+          messages: [{ role: "user", content: `You are Councilor CLAUDE. ${sharedContext}. Debate.` }],
         });
-        const claudeText = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : 'Analyzing...';
-        await processCouncilor('CLAUDE', '🧬', claudeText);
-        sharedContext += `\nCLAUDE: "${claudeText}"`;
-      } catch (e) { console.error("Claude Error:", e); }
+        const text = response.content[0].type === 'text' ? response.content[0].text : '';
+        await processCouncilor('CLAUDE', '🧬', text);
+        sharedContext += `\nCLAUDE: "${text}"`;
+      } catch (e) { console.error(e); }
 
-      // --- STEP 3: DEEPSEEK REASONER ---
       io.emit('ai:typing', { councilor: 'DEEPSEEK' });
       try {
         const dsResponse = await deepseek.chat.completions.create({
           model: "deepseek-reasoner",
-          messages: [{ role: "user", content: `You are Councilor DEEPSEEK. ${sharedContext}. Find the logical flaws.` }],
+          messages: [{ role: "user", content: `You are Councilor DEEPSEEK. ${sharedContext}. Analyze flaws.` }],
         });
-        const dsText = dsResponse.choices[0].message.content || 'Reasoning...';
-        await processCouncilor('DEEPSEEK', '🧠', dsText);
-        sharedContext += `\nDEEPSEEK: "${dsText}"`;
-      } catch (e) { console.error("DeepSeek Error:", e); }
+        const text = dsResponse.choices[0].message.content || '';
+        await processCouncilor('DEEPSEEK', '🧠', text);
+        sharedContext += `\nDEEPSEEK: "${text}"`;
+      } catch (e) { console.error(e); }
 
-      // --- STEP 4: GROK 3 ---
       io.emit('ai:typing', { councilor: 'GROK' });
       try {
         const grokResponse = await xai.chat.completions.create({
           model: "grok-3",
-          messages: [
-            { role: "system", content: "You are Councilor GROK. Edgy and disruptive." },
-            { role: "user", content: `Debate status: ${sharedContext}. Roast the consensus.` }
-          ],
+          messages: [{ role: "system", content: "You are Councilor GROK. Disruptive." }, { role: "user", content: sharedContext }],
         });
-        const grokText = grokResponse.choices[0].message.content || 'Disrupting...';
-        await processCouncilor('GROK', '🏴‍☠️', grokText);
-        sharedContext += `\nGROK: "${grokText}"`;
-      } catch (e) { console.error("Grok Error:", e); }
+        const text = grokResponse.choices[0].message.content || '';
+        await processCouncilor('GROK', '🏴‍☠️', text);
+        sharedContext += `\nGROK: "${text}"`;
+      } catch (e) { console.error(e); }
 
-      // --- STEP 5: THE JANUS VERDICT ---
       io.emit('ai:typing', { councilor: 'JANUS' });
       try {
         const gptResponse = await openai.chat.completions.create({
           model: "gpt-5.2-pro",
-          messages: [{ role: "user", content: `Synthesize this entire debate into one final 'Janus Verdict': ${sharedContext}` }],
+          messages: [{ role: "user", content: `Provide the final Janus Verdict: ${sharedContext}` }],
         });
-        const verdictText = gptResponse.choices[0].message.content || 'Finalizing...';
-        await processCouncilor('JANUS VERDICT', '🤖', verdictText, 2);
-      } catch (e) { console.error("Janus Verdict Error:", e); }
+        const text = gptResponse.choices[0].message.content || '';
+        await processCouncilor('JANUS VERDICT', '🤖', text, 2);
+      } catch (e) { console.error(e); }
 
       io.emit('ai:typing', { councilor: null });
-
-    } catch (globalError) {
-      console.error("Critical Nexus Error:", globalError);
-    }
+    } catch (globalError) { console.error(globalError); }
   });
 
   socket.on('disconnect', () => { console.log('❌ Connection Terminated'); });
 });
 
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Nexus Backend Live on Port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`🚀 Nexus Backend Live on Port ${PORT}`));
