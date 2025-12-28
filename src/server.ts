@@ -31,67 +31,59 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 io.on('connection', (socket) => {
   console.log('🔌 Nexus Connection Established:', socket.id);
 
-socket.on('post:new', async (postData) => {
-  const { userId, content, name } = postData;
+  socket.on('post:new', async (postData) => {
+    const { userId, content, name } = postData;
 
-  // 1. SECURE ADMIN CHECK: Verify both name AND the unique UUID
-  // Replace 'YOUR_ACTUAL_UUID_HERE' with the ID shown in your database/header
-  const ADMIN_UUID = '550e8400-e29b-41d4-a716-446655440000'; 
-  const isAdmin = name === 'admin-access' && userId === ADMIN_UUID;
+    // 1. Identify the Creator for God Mode
+    // Replace the UUID below with your actual UUID from the database
+    const ADMIN_UUID = '550e8400-e29b-41d4-a716-446655440000';
+    const isAdmin = name === 'admin-access' && userId === ADMIN_UUID;
 
-  try {
-    const userRecord = await prisma.user.findUnique({ where: { id: userId } });
-    
-    // 2. STRICTOR GUARDRAIL: If not the verified Admin, enforce token limits
-    if (!isAdmin) {
-       if (!userRecord || userRecord.token_balance <= 5) {
-         socket.emit('error', { message: 'Insufficient tokens.' });
-         return;
-       }
-    }
+    try {
+      const userRecord = await prisma.user.findUnique({ where: { id: userId } });
 
-    // Broadcast user message
-    io.emit('post:incoming', {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      name: name || 'Guest',
-      content: content,
-      timestamp: new Date().toISOString()
-    });
-
-    let sharedContext = `The user asked: "${content}"`; //
-
-    const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-      // 3. SECURE BYPASS: Only skip deduction if BOTH conditions are met
+      // 2. ADMIN BYPASS: If not the verified Admin, enforce token limits
       if (!isAdmin) {
-        await prisma.user.update({
-          where: { id: userId },
-          data: { token_balance: { decrement: cost } }
-        });
+        if (!userRecord || userRecord.token_balance <= 5) {
+          socket.emit('error', { message: 'Insufficient tokens.' });
+          return;
+        }
       }
-      
-      io.emit('ai:response', {
-        id: `ai-${modelName}-${Date.now()}`,
-        sender: 'ai',
-        name: `Councilor ${modelName}`,
-        avatar: avatar,
-        content: text,
-        isVerdict: modelName === 'JANUS VERDICT'
+
+      // Broadcast user message to the Nexus
+      io.emit('post:incoming', {
+        id: `user-${Date.now()}`,
+        sender: 'user',
+        name: name || 'Guest',
+        content: content,
+        timestamp: new Date().toISOString()
       });
-    };
 
-    // --- Start AI sequence ---
-    // (Rest of the waterfall logic remains unchanged)
+      // Initialize sharedContext within scope
+      let sharedContext = `The user asked: "${content}"`;
 
-  } catch (error) {
-    console.error("Security/Sync Rift:", error);
-    socket.emit('error', { message: 'Nexus synchronization error.' });
-  }
-});
+      // Define processCouncilor helper within scope
+      const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
+        // Only skip deduction if BOTH conditions are met
+        if (!isAdmin) {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { token_balance: { decrement: cost } }
+          });
+        }
 
+        io.emit('ai:response', {
+          id: `ai-${modelName}-${Date.now()}`,
+          sender: 'ai',
+          name: `Councilor ${modelName}`,
+          avatar: avatar,
+          content: text,
+          isVerdict: modelName === 'JANUS VERDICT'
+        });
+      };
 
-      // --- COUNCIL SEQUENCE ---
-      
+      // --- COUNCIL SEQUENCE (NOW CORRECTLY SCOPED) ---
+
       // GEMINI
       io.emit('ai:typing', { councilor: 'GEMINI' });
       try {
@@ -153,7 +145,7 @@ socket.on('post:new', async (postData) => {
       // Reset typing state
       io.emit('ai:typing', { councilor: null });
 
-    } catch (globalError) { 
+    } catch (globalError) {
       console.error("Global Nexus Error:", globalError);
       socket.emit('error', { message: 'A global error occurred in the Nexus.' });
     }
