@@ -14,20 +14,24 @@ const validatePassword = (password: string): boolean => {
 
 // Generate tokens
 const generateTokens = (userId: string, email: string, tier: string) => {
-  if (!process.env.JWT_ACCESS_SECRET || !process.env.JWT_REFRESH_SECRET) {
+  const accessSecret = process.env.JWT_ACCESS_SECRET;
+  const refreshSecret = process.env.JWT_REFRESH_SECRET;
+
+  if (!accessSecret || !refreshSecret) {
     throw new Error('JWT secrets not configured');
   }
 
+  // Casting as string fixes the "No overload matches this call" error
   const accessToken = jwt.sign(
     { userId, email, tier },
-    process.env.JWT_ACCESS_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || '15m' }
+    accessSecret as string,
+    { expiresIn: (process.env.ACCESS_TOKEN_EXPIRY as any) || '15m' }
   );
 
   const refreshToken = jwt.sign(
     { userId, email, tier },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d' }
+    refreshSecret as string,
+    { expiresIn: (process.env.REFRESH_TOKEN_EXPIRY as any) || '7d' }
   );
 
   return { accessToken, refreshToken };
