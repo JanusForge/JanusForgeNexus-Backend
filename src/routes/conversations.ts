@@ -270,7 +270,7 @@ router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
       const aiResponseRecord = await prisma.aIResponse.create({
         data: {
           post_id: post.id,
-          ai_model: aiModel,
+          ai_model: aiModel as any,
           raw_response: 'Thinking...',
           processing_time: 0,
           tokens_used: 0,
@@ -288,7 +288,7 @@ router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
             is_human: false,
             conversation_id: conversationId,
             parent_post_id: post.id,
-            ai_model: aiModel,
+            ai_model: aiModel as any,
             required_tier: req.user?.tier || 'FREE'
           },
           include: { ai_response: true }
