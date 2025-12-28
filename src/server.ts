@@ -31,47 +31,51 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 io.on('connection', (socket) => {
   console.log('🔌 Nexus Connection Established:', socket.id);
 
-  socket.on('post:new', async (postData) => {
-    const { userId, content, name } = postData;
-    const isAdmin = name === 'admin-access'; //
 
-    try {
-      const userRecord = await prisma.user.findUnique({ where: { id: userId } });
-      
-      // ADMIN GOD MODE: Bypass balance check if name is admin-access
-      if (!isAdmin && (!userRecord || userRecord.token_balance <= 5)) {
-        socket.emit('error', { message: 'Insufficient tokens.' });
-        return;
-      }
+socket.on('post:new', async (postData) => {
+  const { userId, content, name } = postData;
+  
+  // 1. Identify the Creator
+  const isAdmin = name === 'admin-access';
 
-      io.emit('post:incoming', {
-        id: `user-${Date.now()}`,
-        sender: 'user',
-        name: name || 'Admin',
-        content: content,
-        timestamp: new Date().toISOString()
-      });
+  try {
+    const userRecord = await prisma.user.findUnique({ where: { id: userId } });
+    
+    // 2. ADMIN BYPASS: If not admin, enforce the token floor
+    if (!isAdmin && (!userRecord || userRecord.token_balance <= 5)) {
+      socket.emit('error', { message: 'Insufficient tokens.' });
+      return;
+    }
 
-      let sharedContext = `The user asked: "${content}"`;
+    // Broadcast the user message to the Nexus
+    io.emit('post:incoming', {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      name: name,
+      content: content,
+      timestamp: new Date().toISOString()
+    });
 
-      const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-        // Only deduct tokens if user is NOT admin
-        if (!isAdmin) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { token_balance: { decrement: cost } }
-          });
-        }
-        
-        io.emit('ai:response', {
-          id: `ai-${modelName}-${Date.now()}`,
-          sender: 'ai',
-          name: `Councilor ${modelName}`,
-          avatar: avatar,
-          content: text,
-          tier: 'enterprise'
+    // 3. Sequential AI Waterfall Logic
+    const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
+      // 4. GOD MODE DEDUCTION BYPASS
+      if (!isAdmin) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { token_balance: { decrement: cost } }
         });
-      };
+      }
+      
+      io.emit('ai:response', {
+        id: `ai-${modelName}-${Date.now()}`,
+        sender: 'ai',
+        name: `Councilor ${modelName}`,
+        avatar: avatar,
+        content: text,
+        isVerdict: modelName === 'JANUS VERDICT'
+      });
+    };  
+
 
       // --- COUNCIL SEQUENCE ---
       io.emit('ai:typing', { councilor: 'GEMINI' });
