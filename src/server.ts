@@ -1,175 +1,57 @@
+// src/server.ts (Backend)
 import express from 'express';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
+// ... other imports ...
 
-// Import routes
-import authRoutes from './routes/auth';
-import conversationRoutes from './routes/conversations';
-import debateRoutes from './routes/debates';
-import healthRoutes from './routes/health';
-import dailyForgeRoutes from './routes/dailyForge';
-
-// Import services
-import { initializeTierConfigs } from './services/tierService';
-
-// Import middleware
-import { authenticateToken } from './middleware/auth';
-
-// Initialize environment variables
 dotenv.config();
-
 const app = express();
 const httpServer = createServer(app);
 
-// --- REPAIRED CORS CONFIGURATION ---
-const allowedOrigins = [
-  'http://localhost:3000',
-  'https://janusforge.ai',
-  'https://www.janusforge.ai',
-  'https://janus-forge-nexus-react.vercel.app'
-];
+// Standardized Origins
+const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
 
-// If you have FRONTEND_URL in Render env, add those too
-if (process.env.FRONTEND_URL) {
-  process.env.FRONTEND_URL.split(',').forEach(url => {
-    if (!allowedOrigins.includes(url.trim())) {
-      allowedOrigins.push(url.trim());
-    }
-  });
-}
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
-const corsOptions = {
-  origin: allowedOrigins,
-  credentials: true,
-  optionsSuccessStatus: 200,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-};
-
-// Middleware
-app.use(cors(corsOptions));
-app.use(express.json());
-app.use(cookieParser());
-app.use(express.urlencoded({ extended: true }));
-
-// --- REPAIRED SOCKET.IO SETUP ---
 const io = new Server(httpServer, {
-  path: '/socket.io/', // Explicitly set for Render routing
-  cors: {
-    origin: allowedOrigins,
-    credentials: true,
-    methods: ["GET", "POST"]
-  },
-  transports: ['polling', 'websocket'], // Essential for Render sticky sessions
-  allowEIO3: true,
-  pingTimeout: 60000,
-  pingInterval: 25000
+  cors: { origin: allowedOrigins, credentials: true },
+  transports: ['polling', 'websocket']
 });
 
-// WebSocket connection handling
 io.on('connection', (socket) => {
-  console.log('🔌 WebSocket connection:', socket.id);
-
-  socket.on('join-conversation', (conversationId) => {
-    socket.join(`conversation:${conversationId}`);
-    console.log(`    📍 Socket ${socket.id} joined conversation:${conversationId}`);
-  });
-
-  socket.on('leave-conversation', (conversationId) => {
-    socket.leave(`conversation:${conversationId}`);
-    console.log(`    📍 Socket ${socket.id} left conversation:${conversationId}`);
-  });
+  console.log('🔌 Connected:', socket.id);
 
   socket.on('post:new', async (postData) => {
-  // 1. Relay the user's message back to the room immediately
-  const userMsg = {
-    id: `user-${Date.now()}`,
-    sender: 'user',
-    avatar: '👤',
-    name: postData.name || 'Anonymous',
-    role: 'Participant',
-    content: postData.content,
-    timestamp: new Date().toISOString(),
-    tier: postData.tier || 'free'
-  };
-  io.to(`conversation:${postData.conversationId}`).emit('post:incoming', userMsg);
-
-  // 2. TRIGGER THE AI REPLY
-  setTimeout(() => {
-    const aiMsg = {
-      id: `ai-${Date.now()}`,
-      sender: 'ai',
-      avatar: '🤖',
-      name: 'Councilor JANUS-7',
-      role: 'Nexus Overseer',
-      // Dynamic response to prove it's live
-      content: `Direct Directive Received: "${postData.content.substring(0, 25)}...". The Nexus synchronization is 100% complete.`,
+    // 1. Relay human message immediately
+    const userMsg = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      name: postData.name || 'Anonymous',
+      content: postData.content,
       timestamp: new Date().toISOString(),
-      tier: 'enterprise',
-      likes: 7,
-      replies: 1
+      tier: postData.tier || 'free'
     };
+    io.emit('post:incoming', userMsg);
 
-    // CRITICAL: Emit the object DIRECTLY (not wrapped in { post: ... })
-    io.to(`conversation:${postData.conversationId}`).emit('ai:response', aiMsg);
-  }, 1500);
-}); 
-
-
-  socket.on('ai:response', (responseData) => {
-    io.to(`conversation:${responseData.conversationId}`).emit('ai:response', responseData);
-  });
-
-  socket.on('disconnect', () => {
-    console.log('🔌 WebSocket disconnected:', socket.id);
-  });
-});
-
-// Make io accessible to routes
-app.set('io', io);
-
-// --- ROUTES ---
-app.use('/api/health', healthRoutes);
-app.use('/api/daily-forge', dailyForgeRoutes);
-app.use('/api/conversations', conversationRoutes); 
-app.use('/api/auth', authRoutes);
-app.use('/api/debates', authenticateToken, debateRoutes);
-
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('🚨 Error:', err.stack);
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    // 2. Simulate AI Response with a clear event name
+    setTimeout(() => {
+      const aiMsg = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        avatar: '🤖',
+        name: 'Councilor JANUS-7',
+        role: 'Nexus Overseer',
+        content: `Council synchronized. Analyzing: "${postData.content.substring(0, 20)}...". The Forge is hot.`,
+        timestamp: new Date().toISOString(),
+        tier: 'enterprise'
+      };
+      // CRITICAL: Matches the frontend listener exactly
+      io.emit('ai:response', aiMsg);
+    }, 1500);
   });
 });
 
 const PORT = process.env.PORT || 5000;
-
-// Initialize and start server
-const startServer = async () => {
-  try {
-    console.log('🚀 Starting Janus Forge Nexus Backend...');
-    
-    // Initialize tier configurations in database
-    await initializeTierConfigs();
-    console.log('✅ Tier configurations initialized');
-
-    httpServer.listen(PORT, () => {
-      console.log(`
-🎄 Janus Forge Nexus Backend Server Running!
-=============================================
-📡 Port: ${PORT}
-🌐 Environment: ${process.env.NODE_ENV || 'production'}
-🔗 Allowed Origins: ${allowedOrigins.join(', ')}
-      `);
-    });
-  } catch (error: any) {
-    console.error('❌ Failed to start server:', error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
+httpServer.listen(PORT, () => console.log(`🚀 Backend live on port ${PORT}`));
