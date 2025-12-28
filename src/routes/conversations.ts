@@ -2,38 +2,108 @@ import { Router, Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthenticatedRequest, PostRequest } from '../types';
 import { requireTier } from '../middleware/auth';
-import { 
-  getAvailableModelsForTier, 
+import {
+  getAvailableModelsForTier,
   calculateAICost,
-  getTierConfiguration 
+  getTierConfiguration
 } from '../services/tierService';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// This MUST be here to answer the frontend's request
+// GET /api/conversations/preview
 router.get('/preview', async (req: Request, res: Response) => {
-  const latestConversations = [
-    {
-      id: 'msg-101',
-      sender: 'ai',
-      avatar: '🤖',
-      name: 'Councilor JANUS-7',
-      role: 'Ethics Specialist',
-      content: "Bridge established. All AI Council members are monitoring the Forge.",
-      timestamp: 'Just now',
-      tier: 'enterprise',
-      likes: 12,
-      replies: 4
-    }
-  ];
+  try {
+    const latestConversations = [
+      {
+        id: 'msg-101',
+        sender: 'ai',
+        avatar: '🤖',
+        name: 'Councilor JANUS-7',
+        role: 'Ethics Specialist',
+        content: "The centralized model offers safety, but we must weigh it against the speed of innovation.",
+        timestamp: 'Just now',
+        tier: 'enterprise',
+        likes: 12,
+        replies: 4
+      }
+    ];
 
-  res.json({ 
-    success: true, 
-    conversations: latestConversations // Frontend looks for this key
-  });
+    res.json({
+      success: true,
+      conversations: latestConversations
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to load preview' });
+  }
 });
 
+// Get all conversations (for feed)
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { page = '1', limit = '20' } = req.query;
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+
+    const conversations = await prisma.conversation.findMany({
+      where: {
+        OR: [
+          { is_daily_forge: false },
+          { is_daily_forge: true, expires_at: { gt: new Date() } }
+        ]
+      },
+      include: {
+        posts: {
+          take: 5,
+          orderBy: { created_at: 'desc' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                tier: true
+              }
+            },
+            ai_response: {
+              select: {
+                ai_model: true,
+                processing_time: true
+              }
+            }
+          },
+          where: {
+            OR: [
+              { required_tier: null },
+              { required_tier: req.user?.tier }
+            ]
+          }
+        }
+      },
+      orderBy: {
+        created_at: 'desc'
+      },
+      skip,
+      take: limitNum
+    });
+
+    const total = await prisma.conversation.count();
+
+    res.json({
+      conversations,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get conversations error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 // Get single conversation with posts
 router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
@@ -50,8 +120,8 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
         posts: {
           where: {
             OR: [
-              { requiredTier: null },
-              { requiredTier: req.user?.tier }
+              { required_tier: null },
+              { required_tier: req.user?.tier }
             ]
           },
           include: {
@@ -62,24 +132,18 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
                 tier: true
               }
             },
-            aiResponse: {
+            ai_response: {
               select: {
-                aiModel: true,
-                processingTime: true,
-                tokensUsed: true,
-                costCents: true
+                ai_model: true,
+                processing_time: true,
+                tokens_used: true,
+                cost_cents: true
               }
-            },
-            _count: {
-              select: { replies: true }
             }
           },
-          orderBy: { createdAt: 'asc' },
+          orderBy: { created_at: 'asc' },
           skip,
           take: limitNum
-        },
-        _count: {
-          select: { posts: true }
         }
       }
     });
@@ -88,9 +152,8 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(404).json({ message: 'Conversation not found' });
     }
 
-    // Get user's tier info to show available AI models
-    const tierConfig = req.user ? getTierConfiguration(req.user.tier) : null;
-    const availableModels = req.user ? getAvailableModelsForTier(req.user.tier) : [];
+    const tierConfig = req.user ? getTierConfiguration(req.user.tier as any) : null;
+    const availableModels = req.user ? getAvailableModelsForTier(req.user.tier as any) : [];
 
     res.json({
       conversation,
@@ -99,13 +162,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
         availableModels,
         tokenAllowance: tierConfig.tokenAllowance,
         features: tierConfig.features
-      } : null,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total: conversation._count.posts,
-        pages: Math.ceil(conversation._count.posts / limitNum)
-      }
+      } : null
     });
 
   } catch (error) {
@@ -117,355 +174,141 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
 // Create new conversation
 router.post('/', requireTier('BASIC'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ message: 'Not authenticated' });
-    }
+    if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
 
     const { title } = req.body;
-
-    if (!title || title.trim().length < 3) {
-      return res.status(400).json({ message: 'Title must be at least 3 characters' });
-    }
-
-    // Check token balance (requires tokens to create conversation)
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
-      select: { tokenBalance: true }
+      select: { token_balance: true }
     });
 
-    if (!user || user.tokenBalance < 10) {
-      return res.status(402).json({ 
-        message: 'Insufficient tokens to create conversation',
-        required: 10,
-        available: user?.tokenBalance || 0
-      });
+    if (!user || user.token_balance < 10) {
+      return res.status(402).json({ message: 'Insufficient tokens' });
     }
 
     const conversation = await prisma.conversation.create({
       data: {
         title: title.trim(),
-        isDailyForge: false
-      },
-      include: {
-        posts: true
+        is_daily_forge: false
       }
     });
 
-    // Deduct tokens
     await prisma.user.update({
       where: { id: req.user.userId },
-      data: {
-        tokenBalance: { decrement: 10 }
-      }
+      data: { token_balance: { decrement: 10 } }
     });
 
-    // Create token transaction record
     await prisma.tokenTransaction.create({
       data: {
-        userId: req.user.userId,
+        user_id: req.user.userId,
         amount: -10,
-        transactionType: 'conversation_creation',
+        transaction_type: 'conversation_creation',
         description: `Created conversation: ${title}`
       }
     });
 
-    // Notify via WebSocket
     const io = req.app.get('io');
     io.emit('conversation:new', conversation);
 
-    res.status(201).json({
-      message: 'Conversation created successfully',
-      conversation,
-      tokensDeducted: 10
-    });
+    res.status(201).json({ conversation });
 
   } catch (error) {
-    console.error('Create conversation error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Create new post in conversation (triggers AI responses based on tier)
+// Create new post in conversation
 router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ message: 'Not authenticated' });
-    }
+    if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
 
     const { id: conversationId } = req.params;
     const { content, parentPostId }: PostRequest = req.body;
 
-    // Validation
-    if (!content || content.trim().length === 0) {
-      return res.status(400).json({ message: 'Content is required' });
-    }
-
-    if (content.length > 5000) {
-      return res.status(400).json({ message: 'Content too long (max 5000 characters)' });
-    }
-
-    // Check if conversation exists
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId }
-    });
-
-    if (!conversation) {
-      return res.status(404).json({ message: 'Conversation not found' });
-    }
-
-    // Check token balance
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
-      select: { tokenBalance: true, tier: true }
+      select: { token_balance: true, tier: true }
     });
 
-    if (!user || user.tokenBalance < 1) {
-      return res.status(402).json({ 
-        message: 'Insufficient tokens to post',
-        required: 1,
-        available: user?.tokenBalance || 0
-      });
+    if (!user || user.token_balance < 1) {
+      return res.status(402).json({ message: 'Insufficient tokens' });
     }
 
-    // Create the post
     const post = await prisma.post.create({
       data: {
         content: content.trim(),
-        isHuman: true,
-        userId: req.user.userId,
-        conversationId,
-        parentPostId: parentPostId || null,
-        requiredTier: req.user.tier
+        is_human: true,
+        user_id: req.user.userId,
+        conversation_id: conversationId,
+        parent_post_id: parentPostId || null,
+        required_tier: req.user.tier
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            tier: true
-          }
-        }
+        user: { select: { id: true, username: true, tier: true } }
       }
     });
 
-    // Deduct 1 token for posting
     await prisma.user.update({
       where: { id: req.user.userId },
-      data: {
-        tokenBalance: { decrement: 1 }
-      }
+      data: { token_balance: { decrement: 1 } }
     });
 
-    // Create token transaction for posting
     await prisma.tokenTransaction.create({
       data: {
-        userId: req.user.userId,
+        user_id: req.user.userId,
         amount: -1,
-        transactionType: 'post_creation',
-        description: `Posted in conversation: ${conversation.title || conversationId}`
+        transaction_type: 'post_creation',
+        description: `Posted message`
       }
     });
 
-    // Get available AI models for user's tier
     const availableModels = getAvailableModelsForTier(req.user.tier as any);
-    const tierConfig = getTierConfiguration(req.user.tier as any);
-    
-    // Trigger AI responses based on tier
-    if (availableModels.length > 0) {
-      console.log(`🎯 User ${req.user.userId} (${req.user.tier}) posted.`);
-      console.log(`   Available AI models (${availableModels.length}):`, availableModels);
-      
-      // For Free tier: Only trigger 2 AI responses
-      // For Basic tier: Trigger 3 AI responses  
-      // For Professional: Trigger all 5 AI responses
-      // For Enterprise: Custom configuration (trigger all by default)
-      
-      const modelsToTrigger = availableModels.slice(0, 
-        req.user.tier === 'FREE' ? 2 : 
-        req.user.tier === 'BASIC' ? 3 : 
-        availableModels.length
-      );
-      
-      console.log(`   Triggering ${modelsToTrigger.length} AI responses:`, modelsToTrigger);
-      
-      // Create AI response placeholders
-      for (const aiModel of modelsToTrigger) {
-        const estimatedTokens = 200; // Estimated response length
-        const estimatedCost = calculateAICost(aiModel, estimatedTokens);
-        
-        const aiResponse = await prisma.aIResponse.create({
-          data: {
-            postId: post.id,
-            aiModel: aiModel,
-            rawResponse: 'AI response is being generated...',
-            processingTime: 0,
-            tokensUsed: 0,
-            costCents: estimatedCost,
-            userId: req.user.userId
-          }
-        });
-        
-        console.log(`   ⏳ Queued ${aiModel} response (est. cost: $${(estimatedCost/100).toFixed(2)})`);
-        
-        // In production, this would add to a job queue
-        // For now, we'll simulate with a timeout
-        setTimeout(async () => {
-          try {
-            // Simulate AI response generation
-            const finalTokens = 150 + Math.floor(Math.random() * 100);
-            const finalCost = calculateAICost(aiModel, finalTokens);
-            const responses = [
-              `As ${aiModel}, I'd like to add to this discussion by considering...`,
-              `${aiModel} here. The user raises an interesting point. From my perspective...`,
-              `This is ${aiModel} responding. I believe the key insight here is...`,
-              `${aiModel} weighing in: There are several factors to consider here...`
-            ];
-            
-            const simulatedResponse = responses[Math.floor(Math.random() * responses.length)];
-            
-            await prisma.aIResponse.update({
-              where: { id: aiResponse.id },
-              data: {
-                rawResponse: simulatedResponse,
-                processingTime: 1000 + Math.floor(Math.random() * 2000),
-                tokensUsed: finalTokens,
-                costCents: finalCost
-              }
-            });
-            
-            // Create AI response post
-            const aiPost = await prisma.post.create({
-              data: {
-                content: simulatedResponse,
-                isHuman: false,
-                conversationId,
-                parentPostId: post.id,
-                aiModel: aiModel,
-                requiredTier: req.user.tier
-              },
-              include: {
-                aiResponse: true
-              }
-            });
-            
-            // Notify via WebSocket
-            const io = req.app.get('io');
-            io.to(`conversation:${conversationId}`).emit('ai:response', {
-              post: aiPost,
-              originalPostId: post.id,
-              aiModel,
-              processingTime: aiPost.aiResponse?.processingTime,
-              costCents: aiPost.aiResponse?.costCents
-            });
-            
-            console.log(`   ✅ ${aiModel} response complete (cost: $${(finalCost/100).toFixed(2)})`);
-            
-          } catch (error) {
-            console.error(`Error simulating ${aiModel} response:`, error);
-          }
-        }, 2000 + (Math.random() * 3000)); // Random delay 2-5 seconds
-      }
-    }
+    const modelsToTrigger = availableModels.slice(0, req.user.tier === 'FREE' ? 2 : 3);
 
-    // Notify via WebSocket about the human post
-    const io = req.app.get('io');
-    io.to(`conversation:${conversationId}`).emit('post:new', {
-      ...post,
-      aiModelsTriggered: availableModels.slice(0, 
-        req.user.tier === 'FREE' ? 2 : 
-        req.user.tier === 'BASIC' ? 3 : 
-        availableModels.length
-      )
-    });
-
-    res.status(201).json({
-      message: 'Post created successfully',
-      post,
-      tokensDeducted: 1,
-      tierInfo: {
-        tier: req.user.tier,
-        availableModels,
-        modelsTriggered: availableModels.slice(0, 
-          req.user.tier === 'FREE' ? 2 : 
-          req.user.tier === 'BASIC' ? 3 : 
-          availableModels.length
-        ),
-        tokenAllowance: tierConfig.tokenAllowance
-      }
-    });
-
-  } catch (error) {
-    console.error('Create post error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-// Like a post
-router.post('/posts/:postId/like', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ message: 'Not authenticated' });
-    }
-
-    const { postId } = req.params;
-
-    const post = await prisma.post.update({
-      where: { id: postId },
-      data: {
-        likes: { increment: 1 }
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true
-          }
+    for (const aiModel of modelsToTrigger) {
+      const estimatedCost = calculateAICost(aiModel, 200);
+      const aiResponseRecord = await prisma.aIResponse.create({
+        data: {
+          post_id: post.id,
+          ai_model: aiModel,
+          raw_response: 'Thinking...',
+          processing_time: 0,
+          tokens_used: 0,
+          cost_cents: estimatedCost,
+          user_id: req.user.userId
         }
-      }
-    });
+      });
 
-    // Notify via WebSocket
-    const io = req.app.get('io');
-    io.emit('post:liked', {
-      postId,
-      likes: post.likes,
-      userId: req.user.userId
-    });
+      setTimeout(async () => {
+        const simulatedContent = `As ${aiModel}, I suggest we analyze the infrastructure implications.`;
+        
+        const finalAiPost = await prisma.post.create({
+          data: {
+            content: simulatedContent,
+            is_human: false,
+            conversation_id: conversationId,
+            parent_post_id: post.id,
+            ai_model: aiModel,
+            required_tier: req.user?.tier || 'FREE'
+          },
+          include: { ai_response: true }
+        });
 
-    res.json({
-      message: 'Post liked',
-      postId,
-      likes: post.likes
-    });
+        await prisma.aIResponse.update({
+          where: { id: aiResponseRecord.id },
+          data: { raw_response: simulatedContent, processing_time: 1500 }
+        });
+
+        const io = req.app.get('io');
+        io.to(`conversation:${conversationId}`).emit('ai:response', { post: finalAiPost });
+      }, 2000);
+    }
+
+    res.status(201).json({ post });
 
   } catch (error) {
-    console.error('Like post error:', error);
+    console.error(error);
     res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-// GET /api/conversations/preview
-router.get('/preview', async (req: Request, res: Response) => {
-  try {
-    // Eventually, this will use your DATABASE_URL to pull real posts
-    const latestConversations = [
-      {
-        id: 'msg-101',
-        sender: 'ai',
-        avatar: '🤖',
-        name: 'Councilor JANUS-7',
-        role: 'Ethics Specialist',
-        content: "The centralized model offers safety, but we must weigh it against the speed of innovation.",
-        timestamp: 'Just now',
-        tier: 'enterprise',
-        likes: 12,
-        replies: 4
-      }
-    ];
-
-    res.json(latestConversations);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to load conversation feed' });
   }
 });
 
