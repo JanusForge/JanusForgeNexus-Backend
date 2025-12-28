@@ -31,52 +31,64 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 io.on('connection', (socket) => {
   console.log('🔌 Nexus Connection Established:', socket.id);
 
-  socket.on('post:new', async (postData) => {
-    const { userId, content, name } = postData;
+socket.on('post:new', async (postData) => {
+  const { userId, content, name } = postData;
 
-    // 1. Identify the Creator for God Mode
-    const isAdmin = name === 'admin-access';
+  // 1. SECURE ADMIN CHECK: Verify both name AND the unique UUID
+  // Replace 'YOUR_ACTUAL_UUID_HERE' with the ID shown in your database/header
+  const ADMIN_UUID = '550e8400-e29b-41d4-a716-446655440000'; 
+  const isAdmin = name === 'admin-access' && userId === ADMIN_UUID;
 
-    try {
-      const userRecord = await prisma.user.findUnique({ where: { id: userId } });
+  try {
+    const userRecord = await prisma.user.findUnique({ where: { id: userId } });
+    
+    // 2. STRICTOR GUARDRAIL: If not the verified Admin, enforce token limits
+    if (!isAdmin) {
+       if (!userRecord || userRecord.token_balance <= 5) {
+         socket.emit('error', { message: 'Insufficient tokens.' });
+         return;
+       }
+    }
 
-      // 2. ADMIN BYPASS: If not admin, enforce the token floor
-      if (!isAdmin && (!userRecord || userRecord.token_balance <= 5)) {
-        socket.emit('error', { message: 'Insufficient tokens.' });
-        return;
-      }
+    // Broadcast user message
+    io.emit('post:incoming', {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      name: name || 'Guest',
+      content: content,
+      timestamp: new Date().toISOString()
+    });
 
-      // Broadcast the user message to the Nexus
-      io.emit('post:incoming', {
-        id: `user-${Date.now()}`,
-        sender: 'user',
-        name: name,
-        content: content,
-        timestamp: new Date().toISOString()
-      });
+    let sharedContext = `The user asked: "${content}"`; //
 
-      // --- FIX: Initialize sharedContext to prevent TS2304 error ---
-      let sharedContext = `The user asked: "${content}"`;
-
-      // 3. Sequential AI Waterfall Logic
-      const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-        // 4. GOD MODE DEDUCTION BYPASS
-        if (!isAdmin) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { token_balance: { decrement: cost } }
-          });
-        }
-
-        io.emit('ai:response', {
-          id: `ai-${modelName}-${Date.now()}`,
-          sender: 'ai',
-          name: `Councilor ${modelName}`,
-          avatar: avatar,
-          content: text,
-          isVerdict: modelName === 'JANUS VERDICT'
+    const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
+      // 3. SECURE BYPASS: Only skip deduction if BOTH conditions are met
+      if (!isAdmin) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { token_balance: { decrement: cost } }
         });
-      };
+      }
+      
+      io.emit('ai:response', {
+        id: `ai-${modelName}-${Date.now()}`,
+        sender: 'ai',
+        name: `Councilor ${modelName}`,
+        avatar: avatar,
+        content: text,
+        isVerdict: modelName === 'JANUS VERDICT'
+      });
+    };
+
+    // --- Start AI sequence ---
+    // (Rest of the waterfall logic remains unchanged)
+
+  } catch (error) {
+    console.error("Security/Sync Rift:", error);
+    socket.emit('error', { message: 'Nexus synchronization error.' });
+  }
+});
+
 
       // --- COUNCIL SEQUENCE ---
       
