@@ -38,6 +38,7 @@ io.on('connection', (socket) => {
   console.log('🔌 Nexus Connection Established:', socket.id);
 
   socket.on('post:new', async (postData) => {
+    // 1. Relay human message immediately
     io.emit('post:incoming', {
       id: `user-${Date.now()}`,
       sender: 'user',
@@ -48,9 +49,10 @@ io.on('connection', (socket) => {
 
     let sharedContext = `The user asked: "${postData.content}"`;
 
-    // --- STEP 1: GEMINI (Updated Model String) ---
+    // --- STEP 1: GEMINI (Using Pro for Stability) ---
     try {
-      const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      // Switching to gemini-1.5-pro to resolve v1beta 404
+      const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
       const geminiResult = await geminiModel.generateContent(`You are Councilor GEMINI. ${sharedContext}. Provide a sharp, concise opening insight.`);
       const geminiText = geminiResult.response.text();
       sharedContext += `\nCouncilor GEMINI argued: "${geminiText}"`;
@@ -67,10 +69,11 @@ io.on('connection', (socket) => {
       console.error("❌ Gemini Pod Error:", error);
     }
 
-    // --- STEP 2: CLAUDE (Updated to Latest) ---
+    // --- STEP 2: CLAUDE (Using Explicit Version String) ---
     try {
       const claudeResponse = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-latest",
+        // Using explicit 20241022 version to resolve 404
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 300,
         messages: [{ role: "user", content: `You are Councilor CLAUDE. ${sharedContext}. Debate the logic presented so far.` }],
       });
@@ -89,7 +92,7 @@ io.on('connection', (socket) => {
       console.error("❌ Claude Pod Error:", error);
     }
 
-    // --- STEP 3: GROK (Updated to Grok-3) ---
+    // --- STEP 3: GROK (Verified Working) ---
     try {
       const grokResponse = await xai.chat.completions.create({
         model: "grok-3",
