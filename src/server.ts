@@ -82,9 +82,30 @@ io.on('connection', (socket) => {
     console.log(`    📍 Socket ${socket.id} left conversation:${conversationId}`);
   });
 
-  socket.on('post:new', (postData) => {
+  socket.on('post:new', async (postData) => {
+    // 1. Immediately broadcast the human message to everyone in the room
     io.to(`conversation:${postData.conversationId}`).emit('post:incoming', postData);
-  });
+
+    // 2. Trigger the AI Council Response
+    console.log(`🧠 AI Council triggered by ${postData.name}`);
+  
+    // For now, let's simulate the Council "Thinking"
+    // In the next step, we will connect this to your actual AI Services
+    setTimeout(() => {
+      const aiResponse = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        avatar: '🤖',
+        name: 'Councilor JANUS-7',
+        role: 'Nexus Overseer',
+        content: `I have analyzed your query regarding "${postData.content.substring(0, 20)}...". The Nexus is preparing a multi-perspective synthesis.`,
+        timestamp: new Date().toISOString(),
+        tier: 'enterprise'
+      };
+    
+      io.to(`conversation:${postData.conversationId}`).emit('ai:response', { post: aiResponse });
+    }, 1500);
+  });  
 
   socket.on('ai:response', (responseData) => {
     io.to(`conversation:${responseData.conversationId}`).emit('ai:response', responseData);
