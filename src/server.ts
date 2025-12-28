@@ -31,53 +31,56 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 io.on('connection', (socket) => {
   console.log('🔌 Nexus Connection Established:', socket.id);
 
+  socket.on('post:new', async (postData) => {
+    const { userId, content, name } = postData;
 
-socket.on('post:new', async (postData) => {
-  const { userId, content, name } = postData;
-  
-  // 1. Identify the Creator
-  const isAdmin = name === 'admin-access';
+    // 1. Identify the Creator for God Mode
+    const isAdmin = name === 'admin-access';
 
-  try {
-    const userRecord = await prisma.user.findUnique({ where: { id: userId } });
-    
-    // 2. ADMIN BYPASS: If not admin, enforce the token floor
-    if (!isAdmin && (!userRecord || userRecord.token_balance <= 5)) {
-      socket.emit('error', { message: 'Insufficient tokens.' });
-      return;
-    }
+    try {
+      const userRecord = await prisma.user.findUnique({ where: { id: userId } });
 
-    // Broadcast the user message to the Nexus
-    io.emit('post:incoming', {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      name: name,
-      content: content,
-      timestamp: new Date().toISOString()
-    });
-
-    // 3. Sequential AI Waterfall Logic
-    const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-      // 4. GOD MODE DEDUCTION BYPASS
-      if (!isAdmin) {
-        await prisma.user.update({
-          where: { id: userId },
-          data: { token_balance: { decrement: cost } }
-        });
+      // 2. ADMIN BYPASS: If not admin, enforce the token floor
+      if (!isAdmin && (!userRecord || userRecord.token_balance <= 5)) {
+        socket.emit('error', { message: 'Insufficient tokens.' });
+        return;
       }
-      
-      io.emit('ai:response', {
-        id: `ai-${modelName}-${Date.now()}`,
-        sender: 'ai',
-        name: `Councilor ${modelName}`,
-        avatar: avatar,
-        content: text,
-        isVerdict: modelName === 'JANUS VERDICT'
-      });
-    };  
 
+      // Broadcast the user message to the Nexus
+      io.emit('post:incoming', {
+        id: `user-${Date.now()}`,
+        sender: 'user',
+        name: name,
+        content: content,
+        timestamp: new Date().toISOString()
+      });
+
+      // --- FIX: Initialize sharedContext to prevent TS2304 error ---
+      let sharedContext = `The user asked: "${content}"`;
+
+      // 3. Sequential AI Waterfall Logic
+      const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
+        // 4. GOD MODE DEDUCTION BYPASS
+        if (!isAdmin) {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { token_balance: { decrement: cost } }
+          });
+        }
+
+        io.emit('ai:response', {
+          id: `ai-${modelName}-${Date.now()}`,
+          sender: 'ai',
+          name: `Councilor ${modelName}`,
+          avatar: avatar,
+          content: text,
+          isVerdict: modelName === 'JANUS VERDICT'
+        });
+      };
 
       // --- COUNCIL SEQUENCE ---
+      
+      // GEMINI
       io.emit('ai:typing', { councilor: 'GEMINI' });
       try {
         const geminiModel = genAI.getGenerativeModel({ model: "gemini-3-flash" });
@@ -85,8 +88,9 @@ socket.on('post:new', async (postData) => {
         const text = result.response.text();
         await processCouncilor('GEMINI', '🌟', text);
         sharedContext += `\nGEMINI: "${text}"`;
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Gemini Error:", e); }
 
+      // CLAUDE
       io.emit('ai:typing', { councilor: 'CLAUDE' });
       try {
         const response = await anthropic.messages.create({
@@ -97,8 +101,9 @@ socket.on('post:new', async (postData) => {
         const text = response.content[0].type === 'text' ? response.content[0].text : '';
         await processCouncilor('CLAUDE', '🧬', text);
         sharedContext += `\nCLAUDE: "${text}"`;
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Claude Error:", e); }
 
+      // DEEPSEEK
       io.emit('ai:typing', { councilor: 'DEEPSEEK' });
       try {
         const dsResponse = await deepseek.chat.completions.create({
@@ -108,8 +113,9 @@ socket.on('post:new', async (postData) => {
         const text = dsResponse.choices[0].message.content || '';
         await processCouncilor('DEEPSEEK', '🧠', text);
         sharedContext += `\nDEEPSEEK: "${text}"`;
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("DeepSeek Error:", e); }
 
+      // GROK
       io.emit('ai:typing', { councilor: 'GROK' });
       try {
         const grokResponse = await xai.chat.completions.create({
@@ -119,8 +125,9 @@ socket.on('post:new', async (postData) => {
         const text = grokResponse.choices[0].message.content || '';
         await processCouncilor('GROK', '🏴‍☠️', text);
         sharedContext += `\nGROK: "${text}"`;
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Grok Error:", e); }
 
+      // JANUS VERDICT
       io.emit('ai:typing', { councilor: 'JANUS' });
       try {
         const gptResponse = await openai.chat.completions.create({
@@ -129,10 +136,15 @@ socket.on('post:new', async (postData) => {
         });
         const text = gptResponse.choices[0].message.content || '';
         await processCouncilor('JANUS VERDICT', '🤖', text, 2);
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Janus Error:", e); }
 
+      // Reset typing state
       io.emit('ai:typing', { councilor: null });
-    } catch (globalError) { console.error(globalError); }
+
+    } catch (globalError) { 
+      console.error("Global Nexus Error:", globalError);
+      socket.emit('error', { message: 'A global error occurred in the Nexus.' });
+    }
   });
 
   socket.on('disconnect', () => { console.log('❌ Connection Terminated'); });
