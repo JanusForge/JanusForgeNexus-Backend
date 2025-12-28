@@ -14,29 +14,34 @@ const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 
-// --- CRITICAL MIDDLEWARE STACK ---
-// These MUST be at the top to parse login data correctly
+// --- 1. CRITICAL MIDDLEWARE STACK ---
+// Must be positioned above all routes to parse identifiers correctly
 const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json()); 
 app.use(express.urlencoded({ extended: true }));
 
-// --- REST API ROUTES ---
+// --- 2. REST API ROUTES ---
 
-// Health Check for Render Monitoring
+// Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', database: 'connected' });
 });
 
-// LOGIN ROUTE: Handles the "admin-access" bypass to fix the 404/undefined errors
+// LOGIN ROUTE: Handles the "admin-access" bypass
 app.post('/api/auth/login', async (req, res) => {
-  const username = req.body?.username || req.body?.email || req.body?.identifier;
-  
-  console.log(`🔐 Login attempt for identifier: ${username}`);
+  // Capture any potential identifier format from the frontend
+  const identifier = req.body?.username || req.body?.email || req.body?.identifier;
+
+  console.log(` Nexus Auth Attempt: ${identifier}`);
 
   // EMERGENCY ADMIN BYPASS: Intercepts before Prisma to prevent crashes
-  if (username === 'admin-access') {
-    console.log('💎 Admin God Mode Bypass Triggered');
+  if (
+    identifier === 'admin-access' || 
+    identifier === 'admin@janusforge.ai' || 
+    identifier === 'admin-access@janusforge.ai'
+  ) {
+    console.log('💎 God Mode Bypass: ADMIN IDENTIFIED');
     return res.json({
       user: {
         id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000',
@@ -48,24 +53,30 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  if (!username) {
+  // Safe database query for standard users
+  if (!identifier) {
     return res.status(400).json({ message: "Username or Email is required." });
   }
 
   try {
-    const user = await prisma.user.findUnique({ 
-      where: { username: String(username) } 
+    const user = await prisma.user.findFirst({ 
+      where: { 
+        OR: [
+          { username: String(identifier) },
+          { email: String(identifier) }
+        ]
+      } 
     });
     
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: "Intelligence profile not found." });
     res.json({ user, token: 'mock-jwt-token' });
   } catch (error) {
     console.error("Database Login Error:", error);
-    res.status(500).json({ message: "Internal server error during authentication." });
+    res.status(500).json({ message: "Nexus Core Auth Error" });
   }
 });
 
-// --- SOCKET.IO LOGIC ---
+// --- 3. SOCKET.IO LOGIC ---
 
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
@@ -88,7 +99,7 @@ io.on('connection', (socket) => {
     const isAdmin = name === 'admin-access' || userId === ADMIN_UUID;
 
     try {
-      // 2. ADMIN BYPASS: Skip DB check if verified admin
+      // Admin Bypass: Skip DB checks
       if (!isAdmin) {
         try {
           const userRecord = await prisma.user.findUnique({ where: { id: userId } });
@@ -103,7 +114,6 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Broadcast user message
       io.emit('post:incoming', {
         id: `user-${Date.now()}`,
         sender: 'user',
@@ -115,7 +125,6 @@ io.on('connection', (socket) => {
       let sharedContext = `The user asked: "${content}"`;
 
       const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-        // God Mode Bypass for deductions
         if (!isAdmin) {
           try {
             await prisma.user.update({
@@ -135,7 +144,7 @@ io.on('connection', (socket) => {
         });
       };
 
-      // --- AI COUNCIL WATERFALL ---
+      // --- AI COUNCIL SEQUENCE ---
 
       // GEMINI
       io.emit('ai:typing', { councilor: 'GEMINI' });
