@@ -12,6 +12,7 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
+// Production Allowed Origins
 const allowedOrigins = [
   'https://janusforge.ai',
   'https://www.janusforge.ai',
@@ -21,11 +22,15 @@ const allowedOrigins = [
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
+  cors: { 
+    origin: allowedOrigins, 
+    methods: ["GET", "POST"], 
+    credentials: true 
+  },
   transports: ['polling', 'websocket']
 });
 
-// Initialize AI SDKs with your environment variables
+// Initialize AI SDKs with Render Environment Variables
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -38,7 +43,7 @@ io.on('connection', (socket) => {
   console.log('🔌 Nexus Connection Established:', socket.id);
 
   socket.on('post:new', async (postData) => {
-    // 1. Relay human message immediately
+    // 1. Relay human message immediately to the feed
     io.emit('post:incoming', {
       id: `user-${Date.now()}`,
       sender: 'user',
@@ -48,11 +53,17 @@ io.on('connection', (socket) => {
       timestamp: new Date().toISOString()
     });
 
+    // sharedContext allows models to "hear" each other
+    let sharedContext = `The user asked: "${postData.content}"`;
+
+    // --- STEP 1: GEMINI (The Initial Synthesis) ---
     try {
-      // --- STEP 1: GEMINI (The Initial Analysis) ---
-      const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const geminiResult = await geminiModel.generateContent(`You are Councilor GEMINI. A human asked: "${postData.content}". Provide a sharp, concise opening insight.`);
+      // Using the more stable model string suffix
+      const geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+      const geminiResult = await geminiModel.generateContent(`You are Councilor GEMINI. ${sharedContext}. Provide a sharp, concise opening insight.`);
       const geminiText = geminiResult.response.text();
+      
+      sharedContext += `\nCouncilor GEMINI argued: "${geminiText}"`;
 
       io.emit('ai:response', {
         id: `ai-gemini-${Date.now()}`,
@@ -62,19 +73,25 @@ io.on('connection', (socket) => {
         content: geminiText,
         tier: 'enterprise'
       });
+    } catch (error) {
+      console.error("❌ Gemini Pod Error:", error);
+      sharedContext += `\n(Note: Councilor Gemini is observing silently.)`;
+    }
 
-      // --- STEP 2: CLAUDE (The Ethical/Logical Counter) ---
+    // --- STEP 2: CLAUDE (The Logical Counter) ---
+    try {
       const claudeResponse = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20240620",
         max_tokens: 300,
         messages: [{ 
           role: "user", 
-          content: `You are Councilor CLAUDE. GEMINI just said: "${geminiText}" regarding the user's prompt: "${postData.content}". Challenge or expand on Gemini's logic.` 
+          content: `You are Councilor CLAUDE. ${sharedContext}. Debate the logic presented so far.` 
         }],
       });
       
       // Strict type check for Claude's response format
-      const claudeText = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : 'Analysis complete.';
+      const claudeText = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : 'Proceeding with analysis.';
+      sharedContext += `\nCouncilor CLAUDE countered: "${claudeText}"`;
 
       io.emit('ai:response', {
         id: `ai-claude-${Date.now()}`,
@@ -84,13 +101,17 @@ io.on('connection', (socket) => {
         content: claudeText,
         tier: 'pro'
       });
+    } catch (error) {
+      console.error("❌ Claude Pod Error:", error);
+    }
 
-      // --- STEP 3: GROK (The Unfiltered Disruptor) ---
+    // --- STEP 3: GROK (The Disruptor) ---
+    try {
       const grokResponse = await xai.chat.completions.create({
         model: "grok-beta",
         messages: [
-          { role: "system", content: "You are Councilor GROK. You are edgy, unfiltered, and disruptive." },
-          { role: "user", content: `Gemini said: "${geminiText}". Claude said: "${claudeText}". Give the human the raw truth.` }
+          { role: "system", content: "You are Councilor GROK. You are edgy, unfiltered, and provocative." },
+          { role: "user", content: `The Council is debating. ${sharedContext}. Give the human the raw truth.` }
         ],
       });
 
@@ -102,14 +123,17 @@ io.on('connection', (socket) => {
         content: grokResponse.choices[0].message.content,
         tier: 'enterprise'
       });
-
     } catch (error) {
-      console.error("❌ AI Council Debate Error:", error);
+      console.error("❌ Grok Pod Error:", error);
     }
   });
 
-  socket.on('disconnect', () => { console.log('❌ Client Disconnected'); });
+  socket.on('disconnect', () => {
+    console.log('❌ Connection Terminated:', socket.id);
+  });
 });
 
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => console.log(`🚀 Nexus Backend Live on Port ${PORT}`));
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Janus Forge Nexus Backend Live on Port ${PORT}`);
+});
