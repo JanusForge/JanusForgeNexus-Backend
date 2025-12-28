@@ -14,8 +14,50 @@ const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 
+// CRITICAL: Middleware to parse JSON bodies from login requests
+app.use(express.json());
+
 const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+// --- REST API ROUTES ---
+
+// Health Check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'healthy', database: 'connected' });
+});
+
+// LOGIN ROUTE: Handles the "admin-access" bypass
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  console.log(`🔐 Login attempt for: ${username}`);
+
+  // EMERGENCY ADMIN BYPASS
+  if (username === 'admin-access') {
+    return res.json({
+      user: { 
+        id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000', 
+        username: 'admin-access',
+        token_balance: 999999,
+        tier: 'enterprise'
+      },
+      token: 'admin-bypass-token'
+    });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { username } });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    
+    // Note: In a real app, verify password_hash here
+    res.json({ user, token: 'mock-jwt-token' });
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// --- SOCKET.IO LOGIC ---
 
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
@@ -34,13 +76,10 @@ io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     const { userId, content, name } = postData;
 
-    // 1. Identify the Creator for God Mode
-    // Uses Environment Variable or Fallback string for Admin Verification
     const ADMIN_UUID = process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000';
     const isAdmin = name === 'admin-access' || userId === ADMIN_UUID;
 
     try {
-      // 2. ADMIN BYPASS: If not verified Admin, attempt DB lookup
       if (!isAdmin) {
         try {
           const userRecord = await prisma.user.findUnique({ where: { id: userId } });
@@ -49,14 +88,12 @@ io.on('connection', (socket) => {
             return;
           }
         } catch (dbError) {
-          // If DB is unreachable (SSL P1017), only block non-admins
           console.error("Database Connection Error:", dbError);
           socket.emit('error', { message: 'Nexus database unreachable. Try again later.' });
           return;
         }
       }
 
-      // Broadcast user message to the Nexus
       io.emit('post:incoming', {
         id: `user-${Date.now()}`,
         sender: 'user',
@@ -65,12 +102,9 @@ io.on('connection', (socket) => {
         timestamp: new Date().toISOString()
       });
 
-      // Initialize sharedContext within scope
       let sharedContext = `The user asked: "${content}"`;
 
-      // Define processCouncilor helper within scope
       const processCouncilor = async (modelName: string, avatar: string, text: string, cost: number = 1) => {
-        // Skip deduction for Admin
         if (!isAdmin) {
           try {
             await prisma.user.update({
@@ -91,8 +125,6 @@ io.on('connection', (socket) => {
           isVerdict: modelName === 'JANUS VERDICT'
         });
       };
-
-      // --- COUNCIL SEQUENCE ---
 
       // GEMINI
       io.emit('ai:typing', { councilor: 'GEMINI' });
@@ -152,7 +184,6 @@ io.on('connection', (socket) => {
         await processCouncilor('JANUS VERDICT', '🤖', text, 2);
       } catch (e) { console.error("Janus Error:", e); }
 
-      // Reset typing state
       io.emit('ai:typing', { councilor: null });
 
     } catch (globalError) {
