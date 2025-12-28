@@ -13,7 +13,7 @@ import healthRoutes from './routes/health';
 import dailyForgeRoutes from './routes/dailyForge';
 
 // Import services
-import { initializeTierConfigurations } from './services/tierService';
+import { initializeTierConfigs } from './services/tierService';
 
 // Import middleware
 import { authenticateToken } from './middleware/auth';
@@ -107,7 +107,7 @@ const startServer = async () => {
     console.log('📋 Environment:', process.env.NODE_ENV || 'development');
     
     // Initialize tier configurations in database
-    await initializeTierConfigurations();
+    await initializeTierConfigs();
     console.log('✅ Tier configurations initialized');
     
     // Test environment variables
