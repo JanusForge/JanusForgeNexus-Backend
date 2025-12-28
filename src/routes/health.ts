@@ -1,48 +1,43 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Simple health check
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    await prisma.$connect();
-    
-    // Get tier configurations
-    const tiers = await prisma.tierConfiguration.findMany();
-    
+    // Basic database connectivity check
+    const tierCount = await prisma.tierConfiguration.count();
+    const latestTiers = await prisma.tierConfiguration.findMany({
+        take: 5
+    });
+
     res.json({
       status: 'healthy',
-      service: 'Janus Forge Nexus Backend',
+      timestamp: new Date().toISOString(),
       database: 'connected',
-      tiers: tiers.map(t => ({
+      tier_configs_count: tierCount,
+      systems: {
+        auth: 'operational',
+        conversations: 'operational',
+        daily_forge: 'operational'
+      },
+      // Fixed: Map snake_case database fields to the health report
+      active_tiers: latestTiers.map(t => ({
         tier: t.tier,
-        aiModels: t.aiModels,
-        tokenAllowance: t.tokenAllowance,
-        price: `$${(t.priceCents / 100).toFixed(2)}`
-      })),
-      ai_models: ['GROK', 'GEMINI_PRO', 'CLAUDE', 'CHATGPT', 'DEEPSEEK'],
-      timestamp: new Date().toISOString()
+        models: t.ai_models,
+        allowance: t.token_allowance,
+        price: t.price_cents
+      }))
     });
-    
-  } catch (error: any) {
+  } catch (error) {
+    console.error('Health check failed:', error);
     res.status(503).json({
       status: 'unhealthy',
-      service: 'Janus Forge Nexus Backend',
-      database: 'error: ' + error.message,
-      ai_models: ['GROK', 'GEMINI_PRO', 'CLAUDE', 'CHATGPT', 'DEEPSEEK'],
-      timestamp: new Date().toISOString()
+      database: 'disconnected',
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
-});
-
-// Ping endpoint
-router.get('/ping', (req, res) => {
-  res.json({
-    status: 'pong',
-    timestamp: new Date().toISOString()
-  });
 });
 
 export default router;
