@@ -19,25 +19,27 @@ model Purchase {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
-  username           String             @unique
-  password_hash      String             @map("password_hash")
-  tier               String             @default("FREE")
-  token_balance      Int                @default(0) @map("token_balance")
-  tokens_used        Int                @default(0) @map("tokens_used")
-  tokens_remaining   Int                @default(0) @map("tokens_remaining")
-  refresh_token      String?            @map("refresh_token")
-  created_at         DateTime           @default(now()) @map("created_at")
-  updated_at         DateTime           @updatedAt @map("updated_at")
-  purchases          Purchase[]
-  ai_responses       AIResponse[]
-  debate_votes       DebateVote[]
-  posts              Post[]
+  id                String             @id @default(uuid())
+  email             String             @unique
+  username          String             @unique
+  password_hash     String             @map("password_hash")
+  role              UserRole           @default(USER) // <--- ADD THIS LINE
+  tier              String             @default("FREE")
+  token_balance     Int                @default(0) @map("token_balance")
+  tokens_used       Int                @default(0) @map("tokens_used")
+  tokens_remaining  Int                @default(0) @map("tokens_remaining")
+  refresh_token     String?            @map("refresh_token")
+  created_at        DateTime           @default(now()) @map("created_at")
+  updated_at        DateTime           @updatedAt @map("updated_at")
+  purchases         Purchase[]
+  ai_responses      AIResponse[]
+  debate_votes      DebateVote[]
+  posts             Post[]
   token_transactions TokenTransaction[]
 
   @@map("users")
 }
+
 
 model Conversation {
   id              String          @id @default(uuid())
@@ -149,4 +151,11 @@ enum AIParticipant {
   CLAUDE
   CHATGPT
   DEEPSEEK
+}
+
+// ADD THIS ENUM AT THE BOTTOM OF THE FILE
+enum UserRole {
+  USER
+  ADMIN
+  GOD_MODE
 }
