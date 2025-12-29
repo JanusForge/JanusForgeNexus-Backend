@@ -25,22 +25,18 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 const transporter = nodemailer.createTransport({
   host: "mail.privateemail.com",
-  port: 2525,
-  secure: false, // Must be false for 587
-  requireTLS: true, // Forces the connection to use STARTTLS
+  port: 465,
+  secure: true, // Use SSL for port 465
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  connectionTimeout: 10000, // Wait 10 seconds to connect
+  greetingTimeout: 10000,   // Wait 10 seconds for the welcome message
   tls: {
-    // Explicitly allow Namecheap's certificate
-    ciphers: 'SSLv3',
     rejectUnauthorized: false
-  },
-  debug: true, // This will print the SMTP conversation to your Render logs
-  logger: true  // This will show exactly where the connection drops
+  }
 });
-
 
 // Helper to send the Welcome Email
 const sendWelcomeEmail = async (email: string, username: string) => {
