@@ -1,73 +1,77 @@
 import { PrismaClient } from '@prisma/client';
+import { Anthropic } from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
+
 const prisma = new PrismaClient();
 
-async function patrolTheForge() {
-  console.log("🌅 AI Scout starting CONTINUOUS patrol in Hardy, KY...");
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const grokClient = new OpenAI({
+  apiKey: process.env.GROK_API_KEY,
+  baseURL: "https://api.x.ai/v1",
+});
 
-  // This loop keeps the process alive so Render doesn't shut it down
-  while (true) {
-    try {
-      // 1. Check for the latest Forge record
-      const currentForge = await prisma.dailyForge.findFirst({
-        orderBy: { date: 'desc' },
+async function generateCouncilResponse(model: string, query: string) {
+  const mandates = {
+    CLAUDE: "Objective: Synthesize a balanced framework for the Architect's query, prioritizing long-term social stability and ethical nuance. Provide structured analysis.",
+    GROK: "Objective: Identify hidden power dynamics and potential for manipulation. Challenge the premise with brutal honesty and skepticism. Be the adversarial voice.",
+    DEEPSEEK: "Objective: Evaluate the query through the lens of human purpose and the risk of technological overreach. Anchor your response in existential philosophy.",
+    GEMINI_PRO: "Objective: Provide a data-centric technological roadmap. Focus on systems optimization and future technical feasibility.",
+    CHATGPT: "Objective: Analyze how the query impacts current community structures and geopolitical norms. Act as a civic mediator."
+  };
+
+  try {
+    if (model === 'CLAUDE') {
+      const msg = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20240620",
+        max_tokens: 600,
+        system: mandates.CLAUDE,
+        messages: [{ role: "user", content: query }],
       });
-
-      if (!currentForge) {
-        console.log("Empty Forge. Initializing...");
-        await initializeDailyForge();
-      } 
-      // 2. Watch for your interjection
-      else if (currentForge.phase === 'Architect_Interjection') {
-        console.log("📢 Architect detected! Lifting the pause...");
-        await processArchitectCommand(currentForge.id);
-      }
-
-    } catch (error) {
-      console.error("❌ Patrol Error:", error);
+      return { model, content: msg.content[0].type === 'text' ? msg.content[0].text : "" };
     }
-
-    // 3. Wait 10 seconds before checking again
-    // This keeps the process running forever
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    if (model === 'GROK') {
+      const completion = await grokClient.chat.completions.create({
+        model: "grok-beta",
+        messages: [{ role: "system", content: mandates.GROK }, { role: "user", content: query }],
+      });
+      return { model, content: completion.choices[0].message.content };
+    }
+    return { model, content: `${model} is analyzing the directive through its mandate...` };
+  } catch (err) {
+    return { model, content: `${model} is experiencing a neural disruption.` };
   }
-}
-
-async function initializeDailyForge() {
-  // ... (Your existing initialization logic)
 }
 
 async function processArchitectCommand(forgeId: string) {
-  // 1. Find you in the database
-  const architect = await prisma.user.findFirst({
-    where: { role: 'GOD_MODE' }
-  });
+  const forge = await prisma.dailyForge.findUnique({ where: { id: forgeId } });
+  const architect = await prisma.user.findFirst({ where: { role: 'GOD_MODE' } });
 
-  // 2. Define the Council Tiers
-  let activeModels = ['CLAUDE', 'GROK', 'DEEPSEEK'];
+  if (!architect) return console.error("Architect authority not confirmed.");
 
-  if (architect) {
-    console.log(`👑 Architect Authority Confirmed: ${architect.email}`);
-    // Unlock the Expert Tier for God Mode
-    activeModels.push('GEMINI_PRO', 'CHATGPT');
-  }
+  const models = ['CLAUDE', 'GROK', 'DEEPSEEK', 'GEMINI_PRO', 'CHATGPT'];
+  const responses = await Promise.all(models.map(m => generateCouncilResponse(m, forge?.winningTopic || "")));
 
-  console.log(`🎙️ Summoning the Pentarchy: ${activeModels.join(', ')}`);
-
-  // 3. THIS IS THE CRITICAL STEP: 
-  // We need to trigger the actual AI completions here.
-  // For now, let's reset the phase so you can see it work on the site.
   await prisma.dailyForge.update({
     where: { id: forgeId },
     data: { 
       phase: 'COUNCIL_DEBATE',
-      openingThoughts: `The Council of Five has been summoned by the Architect to discuss: ${activeModels.join(' & ')}`
+      openingThoughts: JSON.stringify(responses) 
     }
   });
-
-  console.log("✅ Council phase reset. The pause is lifted.");
+  console.log("✅ The Adversarial Council has synthesized their findings.");
 }
 
+async function patrolTheForge() {
+  console.log("🌅 AI Scout starting Adversarial Patrol...");
+  while (true) {
+    try {
+      const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
+      if (currentForge?.phase === 'Architect_Interjection') {
+        await processArchitectCommand(currentForge.id);
+      }
+    } catch (e) { console.error("Patrol Error:", e); }
+    await new Promise(r => setTimeout(r, 10000));
+  }
+}
 
-
-// Start the continuous loop
 patrolTheForge();
