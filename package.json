@@ -2,11 +2,11 @@
   "name": "janusforge-nexus-backend",
   "version": "1.0.0",
   "type": "module",
-  "description": "Production backend for Janus Forge Nexus AI platform",
   "main": "src/server.ts",
   "scripts": {
-    "start": "ts-node --esm src/server.ts",
-    "dev": "ts-node-dev --respawn src/server.ts",
+    "start": "node src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "patrol": "tsx src/scripts/aiScout.ts",
     "build": "tsc",
     "postinstall": "prisma generate"
   },
