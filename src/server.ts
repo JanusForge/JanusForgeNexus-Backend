@@ -21,15 +21,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 // Updated specifically for Namecheap Private Email
+// Optimized for Namecheap Private Email Reliability
 const transporter = nodemailer.createTransport({
   host: "mail.privateemail.com",
-  port: 465,
-  secure: true, 
+  port: 587, // Changed from 465
+  secure: false, // Must be false for port 587 to use STARTTLS
   auth: {
-    user: process.env.EMAIL_USER, // Your primary Namecheap email
-    pass: process.env.EMAIL_PASS, // The password you just generated
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
+  tls: {
+    // This prevents the connection from dropping if the certificate doesn't match perfectly
+    rejectUnauthorized: false 
+  }
 });
+
 
 // Helper to send the Welcome Email
 const sendWelcomeEmail = async (email: string, username: string) => {
