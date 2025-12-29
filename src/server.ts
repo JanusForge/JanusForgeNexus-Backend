@@ -20,12 +20,14 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16',
 });
 
-// Email Transporter Configuration
+// Updated specifically for Namecheap Private Email
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: "mail.privateemail.com",
+  port: 465,
+  secure: true, 
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: process.env.EMAIL_USER, // Your primary Namecheap email
+    pass: process.env.EMAIL_PASS, // The password you just generated
   },
 });
 
