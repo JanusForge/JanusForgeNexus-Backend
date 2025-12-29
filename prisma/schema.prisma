@@ -22,20 +22,44 @@ enum AIParticipant {
   DEEPSEEK
 }
 
+// Add this model to your schema.prisma file
+model Purchase {
+  id              String   @id @default(uuid())
+  userId          String
+  amount          Float
+  tokens          Int
+  packageName     String
+  stripeSessionId String   @unique
+  createdAt       DateTime @default(now())
+  
+  // Relationship to the User table
+  user            User     @relation(fields: [userId], references: [id])
+}
+
 model User {
-  id            String     @id @default(uuid())
-  email         String     @unique
-  username      String     @unique
-  password_hash String     @map("password_hash")
-  tier          String     @default("FREE")  // Changed from UserTier enum
-  token_balance Int        @default(0) @map("token_balance")
-  refresh_token String?    @map("refresh_token")
-  created_at    DateTime   @default(now()) @map("created_at")
-  updated_at    DateTime   @updatedAt @map("updated_at")
-  posts         Post[]
-  ai_responses  AIResponse[]
-  debate_votes  DebateVote[]
+  id            String   @id @default(uuid())
+  email         String   @unique
+  username      String   @unique
+  password_hash String   @map("password_hash")
+  tier          String   @default("FREE")
+  purchases        Purchase[]
+
+  
+  // --- NEW UNIFIED TOKEN SYSTEM ---
+  token_balance    Int   @default(0) @map("token_balance")
+  tokens_used      Int   @default(0) @map("tokens_used")      // Track spending
+  tokens_remaining Int   @default(0) @map("tokens_remaining") // Track fuel
+  
+  refresh_token String?  @map("refresh_token")
+  created_at    DateTime @default(now()) @map("created_at")
+  updated_at    DateTime @updatedAt @map("updated_at")
+  
+  // --- KEEP THESE RELATIONSHIPS (Crucial for Site Functionality) ---
+  posts              Post[]
+  ai_responses       AIResponse[]
+  debate_votes       DebateVote[]
   token_transactions TokenTransaction[]
+
   @@map("users")
 }
 
