@@ -23,7 +23,7 @@ model User {
   email             String             @unique
   username          String             @unique
   password_hash     String             @map("password_hash")
-  role              UserRole           @default(USER) // <--- ADD THIS LINE
+
   tier              String             @default("FREE")
   token_balance     Int                @default(0) @map("token_balance")
   tokens_used       Int                @default(0) @map("tokens_used")
@@ -153,9 +153,3 @@ enum AIParticipant {
   DEEPSEEK
 }
 
-// ADD THIS ENUM AT THE BOTTOM OF THE FILE
-enum UserRole {
-  USER
-  ADMIN
-  GOD_MODE
-}
