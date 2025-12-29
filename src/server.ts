@@ -22,18 +22,23 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 // Updated specifically for Namecheap Private Email
 // Optimized for Namecheap Private Email Reliability
+
 const transporter = nodemailer.createTransport({
   host: "mail.privateemail.com",
-  port: 587, // Changed from 465
-  secure: false, // Must be false for port 587 to use STARTTLS
+  port: 587,
+  secure: false, // Must be false for 587
+  requireTLS: true, // Forces the connection to use STARTTLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
   tls: {
-    // This prevents the connection from dropping if the certificate doesn't match perfectly
-    rejectUnauthorized: false 
-  }
+    // Explicitly allow Namecheap's certificate
+    ciphers: 'SSLv3',
+    rejectUnauthorized: false
+  },
+  debug: true, // This will print the SMTP conversation to your Render logs
+  logger: true  // This will show exactly where the connection drops
 });
 
 
