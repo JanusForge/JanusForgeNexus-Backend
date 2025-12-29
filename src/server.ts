@@ -24,19 +24,19 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 // Optimized for Namecheap Private Email Reliability
 
 const transporter = nodemailer.createTransport({
-  host: "mail.privateemail.com",
-  port: 465,
-  secure: true, // Use SSL for port 465
+  host: "mail.privateemail.com", //
+  port: 465, //
+  secure: true, // Use SSL as required for 465
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: process.env.EMAIL_USER, // Your full email address
+    pass: process.env.EMAIL_PASS, // Your account or Device Password
   },
-  connectionTimeout: 10000, // Wait 10 seconds to connect
-  greetingTimeout: 10000,   // Wait 10 seconds for the welcome message
-  tls: {
-    rejectUnauthorized: false
-  }
+  // Adding these to ensure the "Authentication" handshake is solid
+  authMethod: 'PLAIN', 
+  debug: true,
+  logger: true
 });
+
 
 // Helper to send the Welcome Email
 const sendWelcomeEmail = async (email: string, username: string) => {
