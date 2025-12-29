@@ -7,11 +7,10 @@
     "start": "node src/server.ts",
     "dev": "tsx watch src/server.ts",
     "patrol": "tsx src/scripts/aiScout.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc"
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "tsx": "^4.19.2",
     "@anthropic-ai/sdk": "^0.71.2",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.22.0",
@@ -27,6 +26,7 @@
     "socket.io": "^4.7.2",
     "stripe": "^20.1.0",
     "ts-node": "^10.9.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.2.2"
   },
   "devDependencies": {
