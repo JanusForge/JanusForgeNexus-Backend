@@ -115,10 +115,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- 3. REST API ROUTES ---
 
-/**
- * THE DAILY FORGE: Council Deliberation Feed
- * Fetches the latest autonomous debate topic selected by the AI Scout from Neon
- */
 app.get('/api/daily-forge', async (req, res) => {
   try {
     const latestForge = await prisma.dailyForge.findFirst({
@@ -129,7 +125,6 @@ app.get('/api/daily-forge', async (req, res) => {
       return res.status(404).json({ message: "The Scout has not yet reported for today." });
     }
 
-    // De-serialize JSON strings back into usable objects for the frontend
     const formattedForge = {
       ...latestForge,
       scoutedTopics: JSON.parse(latestForge.scoutedTopics),
@@ -143,7 +138,6 @@ app.get('/api/daily-forge', async (req, res) => {
   }
 });
 
-// AUTHENTICATION & REGISTRATION
 app.post('/api/auth/register', async (req, res) => {
   const { email, username, password } = req.body;
   try {
@@ -187,7 +181,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// PASSWORD RESET ROUTES
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   try {
@@ -195,7 +188,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!user) return res.json({ message: 'If an account exists, a reset link has been sent.' });
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetExpires = new Date(Date.now() + 3600000); 
+    const resetExpires = new Date(Date.now() + 3600000);
 
     await prisma.user.update({
       where: { email },
@@ -244,7 +237,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// BILLING ROUTES
 app.get('/api/v1/billing/history/:userId', async (req, res) => {
   try {
     const history = await prisma.purchase.findMany({
@@ -296,9 +288,55 @@ const xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
 io.on('connection', (socket) => {
-  socket.on('post:new', async (postData) => {
-    // Existing Council Feud Logic goes here
+  console.log('⚡ Nexus Connection Established');
+
+  socket.on('post:new', async (postData: { 
+    content: string, 
+    name: string, 
+    userId: string, 
+    queueAfterCurrent?: boolean,
+    priority?: string 
+  }) => {
+    try {
+      console.log(`[Architect] Command Received from ${postData.name}`);
+
+      // 1. UPDATE NEON SCHEMA: Move current forge to interjection phase
+      const latestForge = await prisma.dailyForge.findFirst({
+        orderBy: { date: 'desc' },
+      });
+
+      if (latestForge) {
+        await prisma.dailyForge.update({
+          where: { id: latestForge.id },
+          data: { phase: 'Architect_Interjection' } // Explicitly maps to the phase column
+        });
+        console.log(`✅ Phase updated to Architect_Interjection for Forge ID: ${latestForge.id}`);
+      }
+
+      // 2. BROADCAST: Send message to all users for the live feed
+      const architectMsg = {
+        id: crypto.randomUUID(),
+        name: postData.name,
+        content: postData.content,
+        timestamp: new Date().toISOString(),
+        sender: 'user'
+      };
+      io.emit('post:incoming', architectMsg);
+
+      // 3. SAFETY RELEASE: Send confirmation back to Architect to unlock UI
+      socket.emit('ai:response', {
+        ...architectMsg,
+        name: 'Nexus System',
+        content: 'Architect interjection acknowledged. Council pausing to listen...',
+        isVerdict: true 
+      });
+
+    } catch (error) {
+      console.error('❌ Forge Interjection Failed:', error);
+      socket.emit('error', { message: 'Nexus Core failed to process interjection.' });
+    }
   });
+
   socket.on('disconnect', () => { console.log('❌ Connection Terminated'); });
 });
 
