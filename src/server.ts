@@ -13,6 +13,13 @@ import crypto from 'crypto';
 
 dotenv.config();
 
+// --- 0. AI COUNCIL UTILITIES ---
+async function generateOpeningArguments(topic: string) {
+  // Logic to ping Claude, Grok, and DeepSeek for a 1-sentence "take" on the winning topic
+  // This content is then saved to the 'openingThoughts' field in the DailyForge table
+  console.log(`Generating Council opening arguments for: ${topic}`);
+}
+
 const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
@@ -20,25 +27,20 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16',
 });
 
-// Updated specifically for Namecheap Private Email
-// Optimized for Namecheap Private Email Reliability
-
+// --- EMAIL CONFIGURATION (Namecheap Private Email) ---
 const transporter = nodemailer.createTransport({
-  host: "mail.privateemail.com", //
-  port: 465, //
-  secure: true, // Use SSL as required for 465
+  host: "mail.privateemail.com",
+  port: 465,
+  secure: true,
   auth: {
-    user: process.env.EMAIL_USER, // Your full email address
-    pass: process.env.EMAIL_PASS, // Your account or Device Password
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
-  // Adding these to ensure the "Authentication" handshake is solid
-  authMethod: 'PLAIN', 
+  authMethod: 'PLAIN',
   debug: true,
   logger: true
 });
 
-
-// Helper to send the Welcome Email
 const sendWelcomeEmail = async (email: string, username: string) => {
   try {
     await transporter.sendMail({
@@ -113,33 +115,77 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- 3. REST API ROUTES ---
 
-// AUTHENTICATION & REGISTRATION
+/**
+ * THE DAILY FORGE: Council Deliberation Feed
+ * Fetches the latest autonomous debate topic selected by the AI Scout from Neon
+ */
+app.get('/api/daily-forge', async (req, res) => {
+  try {
+    const latestForge = await prisma.dailyForge.findFirst({
+      orderBy: { date: 'desc' },
+    });
 
+    if (!latestForge) {
+      return res.status(404).json({ message: "The Scout has not yet reported for today." });
+    }
+
+    // De-serialize JSON strings back into usable objects for the frontend
+    const formattedForge = {
+      ...latestForge,
+      scoutedTopics: JSON.parse(latestForge.scoutedTopics),
+      councilVotes: JSON.parse(latestForge.councilVotes),
+    };
+
+    res.json(formattedForge);
+  } catch (error) {
+    console.error('❌ Failed to fetch Daily Forge:', error);
+    res.status(500).json({ error: "Nexus Core could not retrieve the latest decree." });
+  }
+});
+
+// AUTHENTICATION & REGISTRATION
 app.post('/api/auth/register', async (req, res) => {
   const { email, username, password } = req.body;
   try {
     const newUser = await prisma.user.create({
-      data: { 
-        email, 
-        username, 
-        password_hash: password, 
-        token_balance: 50 
-      } 
+      data: {
+        email,
+        username,
+        password_hash: password,
+        token_balance: 50
+      }
     });
-
-    // CRITICAL: We REMOVE the 'await' here
-    // This fires the email off in the background while the user continues
     sendWelcomeEmail(email, username).catch(err => console.error("Email fail:", err));
-
-    // Return the success response immediately
     return res.json({ user: newUser, message: "Account created successfully." });
-
   } catch (err: any) {
     console.error('Registration Error:', err);
     return res.status(500).json({ error: "Registration failed." });
   }
 });
 
+app.post('/api/auth/login', async (req, res) => {
+  const identifier = req.body?.username || req.body?.email || req.body?.identifier;
+  if (identifier === 'admin-access' || identifier === 'admin@janusforge.ai') {
+    return res.json({
+      user: {
+        id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000',
+        username: 'admin-access',
+        token_balance: 999999,
+        tier: 'enterprise'
+      },
+      token: 'admin-bypass-token'
+    });
+  }
+  try {
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ username: String(identifier) }, { email: String(identifier) }] }
+    });
+    if (!user) return res.status(404).json({ message: "Intelligence profile not found." });
+    res.json({ user, token: 'mock-jwt-token' });
+  } catch (error) {
+    res.status(500).json({ message: "Nexus Core Auth Error" });
+  }
+});
 
 // PASSWORD RESET ROUTES
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -149,7 +195,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!user) return res.json({ message: 'If an account exists, a reset link has been sent.' });
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetExpires = new Date(Date.now() + 3600000); // 1 hour
+    const resetExpires = new Date(Date.now() + 3600000); 
 
     await prisma.user.update({
       where: { email },
@@ -221,8 +267,8 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
       mode: mode || 'payment',
       success_url: `${process.env.FRONTEND_URL}/billing?success=true`,
       cancel_url: `${process.env.FRONTEND_URL}/billing?canceled=true`,
-      metadata: { 
-        userId, 
+      metadata: {
+        userId,
         tokenAmount: tokens.toString(),
         packageName: packageName || 'Fuel Pack'
       },
@@ -237,31 +283,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', database: 'connected', stripe: 'initialized' });
 });
 
-app.post('/api/auth/login', async (req, res) => {
-  const identifier = req.body?.username || req.body?.email || req.body?.identifier;
-  if (identifier === 'admin-access' || identifier === 'admin@janusforge.ai') {
-    return res.json({
-      user: {
-        id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000',
-        username: 'admin-access',
-        token_balance: 999999,
-        tier: 'enterprise'
-      },
-      token: 'admin-bypass-token'
-    });
-  }
-  try {
-    const user = await prisma.user.findFirst({
-      where: { OR: [{ username: String(identifier) }, { email: String(identifier) }] }
-    });
-    if (!user) return res.status(404).json({ message: "Intelligence profile not found." });
-    res.json({ user, token: 'mock-jwt-token' });
-  } catch (error) {
-    res.status(500).json({ message: "Nexus Core Auth Error" });
-  }
-});
-
-// --- 4. SOCKET.IO ---
+// --- 4. SOCKET.IO & AI MODELS ---
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
   transports: ['polling', 'websocket']
@@ -275,7 +297,7 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
-    // Council logic...
+    // Existing Council Feud Logic goes here
   });
   socket.on('disconnect', () => { console.log('❌ Connection Terminated'); });
 });

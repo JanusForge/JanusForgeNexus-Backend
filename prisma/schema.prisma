@@ -143,3 +143,13 @@ model TierConfiguration {
   price_cents Int    @map("price_cents")
   @@map("tier_configurations")
 }
+
+model DailyForge {
+  id             String   @id @default(uuid())
+  date           DateTime @default(now())
+  scoutedTopics  String   // JSON string of the 3 topics found by the Scout
+  winningTopic   String   // The topic selected by the Council
+  councilVotes   String   // JSON string: { "Claude": "Topic A", "Grok": "Topic B" }
+  openingThoughts String?  // Initial AI comments to hook the user
+  phase          String   @default("INITIALIZED") // SCOUTING, VOTING, or INITIALIZED
+}
