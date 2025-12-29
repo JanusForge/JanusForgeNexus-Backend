@@ -115,19 +115,24 @@ app.post('/api/auth/register', async (req, res) => {
       data: { 
         email, 
         username, 
-        password_hash: password, // Changed from 'password' to 'password_hash'
+        password_hash: password, 
         token_balance: 50 
       } 
     });
 
-    await sendWelcomeEmail(email, username);
+    // CRITICAL: We REMOVE the 'await' here
+    // This fires the email off in the background while the user continues
+    sendWelcomeEmail(email, username).catch(err => console.error("Email fail:", err));
 
-    res.json({ user: newUser, message: "Account created successfully." });
-  } catch (err) {
+    // Return the success response immediately
+    return res.json({ user: newUser, message: "Account created successfully." });
+
+  } catch (err: any) {
     console.error('Registration Error:', err);
-    res.status(500).json({ error: "Registration failed." });
+    return res.status(500).json({ error: "Registration failed." });
   }
 });
+
 
 // PASSWORD RESET ROUTES
 app.post('/api/auth/forgot-password', async (req, res) => {
