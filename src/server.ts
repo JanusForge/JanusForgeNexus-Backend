@@ -107,6 +107,7 @@ app.use(express.urlencoded({ extended: true }));
 // --- 3. REST API ROUTES ---
 
 // AUTHENTICATION & REGISTRATION
+
 app.post('/api/auth/register', async (req, res) => {
   const { email, username, password } = req.body;
   try {
@@ -114,12 +115,11 @@ app.post('/api/auth/register', async (req, res) => {
       data: { 
         email, 
         username, 
-        password, // Ensure password hashing is implemented in production
-        token_balance: 50 // Default starting tokens
+        password_hash: password, // Changed from 'password' to 'password_hash'
+        token_balance: 50 
       } 
     });
 
-    // Trigger Welcome Email immediately after DB success
     await sendWelcomeEmail(email, username);
 
     res.json({ user: newUser, message: "Account created successfully." });
