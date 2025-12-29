@@ -25,7 +25,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 const transporter = nodemailer.createTransport({
   host: "mail.privateemail.com",
-  port: 587,
+  port: 2525,
   secure: false, // Must be false for 587
   requireTLS: true, // Forces the connection to use STARTTLS
   auth: {
