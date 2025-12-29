@@ -37,12 +37,37 @@ async function initializeDailyForge() {
 }
 
 async function processArchitectCommand(forgeId: string) {
+  // 1. Find you in the database
+  const architect = await prisma.user.findFirst({
+    where: { role: 'GOD_MODE' }
+  });
+
+  // 2. Define the Council Tiers
+  let activeModels = ['CLAUDE', 'GROK', 'DEEPSEEK'];
+
+  if (architect) {
+    console.log(`👑 Architect Authority Confirmed: ${architect.email}`);
+    // Unlock the Expert Tier for God Mode
+    activeModels.push('GEMINI_PRO', 'CHATGPT');
+  }
+
+  console.log(`🎙️ Summoning the Pentarchy: ${activeModels.join(', ')}`);
+
+  // 3. THIS IS THE CRITICAL STEP: 
+  // We need to trigger the actual AI completions here.
+  // For now, let's reset the phase so you can see it work on the site.
   await prisma.dailyForge.update({
     where: { id: forgeId },
-    data: { phase: 'COUNCIL_DEBATE' }
+    data: { 
+      phase: 'COUNCIL_DEBATE',
+      openingThoughts: `The Council of Five has been summoned by the Architect to discuss: ${activeModels.join(' & ')}`
+    }
   });
-  console.log("✅ Council phase reset. Flow restored.");
+
+  console.log("✅ Council phase reset. The pause is lifted.");
 }
+
+
 
 // Start the continuous loop
 patrolTheForge();
