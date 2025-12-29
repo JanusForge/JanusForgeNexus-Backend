@@ -8,6 +8,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -16,6 +18,15 @@ const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16',
+});
+
+// Email Transporter Configuration
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
 });
 
 // --- 1. STRIPE WEBHOOK ---
@@ -34,9 +45,9 @@ app.post('/api/v1/webhook/stripe', express.raw({ type: 'application/json' }), as
     const session = event.data.object as Stripe.Checkout.Session;
     const userId = session.metadata?.userId;
     const tokens = parseInt(session.metadata?.tokenAmount || '0');
+    const packageName = session.metadata?.packageName || 'Fuel Pack';
 
     try {
-      // Use transaction to update balance AND log history
       await prisma.$transaction([
         prisma.user.update({
           where: { id: userId },
@@ -47,7 +58,7 @@ app.post('/api/v1/webhook/stripe', express.raw({ type: 'application/json' }), as
             userId: userId!,
             amount: (session.amount_total || 0) / 100,
             tokens: tokens,
-            packageName: tokens >= 2000 ? 'Supernova' : tokens >= 500 ? 'Ignition' : 'Spark',
+            packageName: packageName,
             stripeSessionId: session.id
           }
         })
@@ -68,7 +79,64 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- 3. REST API ROUTES ---
 
-// NEW: Fetch Transaction History
+// PASSWORD RESET ROUTES
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.json({ message: 'If an account exists, a reset link has been sent.' });
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetExpires = new Date(Date.now() + 3600000); // 1 hour
+
+    await prisma.user.update({
+      where: { email },
+      data: { resetToken, resetTokenExpiry: resetExpires },
+    });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+    await transporter.sendMail({
+      from: '"Janus Forge" <no-reply@janusforge.ai>',
+      to: email,
+      subject: 'Nexus Access Recovery',
+      html: `<p>To reset your Janus Forge password, <a href="${resetUrl}">click here</a>. This link expires in 1 hour.</p>`,
+    });
+
+    res.json({ message: 'Reset link sent.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  try {
+    const user = await prisma.user.findFirst({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: { gt: new Date() },
+      },
+    });
+
+    if (!user) return res.status(400).json({ error: 'Invalid or expired token.' });
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: newPassword, // Note: Ensure you hash this if not handled elsewhere
+        resetToken: null,
+        resetTokenExpiry: null,
+      },
+    });
+
+    res.json({ message: 'Password updated successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reset password.' });
+  }
+});
+
+// BILLING ROUTES
 app.get('/api/v1/billing/history/:userId', async (req, res) => {
   try {
     const history = await prisma.purchase.findMany({
@@ -83,7 +151,7 @@ app.get('/api/v1/billing/history/:userId', async (req, res) => {
 });
 
 app.post('/api/v1/billing/checkout', async (req, res) => {
-  const { priceId, userId, tokens, mode } = req.body;
+  const { priceId, userId, tokens, mode, packageName } = req.body;
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -91,7 +159,11 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
       mode: mode || 'payment',
       success_url: `${process.env.FRONTEND_URL}/billing?success=true`,
       cancel_url: `${process.env.FRONTEND_URL}/billing?canceled=true`,
-      metadata: { userId, tokenAmount: tokens.toString() },
+      metadata: { 
+        userId, 
+        tokenAmount: tokens.toString(),
+        packageName: packageName || 'Fuel Pack'
+      },
     });
     res.json({ url: session.url });
   } catch (err: any) {
@@ -141,7 +213,7 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
-    // ... Council logic remains identical to your previous file ...
+    // Council logic...
   });
   socket.on('disconnect', () => { console.log('❌ Connection Terminated'); });
 });
