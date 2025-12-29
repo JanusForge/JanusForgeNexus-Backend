@@ -1,4 +1,10 @@
 {
+  "type": "module",
+  "name": "janusforge-nexus-backend",
+  ...
+}
+
+{
   "name": "janusforge-nexus-backend",
   "version": "1.0.0",
   "description": "Production backend for Janus Forge Nexus AI platform",
