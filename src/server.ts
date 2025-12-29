@@ -33,7 +33,7 @@ const transporter = nodemailer.createTransport({
 const sendWelcomeEmail = async (email: string, username: string) => {
   try {
     await transporter.sendMail({
-      from: '"Janus Forge" <no-reply@janusforge.ai>',
+      from: '"Janus Forge" <welcome@janusforge.ai>',
       to: email,
       subject: 'Welcome to the Janus Forge Nexus',
       html: `
