@@ -1,51 +1,48 @@
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
-/**
- * The AI Scout: 
- * 1. Scans the datasphere for friction.
- * 2. Simulates the Council vote.
- * 3. Persists the winning 'Forge' to the database.
- */
-async function runDailyForge() {
-  try {
-    console.log("🌅 AI Scout starting morning patrol in Hardy, KY...");
+async function patrolTheForge() {
+  console.log("🌅 AI Scout starting CONTINUOUS patrol in Hardy, KY...");
 
-    // Phase 1: Scouting Findings
-    const scoutedTopics = [
-      "Neural Sovereignty vs. Centralized Compute",
-      "Digital Feuds: The McCoy Protocol for AGI Conflict",
-      "Rural AI Foundries: Revitalizing Appalachia"
-    ];
+  // This loop keeps the process alive so Render doesn't shut it down
+  while (true) {
+    try {
+      // 1. Check for the latest Forge record
+      const currentForge = await prisma.dailyForge.findFirst({
+        orderBy: { date: 'desc' },
+      });
 
-    // Phase 2: The Council Deliberation (Votes)
-    // Using the AIParticipant enum logic from your schema
-    const votes = {
-      CLAUDE: scoutedTopics[0], 
-      GROK: scoutedTopics[1],   
-      DEEPSEEK: scoutedTopics[0] 
-    };
-
-    const winningTopic = scoutedTopics[0]; // Majority winner
-
-    // Phase 3: Writing to Neon
-    await prisma.dailyForge.create({
-      data: {
-        date: new Date(),
-        scoutedTopics: JSON.stringify(scoutedTopics), // Store as JSON string
-        winningTopic: winningTopic,
-        councilVotes: JSON.stringify(votes), // Store as JSON string
-        openingThoughts: "Claude: We must prioritize decentralized nodes. Grok: Nodes are boring, give me action!",
-        phase: 'INITIALIZED'
+      if (!currentForge) {
+        console.log("Empty Forge. Initializing...");
+        await initializeDailyForge();
+      } 
+      // 2. Watch for your interjection
+      else if (currentForge.phase === 'Architect_Interjection') {
+        console.log("📢 Architect detected! Lifting the pause...");
+        await processArchitectCommand(currentForge.id);
       }
-    });
 
-    console.log(`✅ Success! The Forge is cast for today: ${winningTopic}`);
-  } catch (error) {
-    console.error("❌ Scout failed to report:", error);
-  } finally {
-    await prisma.$disconnect();
+    } catch (error) {
+      console.error("❌ Patrol Error:", error);
+    }
+
+    // 3. Wait 10 seconds before checking again
+    // This keeps the process running forever
+    await new Promise(resolve => setTimeout(resolve, 10000));
   }
 }
 
-runDailyForge();
+async function initializeDailyForge() {
+  // ... (Your existing initialization logic)
+}
+
+async function processArchitectCommand(forgeId: string) {
+  await prisma.dailyForge.update({
+    where: { id: forgeId },
+    data: { phase: 'COUNCIL_DEBATE' }
+  });
+  console.log("✅ Council phase reset. Flow restored.");
+}
+
+// Start the continuous loop
+patrolTheForge();
