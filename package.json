@@ -1,16 +1,11 @@
 {
-  "type": "module",
-  "name": "janusforge-nexus-backend",
-  ...
-}
-
-{
   "name": "janusforge-nexus-backend",
   "version": "1.0.0",
+  "type": "module",
   "description": "Production backend for Janus Forge Nexus AI platform",
   "main": "src/server.ts",
   "scripts": {
-    "start": "ts-node src/server.ts",
+    "start": "ts-node --esm src/server.ts",
     "dev": "ts-node-dev --respawn src/server.ts",
     "build": "tsc",
     "postinstall": "prisma generate"
@@ -19,12 +14,6 @@
     "@anthropic-ai/sdk": "^0.71.2",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.22.0",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cookie-parser": "^1.4.3",
-    "@types/cors": "^2.8.13",
-    "@types/express": "^4.17.17",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^20.5.9",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -40,6 +29,12 @@
     "typescript": "^5.2.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.3",
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.5.9",
     "nodemon": "^3.0.1",
     "prisma": "^5.0.0",
     "ts-node-dev": "^2.0.0"
