@@ -1,39 +1,32 @@
 import { PrismaClient } from '@prisma/client';
-import { TIER_CONFIGURATIONS } from './src/services/tierService';
-
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
-  
-  // Create tier configurations
-  for (const [key, config] of Object.entries(TIER_CONFIGURATIONS)) {
-    await prisma.tierConfiguration.upsert({
-      where: { tier: config.tier },
-      update: config,
-      create: config
-    });
-    console.log(`   ✅ ${config.tier} tier configured`);
-  }
-  
-  // Create a test conversation
-  const testConversation = await prisma.conversation.upsert({
-    where: { id: 'test-conversation-1' },
-    update: {},
+  console.log('🌱 Starting Nexus Core Seeding...');
+
+  // 1. Create the Admin User directly
+  const admin = await prisma.user.upsert({
+    where: { username: 'admin-access' },
+    update: {
+      token_balance: 999999,
+      tier: 'enterprise'
+    },
     create: {
-      id: 'test-conversation-1',
-      title: 'Welcome to Janus Forge Nexus!',
-      isDailyForge: false
-    }
+      username: 'admin-access',
+      email: 'admin@janusforge.ai',
+      password_hash: 'nexus-admin-bypass', 
+      token_balance: 999999,
+      tier: 'enterprise'
+    },
   });
-  
-  console.log('   ✅ Test conversation created');
-  console.log('🎉 Seeding complete!');
+
+  console.log(`✅ Admin Created: ${admin.username} (ID: ${admin.id})`);
+  console.log(`💎 Balance Set: ${admin.token_balance} tokens`);
 }
 
 main()
   .catch((e) => {
-    console.error('Seeding error:', e);
+    console.error('❌ Seeding failed:', e);
     process.exit(1);
   })
   .finally(async () => {

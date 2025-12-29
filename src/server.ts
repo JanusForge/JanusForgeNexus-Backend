@@ -29,6 +29,31 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Helper to send the Welcome Email
+const sendWelcomeEmail = async (email: string, username: string) => {
+  try {
+    await transporter.sendMail({
+      from: '"Janus Forge" <no-reply@janusforge.ai>',
+      to: email,
+      subject: 'Welcome to the Janus Forge Nexus',
+      html: `
+        <div style="font-family: sans-serif; background: #000; color: #fff; padding: 40px; border-radius: 20px; border: 1px solid #333;">
+          <h1 style="color: #3b82f6; text-transform: uppercase; tracking: -1px;">Welcome, Architect ${username}</h1>
+          <p style="color: #ccc; line-height: 1.6;">Your access to the AI Council has been initialized. You can now engage with Gemini, Claude, DeepSeek, and Grok to forge new intelligence.</p>
+          <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #666; text-transform: uppercase;">This is a production platform. Ensure your energy (tokens) remains replenished via the Token Forge.</p>
+          <div style="margin-top: 30px;">
+            <a href="${process.env.FRONTEND_URL}/pricing" style="background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; text-transform: uppercase;">Refuel Your Forge</a>
+          </div>
+        </div>
+      `,
+    });
+    console.log(`📧 Welcome email dispatched to: ${email}`);
+  } catch (error) {
+    console.error('❌ Failed to send welcome email:', error);
+  }
+};
+
 // --- 1. STRIPE WEBHOOK ---
 app.post('/api/v1/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -79,6 +104,29 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- 3. REST API ROUTES ---
 
+// AUTHENTICATION & REGISTRATION
+app.post('/api/auth/register', async (req, res) => {
+  const { email, username, password } = req.body;
+  try {
+    const newUser = await prisma.user.create({
+      data: { 
+        email, 
+        username, 
+        password, // Ensure password hashing is implemented in production
+        token_balance: 50 // Default starting tokens
+      } 
+    });
+
+    // Trigger Welcome Email immediately after DB success
+    await sendWelcomeEmail(email, username);
+
+    res.json({ user: newUser, message: "Account created successfully." });
+  } catch (err) {
+    console.error('Registration Error:', err);
+    res.status(500).json({ error: "Registration failed." });
+  }
+});
+
 // PASSWORD RESET ROUTES
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
@@ -124,7 +172,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        password: newPassword, // Note: Ensure you hash this if not handled elsewhere
+        password: newPassword,
         resetToken: null,
         resetTokenExpiry: null,
       },
