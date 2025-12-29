@@ -7,7 +7,7 @@
     "start": "node src/server.ts",
     "dev": "tsx watch src/server.ts",
     "patrol": "tsx src/scripts/aiScout.ts",
-    "build": "prisma generate && tsc"
+    "build": "prisma generate && tsc",
     "postinstall": "prisma generate"
   },
   "dependencies": {
