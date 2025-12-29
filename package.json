@@ -4,9 +4,10 @@
   "type": "module",
   "main": "src/server.ts",
   "scripts": {
-    "start": "node src/server.ts",
+    "start": "tsx src/server.ts",
     "dev": "tsx watch src/server.ts",
     "patrol": "tsx src/scripts/aiScout.ts",
+    "arbitrate": "tsx src/scripts/aiArbiter.ts",
     "build": "prisma generate && tsc",
     "postinstall": "prisma generate"
   },
