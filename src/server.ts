@@ -27,7 +27,7 @@ const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', /\
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTHENTICATION ROUTES (THE MISSING LINKS) ---
+// --- 🔑 AUTHENTICATION ROUTES  ---
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
