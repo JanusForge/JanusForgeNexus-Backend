@@ -111,6 +111,17 @@ const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'h
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
+// --- 0. HEALTH CHECK & ROOT ---
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: "ONLINE",
+    system: "Janus Forge Nexus®",
+    timestamp: new Date().toISOString(),
+    endpoints: ["/api/daily-forge", "/api/v1/billing/checkout"]
+  });
+});
+
+
 // --- REST API (Daily Forge & Billing) ---
 app.get('/api/daily-forge', async (req, res) => {
   try {
