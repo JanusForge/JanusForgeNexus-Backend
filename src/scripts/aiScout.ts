@@ -23,7 +23,7 @@ async function generateCouncilResponse(model: string, query: string) {
     console.log(`📡 Requesting response from ${model}...`);
     if (model === 'CLAUDE') {
       const msg = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-latest",
+        model: "claude-sonnet-4-5",
         max_tokens: 600,
         system: mandates.CLAUDE,
         messages: [{ role: "user", content: query }],
