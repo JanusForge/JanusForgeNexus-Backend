@@ -238,3 +238,13 @@ io.on('connection', (socket) => {
   });
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => console.log(`🚀 Nexus Backend Live on Port ${PORT}`));
+
+  socket.on('disconnect', () => { 
+    console.log('❌ Connection Terminated'); 
+  });
+});
+
+const PORT = process.env.PORT || 5000;
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Nexus Backend Live on Port ${PORT}`);
+});
