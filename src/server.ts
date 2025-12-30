@@ -108,7 +108,30 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
 });
 
 // --- SOCKET.IO: LIVE CONVERSATION & TIER ARBITER ---
-const io = new Server(httpServer, { cors: { origin: allowedOrigins, credentials: true } });
+// --- 4. SOCKET.IO INITIALIZATION ---
+const io = new Server(httpServer, {
+  cors: {
+    // This allows your main domain and all Vercel preview subdomains
+    origin: (origin, callback) => {
+      const allowedPatterns = [
+        /^https:\/\/janusforge\.ai$/,
+        /^https:\/\/www\.janusforge\.ai$/,
+        /\.vercel\.app$/ // This permits all Vercel-generated preview links
+      ];
+      
+      if (!origin || allowedPatterns.some(pattern => pattern.test(origin))) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  // Essential for Render/Vercel stability
+  transports: ['polling', 'websocket'] 
+});
+
 
 io.on('connection', (socket) => {
   console.log('⚡ Nexus Connection Established');
