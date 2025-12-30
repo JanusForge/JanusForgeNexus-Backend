@@ -20,6 +20,7 @@ async function generateCouncilResponse(model: string, query: string) {
   };
 
   try {
+    console.log(`📡 Requesting response from ${model}...`);
     if (model === 'CLAUDE') {
       const msg = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20240620",
@@ -38,24 +39,30 @@ async function generateCouncilResponse(model: string, query: string) {
     }
     return { model, content: `${model} is analyzing the directive through its mandate...` };
   } catch (err) {
+    console.error(`❌ ${model} disruption:`, err);
     return { model, content: `${model} is experiencing a neural disruption.` };
   }
 }
 
 async function processArchitectCommand(forgeId: string) {
+  console.log("🔍 Architect authority detected. Processing command...");
   const forge = await prisma.dailyForge.findUnique({ where: { id: forgeId } });
   const architect = await prisma.user.findFirst({ where: { role: 'GOD_MODE' } });
 
-  if (!architect) return console.error("Architect authority not confirmed.");
+  if (!architect) {
+    console.error("❌ Architect authority not confirmed.");
+    return;
+  }
 
   const models = ['CLAUDE', 'GROK', 'DEEPSEEK', 'GEMINI_PRO', 'CHATGPT'];
   const responses = await Promise.all(models.map(m => generateCouncilResponse(m, forge?.winningTopic || "")));
 
+  console.log("💾 Synchronizing Council findings with Neon...");
   await prisma.dailyForge.update({
     where: { id: forgeId },
-    data: { 
+    data: {
       phase: 'COUNCIL_DEBATE',
-      openingThoughts: JSON.stringify(responses) 
+      openingThoughts: JSON.stringify(responses)
     }
   });
   console.log("✅ The Adversarial Council has synthesized their findings.");
@@ -63,14 +70,24 @@ async function processArchitectCommand(forgeId: string) {
 
 async function patrolTheForge() {
   console.log("🌅 AI Scout starting Adversarial Patrol...");
-  while (true) {
-    try {
-      const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-      if (currentForge?.phase === 'Architect_Interjection') {
-        await processArchitectCommand(currentForge.id);
-      }
-    } catch (e) { console.error("Patrol Error:", e); }
-    await new Promise(r => setTimeout(r, 10000));
+  try {
+    console.log("🔌 Connecting to Database...");
+    const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
+    
+    if (!currentForge) {
+      console.log("⚠️ No active Forge found to patrol.");
+    } else if (currentForge.phase === 'Architect_Interjection') {
+      await processArchitectCommand(currentForge.id);
+    } else {
+      console.log(`ℹ️ Forge is in phase: ${currentForge.phase}. No action required.`);
+    }
+
+  } catch (e) {
+    console.error("❌ Patrol Error:", e);
+  } finally {
+    console.log("🏁 Patrol complete. Closing connection.");
+    await prisma.$disconnect();
+    process.exit(0); // This ensures the Cron job actually finishes
   }
 }
 
