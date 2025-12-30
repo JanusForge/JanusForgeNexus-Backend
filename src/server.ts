@@ -188,16 +188,53 @@ io.on('connection', (socket) => {
   console.log('⚡ Nexus Connection Established');
   socket.on('post:new', async (postData) => {
     try {
+      // 1. Check & Deduct Token
+      const user = await prisma.user.findUnique({ where: { id: postData.userId } });
+      if (!user || user.token_balance < 1) {
+        socket.emit('error', { message: 'Insufficient tokens. Refuel at the Forge.' });
+        return;
+      }
+      
+      await prisma.user.update({
+        where: { id: postData.userId },
+        data: { token_balance: { decrement: 1 } }
+      });
+
+      // 2. Update Forge Phase
       const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
       if (latestForge) {
-        await prisma.dailyForge.update({ where: { id: latestForge.id }, data: { phase: 'Architect_Interjection' } });
+        await prisma.dailyForge.update({ 
+          where: { id: latestForge.id }, 
+          data: { phase: 'Architect_Interjection' } 
+        });
       }
-      const architectMsg = { id: crypto.randomUUID(), name: postData.name, content: postData.content, timestamp: new Date().toISOString(), sender: 'user' };
-      io.emit('post:incoming', architectMsg);
-      socket.emit('ai:response', { ...architectMsg, name: 'Nexus System', content: 'Architect interjection acknowledged.', isVerdict: true });
-    } catch (error) { socket.emit('error', { message: 'Interjection Failed.' }); }
-  });
-});
 
+      // 3. BROADCAST: Initial Architect Message
+      io.emit('post:incoming', { 
+        id: crypto.randomUUID(), 
+        name: postData.name, 
+        content: postData.content, 
+        sender: 'user' 
+      });
+
+      // 4. THE DELIBERATION (Pinging Gemini as the first responder)
+      // You can repeat this pattern for Claude, Grok, etc.
+      const geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const geminiResult = await geminiModel.generateContent(postData.content);
+      const geminiText = geminiResult.response.text();
+
+      io.emit('ai:response', {
+        id: crypto.randomUUID(),
+        name: 'Gemini (The Observer)',
+        content: geminiText,
+        sender: 'ai',
+        modelType: 'gemini'
+      });
+
+    } catch (error) {
+      console.error('❌ Council Summoning Failed:', error);
+      socket.emit('error', { message: 'The Council is silent. Check backend logs.' });
+    }
+  });
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => console.log(`🚀 Nexus Backend Live on Port ${PORT}`));
