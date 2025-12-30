@@ -37,6 +37,9 @@ model User {
   posts             Post[]
   token_transactions TokenTransaction[]
   digest_subscribed  Boolean  @default(true) @map("digest_subscribed")
+  reset_token       String?   @unique
+  reset_expires     DateTime?
+
 
   @@map("users")
 }

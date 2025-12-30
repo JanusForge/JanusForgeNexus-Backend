@@ -9,6 +9,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import { Resend } from 'resend';
 import dailyForgeRouter from './routes/dailyForge';
 
 dotenv.config();
@@ -16,6 +17,7 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // --- AI CLIENTS ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -28,7 +30,9 @@ const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', /\
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTHENTICATION ---
+// --- 🔑 AUTHENTICATION & SECURITY ---
+
+// 1. Login (Returns all new fields)
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -38,20 +42,58 @@ app.post('/api/auth/login', async (req, res) => {
     const isValid = await bcrypt.compare(password, user.password_hash);
     if (!isValid) return res.status(401).json({ error: "Unauthorized" });
 
-    // Returns tokens_remaining as the primary UI value
     res.json({ 
       id: user.id, 
       email: user.email, 
       username: user.username, 
       role: user.role, 
-      tokens_remaining: user.tokens_remaining 
+      tokens_remaining: user.tokens_remaining,
+      digest_subscribed: user.digest_subscribed 
     });
   } catch (err) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
-app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
+// 2. Forgot Password (The fix for your screenshot!)
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.json({ message: "Check your email for reset instructions." });
 
-// --- ⚒️ DAILY FORGE ROUTE ---
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 3600000); // 1 hour
+
+    await prisma.user.update({
+      where: { email },
+      data: { reset_token: token, reset_expires: expires }
+    });
+
+    await resend.emails.send({
+      from: 'Janus Forge <nexus@janusforge.ai>',
+      to: email,
+      subject: 'Reset Your Nexus Password',
+      html: `<p>A password reset was requested. Click <a href="https://janusforge.ai/reset-password?token=${token}">here</a> to reset it. This link expires in 1 hour.</p>`
+    });
+
+    res.json({ message: "Reset link sent." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to process request" });
+  }
+});
+
+// 3. Toggle Nightly Digest
+app.post('/api/user/toggle-digest', async (req, res) => {
+  const { userId, subscribe } = req.body;
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { digest_subscribed: subscribe }
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Failed to update preference" }); }
+});
+
+app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
 app.use('/api/daily-forge', dailyForgeRouter);
 
 // --- 🏛️ SOCKET.IO (The Council) ---
@@ -61,17 +103,10 @@ const io = new Server(httpServer, {
 });
 
 io.on('connection', (socket) => {
-  console.log('⚡ Nexus Connection Established');
-  
   socket.on('post:new', async (postData) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
-      
-      // ⛽ GATEKEEPER: Using tokens_remaining as the fuel gauge
-      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
-        console.log(`⚠️ Access Denied: ${user?.username} is out of tokens.`);
-        return;
-      }
+      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) return;
 
       io.emit('post:incoming', { id: crypto.randomUUID(), name: user.username, content: postData.content, sender: 'user' });
 
@@ -98,14 +133,10 @@ io.on('connection', (socket) => {
         } catch (e) { console.error(e); }
       });
 
-      // 📉 UPDATE BALANCES: Burn tokens_remaining and track tokens_used
       if (user.role !== 'GOD_MODE') {
         await prisma.user.update({ 
           where: { id: user.id }, 
-          data: { 
-            tokens_remaining: { decrement: 1 },
-            tokens_used: { increment: 1 } 
-          } 
+          data: { tokens_remaining: { decrement: 1 }, tokens_used: { increment: 1 } } 
         });
       }
     } catch (err) { console.error(err); }
