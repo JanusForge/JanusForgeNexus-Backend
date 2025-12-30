@@ -70,24 +70,38 @@ async function processArchitectCommand(forgeId: string) {
 
 async function patrolTheForge() {
   console.log("🌅 AI Scout starting Adversarial Patrol...");
+  let success = false;
   try {
     console.log("🔌 Connecting to Database...");
     const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    
+
     if (!currentForge) {
       console.log("⚠️ No active Forge found to patrol.");
     } else if (currentForge.phase === 'Architect_Interjection') {
       await processArchitectCommand(currentForge.id);
+      success = true; // Flag that the primary mission was accomplished
     } else {
       console.log(`ℹ️ Forge is in phase: ${currentForge.phase}. No action required.`);
+      success = true; // Also count "No action required" as a successful run
     }
 
   } catch (e) {
     console.error("❌ Patrol Error:", e);
   } finally {
     console.log("🏁 Patrol complete. Closing connection.");
+    
+    // Send Heartbeat only if we reached the end successfully
+    if (success && process.env.HEARTBEAT_URL) {
+      try {
+        await fetch(process.env.HEARTBEAT_URL);
+        console.log("💓 Heartbeat sent to Monitoring Center.");
+      } catch (hbErr) {
+        console.error("⚠️ Failed to send Heartbeat ping.");
+      }
+    }
+
     await prisma.$disconnect();
-    process.exit(0); // This ensures the Cron job actually finishes
+    process.exit(0);
   }
 }
 
