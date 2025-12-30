@@ -23,7 +23,7 @@ async function generateCouncilResponse(model: string, query: string) {
     console.log(`📡 Requesting response from ${model}...`);
     if (model === 'CLAUDE') {
       const msg = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20240620",
+        model: "claude-3-5-sonnet-latest",
         max_tokens: 600,
         system: mandates.CLAUDE,
         messages: [{ role: "user", content: query }],
@@ -32,7 +32,7 @@ async function generateCouncilResponse(model: string, query: string) {
     }
     if (model === 'GROK') {
       const completion = await grokClient.chat.completions.create({
-        model: "grok-beta",
+        model: "grok-3",
         messages: [{ role: "system", content: mandates.GROK }, { role: "user", content: query }],
       });
       return { model, content: completion.choices[0].message.content };
