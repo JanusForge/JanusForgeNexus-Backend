@@ -1,80 +1,72 @@
 import { PrismaClient } from '@prisma/client';
-import { generateCouncilResponse } from '../services/aiService';
+import { generateCouncilResponse } from '../server'; 
 
 const prisma = new PrismaClient();
 
 async function processLiveDialogue() {
-  console.log("⚖️ The Arbiter is monitoring the Live Panel (Left Hemisphere)...");
+  console.log("⚖️ The Arbiter is monitoring the Ledger & Live Panel...");
 
   while (true) {
     try {
-      // 1. Look for the most recent USER_MESSAGE from an authorized user 
-      // that hasn't received a COUNCIL_VERDICT yet.
+      // 1. Fetch the latest user data directly from the DB
       const pendingMessage = await prisma.aIResponse.findFirst({
-        where: {
-          type: 'USER_MESSAGE',
-          content: { not: '' },
-          user: {
-            OR: [
-              { role: 'GOD_MODE' },
-              { role: 'SUBSCRIBER' },
-              { tokens_remaining: { gt: 0 } }
-            ]
-          }
-        },
+        where: { type: 'USER_MESSAGE' },
         include: { user: true },
         orderBy: { created_at: 'desc' }
       });
 
-      // Check if this specific message already has a response to prevent loops
-      if (pendingMessage) {
-        const alreadyAnswered = await prisma.aIResponse.findFirst({
-          where: {
-            userId: pendingMessage.userId,
-            type: 'COUNCIL_VERDICT',
-            created_at: { gt: pendingMessage.created_at }
-          }
-        });
+      if (pendingMessage && pendingMessage.user) {
+        const user = pendingMessage.user;
 
-        if (!alreadyAnswered) {
-          console.log(`🎙️ Arbiter: Interjection from ${pendingMessage.user.email} detected.`);
+        // 2. RUN THE EQUATION: token_balance - tokens_used = tokens_remaining
+        const tokensRemaining = (user.token_balance || 0) - (user.tokens_used || 0);
 
-          // 2. Token Check (Architects bypass this)
-          if (pendingMessage.user.role !== 'GOD_MODE' && pendingMessage.user.tokens_remaining <= 0) {
-            console.log("🚫 Insufficient tokens. Skipping...");
-            continue;
-          }
+        // 3. AUTHORIZATION CHECK
+        const isAuthorized = user.role === 'GOD_MODE' || tokensRemaining > 0;
 
-          console.log("🌪️ Summoning the Pentarchy for Live Debate...");
-          
-          // 3. Call the Pentarchy (Parallel API calls)
-          const responses = await generateCouncilResponse(pendingMessage.content);
-
-          // 4. Update the database with the synthesis (The Verdict)
-          await prisma.aIResponse.create({
-            data: {
-              userId: pendingMessage.userId,
-              content: JSON.stringify(responses),
-              type: 'COUNCIL_VERDICT'
+        if (isAuthorized) {
+          // Check if we already answered this specific message ID
+          const existingVerdict = await prisma.aIResponse.findFirst({
+            where: {
+              userId: user.id,
+              type: 'COUNCIL_VERDICT',
+              created_at: { gt: pendingMessage.created_at }
             }
           });
 
-          // 5. Deduct Token if not Architect
-          if (pendingMessage.user.role !== 'GOD_MODE') {
-            await prisma.user.update({
-              where: { id: pendingMessage.userId },
-              data: { tokens_remaining: { decrement: 1 } }
-            });
-            console.log(`🪙 Token deducted for ${pendingMessage.user.email}`);
-          }
+          if (!existingVerdict) {
+            console.log(`🎙️ Processing interjection for ${user.username}. Remaining: ${tokensRemaining}`);
 
-          console.log("✅ Arbiter: Synthesis complete. Live Panel updated.");
+            // 4. SUMMON THE PENTARCHY
+            const responses = await generateCouncilResponse(pendingMessage.content);
+
+            // 5. ATOMIC UPDATE: Create response AND increment usage
+            await prisma.$transaction([
+              prisma.aIResponse.create({
+                data: {
+                  userId: user.id,
+                  content: JSON.stringify(responses),
+                  type: 'COUNCIL_VERDICT'
+                }
+              }),
+              // Only deduct if not the Architect
+              ...(user.role !== 'GOD_MODE' ? [
+                prisma.user.update({
+                  where: { id: user.id },
+                  data: { tokens_used: { increment: 1 } }
+                })
+              ] : [])
+            ]);
+
+            console.log(`✅ Ledger updated for ${user.username}.`);
+          }
+        } else {
+          console.log(`🚫 ${user.username} has insufficient energy (Remaining: ${tokensRemaining})`);
         }
       }
     } catch (error) {
-      console.error("Arbiter Error:", error);
+      console.error("Arbiter Ledger Error:", error);
     }
-    // 5-second polling for a responsive "Live" feel
     await new Promise(resolve => setTimeout(resolve, 5000));
   }
 }

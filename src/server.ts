@@ -257,11 +257,11 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: mode || 'payment',
-      success_url: `${process.env.FRONTEND_URL}/billing?success=true`,
-      cancel_url: `${process.env.FRONTEND_URL}/billing?canceled=true`,
+      success_url: `${process.env.FRONTEND_URL}/pricing/success`,
+      cancel_url: `${process.env.FRONTEND_URL}/pricing?canceled=true`,
       metadata: {
         userId,
-        tokenAmount: tokens.toString(),
+        tokenAmount: tokens.toString(), // The "Arbiter" and "Scout" will look for this
         packageName: packageName || 'Fuel Pack'
       },
     });
@@ -270,6 +270,7 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', database: 'connected', stripe: 'initialized' });
