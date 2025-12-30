@@ -26,6 +26,51 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
+// --- THE COUNCIL ENGINE (EXPORTED FOR SCOUT) ---
+// This resolves the SyntaxError by providing the named export the Scout script needs
+export async function generateCouncilResponse(content: string, modelId: string) {
+  try {
+    if (modelId === 'deepseek') {
+      const res = await deepseek.chat.completions.create({
+        model: "deepseek-chat",
+        messages: [{ role: "user", content }],
+      });
+      return res.choices[0].message.content || "";
+    } 
+    else if (modelId === 'gemini') {
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const result = await model.generateContent(content);
+      return result.response.text();
+    }
+    else if (modelId === 'grok') {
+      const res = await xai.chat.completions.create({
+        model: "grok-beta",
+        messages: [{ role: "user", content }],
+      });
+      return res.choices[0].message.content || "";
+    }
+    else if (modelId === 'claude') {
+      const res = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20240620",
+        max_tokens: 1024,
+        messages: [{ role: "user", content }],
+      });
+      return res.content[0].type === 'text' ? res.content[0].text : "";
+    }
+    else if (modelId === 'gpt4') {
+      const res = await openai.chat.completions.create({
+        model: "gpt-4-turbo",
+        messages: [{ role: "user", content }],
+      });
+      return res.choices[0].message.content || "";
+    }
+    return "Council member silent.";
+  } catch (err) {
+    console.error(`❌ Engine error for ${modelId}:`, err);
+    throw err;
+  }
+}
+
 // --- EMAIL CONFIG ---
 const transporter = nodemailer.createTransport({
   host: "mail.privateemail.com",
@@ -107,18 +152,15 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// --- SOCKET.IO: LIVE CONVERSATION & TIER ARBITER ---
-// --- 4. SOCKET.IO INITIALIZATION ---
+// --- SOCKET.IO: UNIVERSAL CORS & ARBITER ---
 const io = new Server(httpServer, {
   cors: {
-    // This allows your main domain and all Vercel preview subdomains
     origin: (origin, callback) => {
       const allowedPatterns = [
         /^https:\/\/janusforge\.ai$/,
         /^https:\/\/www\.janusforge\.ai$/,
-        /\.vercel\.app$/ // This permits all Vercel-generated preview links
+        /\.vercel\.app$/ 
       ];
-      
       if (!origin || allowedPatterns.some(pattern => pattern.test(origin))) {
         callback(null, true);
       } else {
@@ -128,10 +170,8 @@ const io = new Server(httpServer, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  // Essential for Render/Vercel stability
-  transports: ['polling', 'websocket'] 
+  transports: ['polling', 'websocket']
 });
-
 
 io.on('connection', (socket) => {
   console.log('⚡ Nexus Connection Established');
@@ -165,28 +205,10 @@ io.on('connection', (socket) => {
       ];
       const activeCouncil = masterCouncil.slice(0, modelLimit);
 
-      // 5. PARALLEL SUMMONING
+      // 5. PARALLEL SUMMONING USING THE ENGINE
       activeCouncil.forEach(async (member) => {
         try {
-          let text = "";
-          if (member.id === 'deepseek') {
-            const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
-            text = res.choices[0].message.content || "";
-          } else if (member.id === 'gemini') {
-            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-            const result = await model.generateContent(postData.content);
-            text = result.response.text();
-          } else if (member.id === 'grok') {
-            const res = await xai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
-            text = res.choices[0].message.content || "";
-          } else if (member.id === 'claude') {
-            const res = await anthropic.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{ role: "user", content: postData.content }] });
-            text = res.content[0].type === 'text' ? res.content[0].text : "";
-          } else if (member.id === 'gpt4') {
-            const res = await openai.chat.completions.create({ model: "gpt-4-turbo", messages: [{ role: "user", content: postData.content }] });
-            text = res.choices[0].message.content || "";
-          }
-
+          const text = await generateCouncilResponse(postData.content, member.id);
           io.emit('ai:response', { id: crypto.randomUUID(), name: member.name, content: text, sender: 'ai', isVerdict: false });
         } catch (err) { console.error(`❌ ${member.name} failed:`, err); }
       });
