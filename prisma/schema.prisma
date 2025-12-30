@@ -36,6 +36,7 @@ model User {
   debate_votes      DebateVote[]
   posts             Post[]
   token_transactions TokenTransaction[]
+  digest_subscribed  Boolean  @default(true) @map("digest_subscribed")
 
   @@map("users")
 }
