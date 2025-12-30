@@ -1,26 +1,54 @@
 import { Router, Request, Response } from 'express';
+import { PrismaClient } from '@prisma/client';
 
 const router = Router();
+const prisma = new PrismaClient();
 
-// GET /api/daily-forge/topic
-router.get('/topic', async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    // This is the "Operational" data the homepage is looking for
-    const currentTopic = {
-      id: 'forge-topic-active',
-      title: 'Should AI development be globally regulated by a central authority?',
-      description: 'Exploring the balance between innovation and safety in global AI governance.',
-      source: 'AI Council Analysis',
-      tags: ['AI Ethics', 'Governance', 'Global'],
-      aiInterest: 92,
-      humanInterest: 87,
-      timestamp: new Date().toISOString(),
-      nextUpdate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    };
+    const forge = await prisma.dailyForge.findFirst({
+      orderBy: { date: 'desc' },
+    });
 
-    res.json(currentTopic);
+    if (!forge) {
+      return res.status(404).json({ error: 'No active Forge found' });
+    }
+
+    // --- 🧠 DEFENSIVE PARSING LOGIC ---
+    // This ensures that even if the DB has a "flat string", 
+    // the frontend receives the actual Array/Object it needs.
+    
+    let parsedScoutedTopics = [];
+    try {
+      parsedScoutedTopics = typeof forge.scoutedTopics === 'string' 
+        ? JSON.parse(forge.scoutedTopics) 
+        : (forge.scoutedTopics || []);
+    } catch (e) {
+      console.error("Failed to parse scoutedTopics, defaulting to empty array");
+      parsedScoutedTopics = [];
+    }
+
+    let parsedCouncilVotes = {};
+    try {
+      parsedCouncilVotes = typeof forge.councilVotes === 'string' 
+        ? JSON.parse(forge.councilVotes) 
+        : (forge.councilVotes || {});
+    } catch (e) {
+      console.error("Failed to parse councilVotes, defaulting to empty object");
+      parsedCouncilVotes = {};
+    }
+
+    // Final Payload construction
+    res.json({
+      ...forge,
+      scoutedTopics: Array.isArray(parsedScoutedTopics) ? parsedScoutedTopics : [],
+      councilVotes: parsedCouncilVotes,
+      openingThoughts: forge.openingThoughts || "Synthesis in progress..."
+    });
+
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch the daily topic' });
+    console.error("❌ API Error:", error);
+    res.status(500).json({ error: 'Failed to fetch forge data' });
   }
 });
 

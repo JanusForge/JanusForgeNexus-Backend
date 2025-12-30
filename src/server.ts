@@ -9,6 +9,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import dailyForgeRouter from './routes/dailyForge';
 
 dotenv.config();
 
@@ -27,7 +28,7 @@ const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', /\
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTHENTICATION (The Gates) ---
+// --- 🔑 AUTHENTICATION ---
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -37,11 +38,21 @@ app.post('/api/auth/login', async (req, res) => {
     const isValid = await bcrypt.compare(password, user.password_hash);
     if (!isValid) return res.status(401).json({ error: "Unauthorized" });
 
-    res.json({ id: user.id, email: user.email, username: user.username, role: user.role, token_balance: user.token_balance });
+    // Returns tokens_remaining as the primary UI value
+    res.json({ 
+      id: user.id, 
+      email: user.email, 
+      username: user.username, 
+      role: user.role, 
+      tokens_remaining: user.tokens_remaining 
+    });
   } catch (err) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
 app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
+
+// --- ⚒️ DAILY FORGE ROUTE ---
+app.use('/api/daily-forge', dailyForgeRouter);
 
 // --- 🏛️ SOCKET.IO (The Council) ---
 const io = new Server(httpServer, {
@@ -51,14 +62,19 @@ const io = new Server(httpServer, {
 
 io.on('connection', (socket) => {
   console.log('⚡ Nexus Connection Established');
+  
   socket.on('post:new', async (postData) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
-      if (!user || (user.role !== 'GOD_MODE' && user.token_balance < 1)) return;
+      
+      // ⛽ GATEKEEPER: Using tokens_remaining as the fuel gauge
+      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
+        console.log(`⚠️ Access Denied: ${user?.username} is out of tokens.`);
+        return;
+      }
 
       io.emit('post:incoming', { id: crypto.randomUUID(), name: user.username, content: postData.content, sender: 'user' });
 
-      // ALIGNED WITH YOUR SCHEMA ENUMS: GROK, GEMINI_PRO, CLAUDE, CHATGPT, DEEPSEEK
       const activeModels = [
         { id: 'CHATGPT', name: 'GPT-4 (Architect)' },
         { id: 'CLAUDE', name: 'Claude (Analyst)' },
@@ -82,8 +98,15 @@ io.on('connection', (socket) => {
         } catch (e) { console.error(e); }
       });
 
+      // 📉 UPDATE BALANCES: Burn tokens_remaining and track tokens_used
       if (user.role !== 'GOD_MODE') {
-        await prisma.user.update({ where: { id: user.id }, data: { token_balance: { decrement: 1 } } });
+        await prisma.user.update({ 
+          where: { id: user.id }, 
+          data: { 
+            tokens_remaining: { decrement: 1 },
+            tokens_used: { increment: 1 } 
+          } 
+        });
       }
     } catch (err) { console.error(err); }
   });
