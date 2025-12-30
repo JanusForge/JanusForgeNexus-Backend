@@ -27,33 +27,23 @@ const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', /\
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTHENTICATION ROUTES  ---
+// --- 🔑 AUTHENTICATION (The Gates) ---
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) return res.status(401).json({ error: "Invalid credentials" });
+    if (!isValid) return res.status(401).json({ error: "Unauthorized" });
 
-    // Send back user data so the frontend can "Unlock"
-    res.json({
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      role: user.role,
-      tokens_remaining: user.token_balance
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Auth System Failure" });
-  }
+    res.json({ id: user.id, email: user.email, username: user.username, role: user.role, token_balance: user.token_balance });
+  } catch (err) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
-// --- ROOT & HEALTH ---
 app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
 
-// --- 🏛️ SOCKET.IO: COUNCIL ARBITER ---
+// --- 🏛️ SOCKET.IO (The Council) ---
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigins, credentials: true },
   transports: ['polling', 'websocket']
@@ -68,21 +58,27 @@ io.on('connection', (socket) => {
 
       io.emit('post:incoming', { id: crypto.randomUUID(), name: user.username, content: postData.content, sender: 'user' });
 
-      const models = ['gpt-4-turbo', 'claude-3-5-sonnet-20240620', 'deepseek-chat'];
-      models.forEach(async (id) => {
+      // ALIGNED WITH YOUR SCHEMA ENUMS: GROK, GEMINI_PRO, CLAUDE, CHATGPT, DEEPSEEK
+      const activeModels = [
+        { id: 'CHATGPT', name: 'GPT-4 (Architect)' },
+        { id: 'CLAUDE', name: 'Claude (Analyst)' },
+        { id: 'DEEPSEEK', name: 'DeepSeek (Logic)' }
+      ];
+
+      activeModels.forEach(async (model) => {
         try {
           let text = "";
-          if (id.includes('gpt')) {
-            const res = await openai.chat.completions.create({ model: id, messages: [{role: 'user', content: postData.content}] });
+          if (model.id === 'CHATGPT') {
+            const res = await openai.chat.completions.create({ model: 'gpt-4-turbo', messages: [{role: 'user', content: postData.content}] });
             text = res.choices[0].message.content || "";
-          } else if (id.includes('claude')) {
-            const res = await anthropic.messages.create({ model: id, max_tokens: 1024, messages: [{role: 'user', content: postData.content}] });
+          } else if (model.id === 'CLAUDE') {
+            const res = await anthropic.messages.create({ model: 'claude-3-5-sonnet-20240620', max_tokens: 1024, messages: [{role: 'user', content: postData.content}] });
             text = res.content[0].type === 'text' ? res.content[0].text : "";
-          } else {
-            const res = await deepseek.chat.completions.create({ model: id, messages: [{role: 'user', content: postData.content}] });
+          } else if (model.id === 'DEEPSEEK') {
+            const res = await deepseek.chat.completions.create({ model: 'deepseek-chat', messages: [{role: 'user', content: postData.content}] });
             text = res.choices[0].message.content || "";
           }
-          io.emit('ai:response', { id: crypto.randomUUID(), name: id, content: text, sender: 'ai' });
+          io.emit('ai:response', { id: crypto.randomUUID(), name: model.name, content: text, sender: 'ai' });
         } catch (e) { console.error(e); }
       });
 
