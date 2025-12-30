@@ -4,11 +4,11 @@ import { generateCouncilResponse } from '../server';
 const prisma = new PrismaClient();
 
 async function processLiveDialogue() {
-  console.log("⚖️ The Arbiter is monitoring the Ledger & Live Panel...");
+  console.log("⚖️ The Arbiter is monitoring the Ledger...");
 
   while (true) {
     try {
-      // 1. Fetch the latest user message (where ai_model is null)
+      // 1. Corrected: ai_model is null for user messages in your schema
       const pendingMessage = await prisma.aIResponse.findFirst({
         where: { ai_model: null },
         include: { user: true },
@@ -20,7 +20,6 @@ async function processLiveDialogue() {
         const isAuthorized = user.username === 'admin-access' || (user.token_balance && user.token_balance > 0);
 
         if (isAuthorized) {
-          // 2. Check if a response already exists for this specific post_id
           const existingVerdict = await prisma.aIResponse.findFirst({
             where: {
               post_id: pendingMessage.post_id,
@@ -30,11 +29,9 @@ async function processLiveDialogue() {
 
           if (!existingVerdict) {
             console.log(`🎙️ Council Summoned for: ${user.username}`);
-
-            // 3. Generate content using the exported engine
             const responseText = await generateCouncilResponse(pendingMessage.raw_response || "", "gpt4");
 
-            // 4. Update the DB using your actual schema fields
+            // 2. Corrected: Using user_id, post_id, and raw_response per your DB
             await prisma.$transaction([
               prisma.aIResponse.create({
                 data: {
@@ -52,7 +49,6 @@ async function processLiveDialogue() {
                 })
               ] : [])
             ]);
-
             console.log(`✅ Ledger updated for ${user.username}.`);
           }
         }
