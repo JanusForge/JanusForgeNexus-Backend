@@ -26,15 +26,12 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
-// --- THE COUNCIL ENGINE (EXPORTED FOR SCOUT) ---
-// This resolves the SyntaxError by providing the named export the Scout script needs
+// --- THE COUNCIL ENGINE (SHARED BY ARBITER & SCOUT) ---
+// Exported so external scripts like aiScout.ts can import it
 export async function generateCouncilResponse(content: string, modelId: string) {
   try {
     if (modelId === 'deepseek') {
-      const res = await deepseek.chat.completions.create({
-        model: "deepseek-chat",
-        messages: [{ role: "user", content }],
-      });
+      const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content }] });
       return res.choices[0].message.content || "";
     } 
     else if (modelId === 'gemini') {
@@ -43,25 +40,15 @@ export async function generateCouncilResponse(content: string, modelId: string) 
       return result.response.text();
     }
     else if (modelId === 'grok') {
-      const res = await xai.chat.completions.create({
-        model: "grok-beta",
-        messages: [{ role: "user", content }],
-      });
+      const res = await xai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content }] });
       return res.choices[0].message.content || "";
     }
     else if (modelId === 'claude') {
-      const res = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20240620",
-        max_tokens: 1024,
-        messages: [{ role: "user", content }],
-      });
+      const res = await anthropic.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{ role: "user", content }] });
       return res.content[0].type === 'text' ? res.content[0].text : "";
     }
     else if (modelId === 'gpt4') {
-      const res = await openai.chat.completions.create({
-        model: "gpt-4-turbo",
-        messages: [{ role: "user", content }],
-      });
+      const res = await openai.chat.completions.create({ model: "gpt-4-turbo", messages: [{ role: "user", content }] });
       return res.choices[0].message.content || "";
     }
     return "Council member silent.";
@@ -86,13 +73,11 @@ const sendAdminAuditEmail = async (session: Stripe.Checkout.Session, tokens: num
       from: '"Nexus Audit" <welcome@janusforge.ai>',
       to: process.env.EMAIL_USER,
       subject: `💰 FORGE REFUEL: ${packageName} Acquired`,
-      html: `
-        <div style="font-family: sans-serif; background: #000; color: #fff; padding: 30px; border-radius: 15px; border: 1px solid #333;">
-          <h2 style="color: #3b82f6; text-transform: uppercase;">Economic Influx</h2>
+      html: `<div style="font-family: sans-serif; background: #000; color: #fff; padding: 30px; border: 1px solid #333;">
+          <h2 style="color: #3b82f6;">Economic Influx</h2>
           <p><strong>Package:</strong> ${packageName} | <strong>Tokens:</strong> ${tokens}</p>
           <p><strong>Revenue:</strong> $${(session.amount_total || 0) / 100} | <strong>User:</strong> ${session.metadata?.userId}</p>
-        </div>
-      `,
+        </div>`
     });
   } catch (error) { console.error('❌ Audit Failed:', error); }
 };
@@ -113,9 +98,7 @@ app.post('/api/v1/webhook/stripe', express.raw({ type: 'application/json' }), as
     try {
       await prisma.$transaction([
         prisma.user.update({ where: { id: userId }, data: { token_balance: { increment: tokens } } }),
-        prisma.purchase.create({
-          data: { userId: userId!, amount: (session.amount_total || 0) / 100, tokens, packageName: packageName || 'Fuel Pack', stripeSessionId: session.id }
-        })
+        prisma.purchase.create({ data: { userId: userId!, amount: (session.amount_total || 0) / 100, tokens, packageName: packageName || 'Fuel Pack', stripeSessionId: session.id } })
       ]);
       await sendAdminAuditEmail(session, tokens, packageName || 'Fuel Pack');
     } catch (dbErr) { console.error('❌ DB Update Failed:', dbErr); }
@@ -152,25 +135,22 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// --- SOCKET.IO: UNIVERSAL CORS & ARBITER ---
+// --- SOCKET.IO: UNIVERSAL CORS & ARBITER (LEFT HEMISPHERE) ---
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
-      const allowedPatterns = [
-        /^https:\/\/janusforge\.ai$/,
-        /^https:\/\/www\.janusforge\.ai$/,
-        /\.vercel\.app$/ 
-      ];
+      const allowedPatterns = [/^https:\/\/janusforge\.ai$/, /^https:\/\/www\.janusforge\.ai$/, /\.vercel\.app$/, /^http:\/\/localhost:3000$/];
       if (!origin || allowedPatterns.some(pattern => pattern.test(origin))) {
         callback(null, true);
       } else {
+        console.warn(`🚫 Nexus blocked a connection from origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: true // Required for session-based cookies
   },
-  transports: ['polling', 'websocket']
+  transports: ['polling', 'websocket'] // Initial polling handshake for stability
 });
 
 io.on('connection', (socket) => {
@@ -181,7 +161,7 @@ io.on('connection', (socket) => {
       // 1. ARBITER: Validate User & Deduct Token
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
       if (!user || user.token_balance < 1) {
-        socket.emit('error', { message: 'Insufficient tokens.' });
+        socket.emit('error', { message: 'Insufficient tokens. Refuel at the Forge.' });
         return;
       }
       await prisma.user.update({ where: { id: postData.userId }, data: { token_balance: { decrement: 1 } } });
@@ -205,7 +185,7 @@ io.on('connection', (socket) => {
       ];
       const activeCouncil = masterCouncil.slice(0, modelLimit);
 
-      // 5. PARALLEL SUMMONING USING THE ENGINE
+      // 5. PARALLEL EMIT: Each model broadcasts as soon as it finishes
       activeCouncil.forEach(async (member) => {
         try {
           const text = await generateCouncilResponse(postData.content, member.id);
