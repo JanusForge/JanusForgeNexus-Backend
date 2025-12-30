@@ -10,155 +10,86 @@ import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import { TIER_CONFIGS } from './config/tiers';
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2023-10-16' });
 
-// --- EMAIL CONFIGURATION ---
+// --- AI CLIENTS ---
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
+const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+
+// --- EMAIL CONFIG ---
 const transporter = nodemailer.createTransport({
   host: "mail.privateemail.com",
   port: 465,
   secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  authMethod: 'PLAIN',
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
 
-// --- AUDIT UTILITIES ---
+// --- AUDIT UTILITY ---
 const sendAdminAuditEmail = async (session: Stripe.Checkout.Session, tokens: number, packageName: string) => {
   try {
     await transporter.sendMail({
       from: '"Nexus Audit" <welcome@janusforge.ai>',
-      to: process.env.EMAIL_USER, // Sends to you
+      to: process.env.EMAIL_USER,
       subject: `💰 FORGE REFUEL: ${packageName} Acquired`,
       html: `
         <div style="font-family: sans-serif; background: #000; color: #fff; padding: 30px; border-radius: 15px; border: 1px solid #333;">
-          <h2 style="color: #3b82f6; text-transform: uppercase;">Economic Influx Detected</h2>
-          <p><strong>Package:</strong> ${packageName}</p>
-          <p><strong>Tokens Added:</strong> ${tokens}</p>
-          <p><strong>Revenue:</strong> $${(session.amount_total || 0) / 100} ${session.currency?.toUpperCase()}</p>
-          <p><strong>User ID:</strong> ${session.metadata?.userId}</p>
-          <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;" />
-          <p style="font-size: 10px; color: #666;">Nexus Economy Audit System - Real Time Signal</p>
+          <h2 style="color: #3b82f6; text-transform: uppercase;">Economic Influx</h2>
+          <p><strong>Package:</strong> ${packageName} | <strong>Tokens:</strong> ${tokens}</p>
+          <p><strong>Revenue:</strong> $${(session.amount_total || 0) / 100} | <strong>User:</strong> ${session.metadata?.userId}</p>
         </div>
       `,
     });
-    console.log(`📊 Audit log dispatched for ${packageName}`);
-  } catch (error) {
-    console.error('❌ Failed to send admin audit:', error);
-  }
+  } catch (error) { console.error('❌ Audit Failed:', error); }
 };
 
-const sendWelcomeEmail = async (email: string, username: string) => {
-  try {
-    await transporter.sendMail({
-      from: '"Janus Forge" <welcome@janusforge.ai>',
-      to: email,
-      subject: 'Welcome to the Janus Forge Nexus',
-      html: `
-        <div style="font-family: sans-serif; background: #000; color: #fff; padding: 40px; border-radius: 20px; border: 1px solid #333;">
-          <h1 style="color: #3b82f6; text-transform: uppercase;">Welcome, Architect ${username}</h1>
-          <p style="color: #ccc; line-height: 1.6;">Your access to the AI Council has been initialized.</p>
-          <div style="margin-top: 30px;">
-            <a href="${process.env.FRONTEND_URL}/pricing" style="background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Refuel Your Forge</a>
-          </div>
-        </div>
-      `,
-    });
-  } catch (error) {
-    console.error('❌ Failed to send welcome email:', error);
-  }
-};
-
-// --- 1. STRIPE WEBHOOK ---
+// --- STRIPE WEBHOOK ---
 app.post('/api/v1/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
-
   try {
     event = stripe.webhooks.constructEvent(req.body, sig!, process.env.STRIPE_WEBHOOK_SECRET!);
-  } catch (err: any) {
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+  } catch (err: any) { return res.status(400).send(`Webhook Error: ${err.message}`); }
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
-    const userId = session.metadata?.userId;
-    const tokens = parseInt(session.metadata?.tokenAmount || '0');
-    const packageName = session.metadata?.packageName || 'Fuel Pack';
+    const { userId, tokenAmount, packageName } = session.metadata || {};
+    const tokens = parseInt(tokenAmount || '0');
 
     try {
       await prisma.$transaction([
-        prisma.user.update({
-          where: { id: userId },
-          data: { token_balance: { increment: tokens } }
-        }),
+        prisma.user.update({ where: { id: userId }, data: { token_balance: { increment: tokens } } }),
         prisma.purchase.create({
-          data: {
-            userId: userId!,
-            amount: (session.amount_total || 0) / 100,
-            tokens: tokens,
-            packageName: packageName,
-            stripeSessionId: session.id
-          }
+          data: { userId: userId!, amount: (session.amount_total || 0) / 100, tokens, packageName: packageName || 'Fuel Pack', stripeSessionId: session.id }
         })
       ]);
-      
-      // TRIGGER AUDIT EMAIL
-      await sendAdminAuditEmail(session, tokens, packageName);
-      
-      console.log('✅ Nexus Economy Updated & Audit Sent');
-    } catch (dbErr) {
-      console.error('❌ Webhook DB Update Failed:', dbErr);
-    }
+      await sendAdminAuditEmail(session, tokens, packageName || 'Fuel Pack');
+    } catch (dbErr) { console.error('❌ DB Update Failed:', dbErr); }
   }
   res.json({ received: true });
 });
 
-// --- 2. MIDDLEWARE ---
+// --- MIDDLEWARE ---
 const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', 'http://localhost:3000'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// --- 3. REST API ROUTES ---
-// (Keeping your existing Daily-Forge, Auth, and Billing routes...)
-
+// --- REST API (Daily Forge & Billing) ---
 app.get('/api/daily-forge', async (req, res) => {
   try {
-    const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    if (!latestForge) return res.status(404).json({ message: "No report today." });
-    res.json({ ...latestForge, scoutedTopics: JSON.parse(latestForge.scoutedTopics), councilVotes: JSON.parse(latestForge.councilVotes) });
-  } catch (error) { res.status(500).json({ error: "Nexus Core error." }); }
-});
-
-app.post('/api/auth/register', async (req, res) => {
-  const { email, username, password } = req.body;
-  try {
-    const newUser = await prisma.user.create({ data: { email, username, password_hash: password, token_balance: 50 } });
-    sendWelcomeEmail(email, username).catch(err => console.error("Email fail:", err));
-    return res.json({ user: newUser });
-  } catch (err) { return res.status(500).json({ error: "Registration failed." }); }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  const identifier = req.body?.username || req.body?.email || req.body?.identifier;
-  if (identifier === 'admin-access' || identifier === 'admin@janusforge.ai') {
-    return res.json({ user: { id: process.env.ADMIN_UUID || '550e8400-e29b-41d4-a716-446655440000', username: 'admin-access', token_balance: 999999, tier: 'enterprise' }, token: 'admin-bypass' });
-  }
-  try {
-    const user = await prisma.user.findFirst({ where: { OR: [{ username: String(identifier) }, { email: String(identifier) }] } });
-    if (!user) return res.status(404).json({ message: "Not found." });
-    res.json({ user, token: 'mock-jwt' });
-  } catch (error) { res.status(500).json({ message: "Auth Error" }); }
+    const forge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
+    if (!forge) return res.status(404).json({ error: "No report." });
+    res.json({ ...forge, scoutedTopics: JSON.parse(forge.scoutedTopics), councilVotes: JSON.parse(forge.councilVotes) });
+  } catch (err) { res.status(500).json({ error: "Core Error" }); }
 });
 
 app.post('/api/v1/billing/checkout', async (req, res) => {
@@ -176,75 +107,71 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/health', (req, res) => res.json({ status: 'healthy' }));
-
-// --- 4. SOCKET.IO & AI MODELS ---
-const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
-  transports: ['polling', 'websocket']
-});
+// --- SOCKET.IO: LIVE CONVERSATION & TIER ARBITER ---
+const io = new Server(httpServer, { cors: { origin: allowedOrigins, credentials: true } });
 
 io.on('connection', (socket) => {
   console.log('⚡ Nexus Connection Established');
+
   socket.on('post:new', async (postData) => {
     try {
-      // 1. Check & Deduct Token
+      // 1. ARBITER: Validate User & Deduct Token
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
       if (!user || user.token_balance < 1) {
-        socket.emit('error', { message: 'Insufficient tokens. Refuel at the Forge.' });
+        socket.emit('error', { message: 'Insufficient tokens.' });
         return;
       }
-      
-      await prisma.user.update({
-        where: { id: postData.userId },
-        data: { token_balance: { decrement: 1 } }
+      await prisma.user.update({ where: { id: postData.userId }, data: { token_balance: { decrement: 1 } } });
+
+      // 2. PHASE SHIFT
+      const forge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
+      if (forge) await prisma.dailyForge.update({ where: { id: forge.id }, data: { phase: 'Architect_Interjection' } });
+
+      // 3. BROADCAST: Architect Input
+      io.emit('post:incoming', { id: crypto.randomUUID(), name: postData.name, content: postData.content, sender: 'user' });
+
+      // 4. TIER-GUIDED SUMMONING
+      const tier = (user.tier || 'free') as keyof typeof TIER_CONFIGS;
+      const modelLimit = TIER_CONFIGS[tier]?.max_ai_models || 2;
+      const masterCouncil = [
+        { id: 'deepseek', name: 'DeepSeek (Logic)' },
+        { id: 'gemini', name: 'Gemini (Observer)' },
+        { id: 'grok', name: 'Grok (Catalyst)' },
+        { id: 'claude', name: 'Claude (Analyst)' },
+        { id: 'gpt4', name: 'GPT-4 (Architect)' }
+      ];
+      const activeCouncil = masterCouncil.slice(0, modelLimit);
+
+      // 5. PARALLEL SUMMONING
+      activeCouncil.forEach(async (member) => {
+        try {
+          let text = "";
+          if (member.id === 'deepseek') {
+            const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
+            text = res.choices[0].message.content || "";
+          } else if (member.id === 'gemini') {
+            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+            const result = await model.generateContent(postData.content);
+            text = result.response.text();
+          } else if (member.id === 'grok') {
+            const res = await xai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
+            text = res.choices[0].message.content || "";
+          } else if (member.id === 'claude') {
+            const res = await anthropic.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{ role: "user", content: postData.content }] });
+            text = res.content[0].type === 'text' ? res.content[0].text : "";
+          } else if (member.id === 'gpt4') {
+            const res = await openai.chat.completions.create({ model: "gpt-4-turbo", messages: [{ role: "user", content: postData.content }] });
+            text = res.choices[0].message.content || "";
+          }
+
+          io.emit('ai:response', { id: crypto.randomUUID(), name: member.name, content: text, sender: 'ai', isVerdict: false });
+        } catch (err) { console.error(`❌ ${member.name} failed:`, err); }
       });
-
-      // 2. Update Forge Phase
-      const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-      if (latestForge) {
-        await prisma.dailyForge.update({ 
-          where: { id: latestForge.id }, 
-          data: { phase: 'Architect_Interjection' } 
-        });
-      }
-
-      // 3. BROADCAST: Initial Architect Message
-      io.emit('post:incoming', { 
-        id: crypto.randomUUID(), 
-        name: postData.name, 
-        content: postData.content, 
-        sender: 'user' 
-      });
-
-      // 4. THE DELIBERATION (Pinging Gemini as the first responder)
-      // You can repeat this pattern for Claude, Grok, etc.
-      const geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const geminiResult = await geminiModel.generateContent(postData.content);
-      const geminiText = geminiResult.response.text();
-
-      io.emit('ai:response', {
-        id: crypto.randomUUID(),
-        name: 'Gemini (The Observer)',
-        content: geminiText,
-        sender: 'ai',
-        modelType: 'gemini'
-      });
-
-    } catch (error) {
-      console.error('❌ Council Summoning Failed:', error);
-      socket.emit('error', { message: 'The Council is silent. Check backend logs.' });
-    }
+    } catch (error) { console.error('❌ Summoning Failed:', error); }
   });
+
+  socket.on('disconnect', () => console.log('❌ Connection Terminated'));
+});
+
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => console.log(`🚀 Nexus Backend Live on Port ${PORT}`));
-
-  socket.on('disconnect', () => { 
-    console.log('❌ Connection Terminated'); 
-  });
-});
-
-const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Nexus Backend Live on Port ${PORT}`);
-});
