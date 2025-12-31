@@ -10,6 +10,7 @@ import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
+import Stripe from 'stripe';
 import dailyForgeRouter from './routes/dailyForge';
 
 dotenv.config();
@@ -18,6 +19,9 @@ const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// --- 💳 STRIPE INITIALIZATION ---
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
 // --- AI CLIENTS ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -32,7 +36,6 @@ app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
 
-// 1. Register (THE FIX FOR YOUR SCREENSHOT)
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password } = req.body;
   try {
@@ -43,39 +46,33 @@ app.post('/api/auth/register', async (req, res) => {
         email,
         password_hash: hashedPassword,
         tokens_remaining: 10,
-        digest_subscribed: true // New required field
+        digest_subscribed: true
       }
     });
-    // Return JSON so the frontend doesn't see a '<' error
     res.status(201).json({ id: user.id, username: user.username, email: user.email });
   } catch (err) {
-    console.error("Registration Failure:", err);
     res.status(400).json({ error: "Username or Email already in use." });
   }
 });
 
-// 2. Login
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-
-    const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) return res.status(401).json({ error: "Unauthorized" });
-
-    res.json({ 
-      id: user.id, 
-      email: user.email, 
-      username: user.username, 
-      role: user.role, 
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+    res.json({
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
       tokens_remaining: user.tokens_remaining,
-      digest_subscribed: user.digest_subscribed 
+      digest_subscribed: user.digest_subscribed
     });
   } catch (err) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
-// 3. Forgot Password (Branded Template)
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   try {
@@ -83,7 +80,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!user) return res.json({ message: "Check your email for reset instructions." });
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 3600000); // 1 hour
+    const expires = new Date(Date.now() + 3600000); 
 
     await prisma.user.update({
       where: { email },
@@ -94,74 +91,32 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       from: 'Janus Forge <admin@janusforge.ai>',
       to: email,
       subject: 'Access Recovery: Janus Forge Nexus',
-      html: `
-        <div style="background-color: #000000; color: #ffffff; font-family: sans-serif; padding: 40px; text-align: center;">
-          <div style="max-width: 600px; margin: 0 auto; border: 1px solid #1e40af; border-radius: 24px; padding: 40px; background: linear-gradient(180deg, #0a0a0a 0%, #000000 100%);">
-            <h1 style="color: #3b82f6; font-size: 24px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px;">
-              Janus Forge <span style="color: #ffffff;">Nexus</span>
-            </h1>
-            <p style="color: #9ca3af; font-size: 14px; font-style: italic; margin-bottom: 30px;">
-              "A security token has been generated for your account recovery."
-            </p>
-            <div style="height: 1px; background: #1f2937; margin: 30px 0;"></div>
-            <p style="font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-              The Council has verified your request for a password reset. This access link is valid for <strong>60 minutes</strong>.
-            </p>
-            <a href="https://janusforge.ai/reset-password?token=${token}" 
-               style="background-color: #ffffff; color: #000000; padding: 16px 32px; border-radius: 12px; font-weight: 900; text-decoration: none; font-size: 12px; display: inline-block; letter-spacing: 1px;">
-              RESET CREDENTIALS
-            </a>
-            <div style="height: 1px; background: #1f2937; margin: 30px 0;"></div>
-            <p style="color: #4b5563; font-size: 10px; text-transform: uppercase; font-weight: bold;">
-              If you did not request this, secure your account immediately.
-            </p>
-          </div>
-        </div>
-      `
+      html: `<div style="background-color: #000; color: #fff; padding: 40px; font-family: sans-serif;">
+               <h1>Janus Forge Nexus</h1>
+               <p>Reset link: https://janusforge.ai/reset-password?token=${token}</p>
+             </div>`
     });
-
     res.json({ message: "Reset link sent." });
   } catch (err) { res.status(500).json({ error: "Failed to process request" }); }
 });
 
-// 4. Reset Password Verification
-app.post('/api/auth/reset-password', async (req, res) => {
-  const { token, newPassword } = req.body;
+// --- 💳 STRIPE CHECKOUT ROUTE ---
+app.post('/api/stripe/create-checkout-session', async (req, res) => {
+  const { priceId, userId } = req.body;
   try {
-    const user = await prisma.user.findFirst({
-      where: {
-        reset_token: token,
-        reset_expires: { gt: new Date() }
-      }
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: 'payment',
+      success_url: `${process.env.CLIENT_URL}/dashboard?success=true`,
+      cancel_url: `${process.env.CLIENT_URL}/pricing?canceled=true`,
+      metadata: { userId },
     });
-
-    if (!user) return res.status(400).json({ error: "Invalid or expired token." });
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password_hash: hashedPassword,
-        reset_token: null,
-        reset_expires: null
-      }
-    });
-
-    res.json({ message: "Password updated successfully." });
-  } catch (err) { res.status(500).json({ error: "Failed to reset password." }); }
-});
-
-// 5. Toggle Nightly Digest
-app.post('/api/user/toggle-digest', async (req, res) => {
-  const { userId, subscribe } = req.body;
-  try {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { digest_subscribed: subscribe }
-    });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Failed to update preference" }); }
+    res.json({ id: session.id, url: session.url });
+  } catch (error: any) {
+    console.error('Stripe Error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
