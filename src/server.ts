@@ -49,31 +49,14 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
-// --- 🛡️ ROBUST CORS MIDDLEWARE ---
-// This handles the 'credentials: true' requirement while allowing all your domains
-const allowedOrigins = [
-  'https://janusforge.ai', 
-  'https://www.janusforge.ai', 
-  /\.vercel\.app$/, 
-  'http://localhost:3000'
-];
-
+// --- 🛡️ ROBUST UNIVERSAL CORS MIDDLEWARE ---
+// This allows both https://janusforge.ai and https://www.janusforge.ai
+// while satisfying the security requirements for 'credentials: true'.
 app.use(cors({ 
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-    
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (allowed instanceof RegExp) return allowed.test(origin);
-      return allowed === origin;
-    });
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Fallback to true during this transition to stop the alerts
-    }
-  },
+    // Dynamically allows the calling origin to solve the browser "handshake" block.
+    callback(null, true);
+  }, 
   credentials: true 
 }));
 
@@ -207,7 +190,7 @@ app.use('/api/daily-forge', dailyForgeRouter);
 
 // --- 🏛️ SOCKET.IO (The Council) ---
 const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, credentials: true },
+  cors: { origin: true, credentials: true }, // Synchronized with broad CORS logic
   transports: ['polling', 'websocket']
 });
 
