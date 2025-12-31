@@ -10,22 +10,23 @@ const grokClient = new OpenAI({
 });
 
 // --- 🤖 THE AUTONOMOUS BRAINSTORMER ---
-// This function replaces the "Waiting for Architect" step
 async function scoutNewTopic() {
   console.log("🔍 Scouting the datasphere for fresh intelligence...");
-  
-  // Directly query the high-logic models for a shortlist of 3 topics
+
   const prompt = "Act as the AI Scout. Propose 3 provocative, high-tension 'Neural Nexus' topics for today's debate. Each should be under 10 words. Return as a JSON array: ['topic1', 'topic2', 'topic3']";
-  
+
   try {
     const res = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20240620",
+      // ✨ 2025 AGENT MODEL: Sonnet 4.5 is optimized for agentic workflows
+      model: "claude-sonnet-4-5-20250929", 
       max_tokens: 200,
       messages: [{ role: "user", content: prompt }],
     });
-    
+
     const content = res.content[0].type === 'text' ? res.content[0].text : "['Neural Sovereignty']";
-    return JSON.parse(content);
+    // Sanitize in case of markdown wrapping
+    const jsonStr = content.includes('[') ? content.substring(content.indexOf('['), content.lastIndexOf(']') + 1) : content;
+    return JSON.parse(jsonStr);
   } catch (err) {
     console.error("⚠️ Scout failed to find new topics. Using fallback.");
     return ["Quantum Ethics", "Neural Sovereignty", "Substrate Autonomy"];
@@ -43,11 +44,11 @@ async function generateCouncilResponse(model: string, query: string) {
 
   try {
     console.log(`📡 Requesting response from ${model}...`);
-    // Logic for Claude and Grok (same as previous)
     if (model === 'CLAUDE') {
       const msg = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20240620",
-        max_tokens: 600,
+        // ✨ 2025 FRONTIER MODEL: Opus 4.5 for deep reasoning
+        model: "claude-opus-4-5-20251101", 
+        max_tokens: 1000, 
         system: mandates.CLAUDE,
         messages: [{ role: "user", content: query }],
       });
@@ -68,17 +69,13 @@ async function generateCouncilResponse(model: string, query: string) {
 }
 
 async function processSynthesisCycle(forgeId: string, customTopic?: string) {
-  const forge = await prisma.dailyForge.findUnique({ where: { id: forgeId } });
-  
-  // 1. Autonomous Topic Selection
   let activeTopic = customTopic;
   if (!activeTopic) {
     const shortlist = await scoutNewTopic();
-    activeTopic = shortlist[0]; // Choose the top scouted topic
+    activeTopic = shortlist[0]; 
     console.log(`🏆 Topic Selected: ${activeTopic}`);
   }
 
-  // 2. Full Council Debate
   const models = ['CLAUDE', 'GROK', 'DEEPSEEK', 'GEMINI_PRO', 'CHATGPT'];
   const responses = await Promise.all(models.map(m => generateCouncilResponse(m, activeTopic || "")));
 
@@ -89,7 +86,7 @@ async function processSynthesisCycle(forgeId: string, customTopic?: string) {
       winningTopic: activeTopic,
       phase: 'COUNCIL_DEBATE',
       openingThoughts: JSON.stringify(responses),
-      date: new Date() // Forces the date to 'Now' for the homepage sort
+      date: new Date() 
     }
   });
   console.log("✅ The Forge has been autonomously updated.");
@@ -99,23 +96,31 @@ async function patrolTheForge() {
   console.log("🌅 AI Scout starting Autonomous Patrol Cycle...");
   try {
     const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-
-    // 🔄 TRIGGER LOGIC: Run if Forge is PENDING, IDLE, INITIALIZED, or if forced.
     const forceStartPhases = ['PENDING', 'IDLE', 'INITIALIZED', 'Architect_Interjection'];
-    
+
     if (!latestForge || forceStartPhases.includes(latestForge.phase)) {
       console.log(`🚀 Condition met: Starting new synthesis (Current Phase: ${latestForge?.phase || 'NEW'})`);
       const targetId = latestForge?.id || 'forge-' + Date.now();
-      
-      // If no record, create one
+
       if (!latestForge) {
-        await prisma.dailyForge.create({ data: { id: targetId, date: new Date(), phase: 'INITIALIZED' } });
+        await prisma.dailyForge.create({
+          data: {
+            id: targetId,
+            date: new Date(),
+            phase: 'INITIALIZED',
+            winningTopic: 'Initializing Autonomous Patrol...',
+            scoutedTopics: '[]', 
+            councilVotes: '{}',  
+            openingThoughts: ''
+          }
+        });
       }
 
       await processSynthesisCycle(targetId);
-    } 
+    }
     else {
       console.log(`ℹ️ Forge is already in a completed state (${latestForge.phase}). Standing down.`);
+      console.log("💡 Tip: To force a new topic, run: UPDATE \"DailyForge\" SET phase = 'IDLE'; in Neon.");
     }
 
   } catch (e) {
