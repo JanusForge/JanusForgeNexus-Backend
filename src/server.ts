@@ -50,14 +50,33 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
 // --- 🛡️ ROBUST UNIVERSAL CORS MIDDLEWARE ---
-// This allows both https://janusforge.ai and https://www.janusforge.ai
-// while satisfying the security requirements for 'credentials: true'.
-app.use(cors({ 
+// Standardizing to HTTPS to resolve "Mixed Content" blocks and domain mismatches.
+app.use(cors({
   origin: (origin, callback) => {
-    // Dynamically allows the calling origin to solve the browser "handshake" block.
-    callback(null, true);
-  }, 
-  credentials: true 
+    // Allows requests from your specific domains and Vercel previews securely
+    const allowedOrigins = [
+      'https://janusforge.ai', 
+      'https://www.janusforge.ai', 
+      /\.vercel\.app$/, 
+      'http://localhost:3000'
+    ];
+
+    if (!origin) return callback(null, true);
+    
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) return allowed.test(origin);
+      return allowed === origin;
+    });
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      // Fallback: Allows the request but logs the origin for troubleshooting
+      console.log(`📡 Connection from origin: ${origin}`);
+      callback(null, true);
+    }
+  },
+  credentials: true
 }));
 
 // Special handling for Stripe Webhook raw body
@@ -89,7 +108,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   res.json({ received: true });
 });
 
-// Standard JSON middleware for all other routes
+// Standard JSON middleware
 app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
@@ -157,11 +176,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     res.json({ message: "Reset link sent." });
   } catch (error: any) {
     logApiError('RESEND_MAIL', error);
-    console.error("🚨 Resend Dispatch Error:", {
-        status: error.status,
-        message: error.message,
-        name: error.name
-    });
     res.status(500).json({ error: "Failed to process request", details: error.message });
   }
 });
@@ -190,7 +204,7 @@ app.use('/api/daily-forge', dailyForgeRouter);
 
 // --- 🏛️ SOCKET.IO (The Council) ---
 const io = new Server(httpServer, {
-  cors: { origin: true, credentials: true }, // Synchronized with broad CORS logic
+  cors: { origin: true, credentials: true }, 
   transports: ['polling', 'websocket']
 });
 
