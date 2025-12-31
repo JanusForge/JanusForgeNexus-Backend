@@ -20,6 +20,28 @@ const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// --- 🛰️ GLOBAL LOGGING UTILITY ---
+const logApiError = (service: string, error: any) => {
+  console.error(`\n[🚨 ${service} FAILURE] @ ${new Date().toISOString()}`);
+  console.error(`- Message: ${error.message || 'No message provided'}`);
+  
+  if (error.status || error.statusCode) {
+    console.error(`- Status Code: ${error.status || error.statusCode}`);
+  }
+
+  // Stripe-specific deep logs
+  if (error.type && error.type.includes('Stripe')) {
+    console.error(`- Stripe Code: ${error.code}`);
+    console.error(`- Param: ${error.param}`);
+  }
+
+  // Resend/Generic API deep logs
+  if (error.response?.data) {
+    console.error(`- Raw Data:`, JSON.stringify(error.response.data, null, 2));
+  }
+  console.error(`---------------------------------------------------\n`);
+};
+
 // --- 💳 STRIPE INITIALIZATION ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
@@ -41,20 +63,20 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET as string);
   } catch (error: any) {
+    logApiError('STRIPE_WEBHOOK', error);
     return res.status(400).send(`Webhook Error: ${error.message}`);
   }
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
     const userId = session.metadata.userId;
-    // Default to 50 tokens if not specified in metadata
-    const amount = parseInt(session.metadata.tokens) || 50; 
+    const amount = parseInt(session.metadata.tokens) || 50;
 
     await prisma.user.update({
       where: { id: userId },
-      data: { 
+      data: {
         purchased_tokens: { increment: amount },
-        tokens_remaining: { increment: amount } 
+        tokens_remaining: { increment: amount }
       }
     });
     console.log(`⛽ Fuel Delivered: ${amount} tokens added to user ${userId}`);
@@ -128,8 +150,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
              </div>`
     });
     res.json({ message: "Reset link sent." });
-  } catch (error: any) { 
-    // New Diagnostic Code Snippet
+  } catch (error: any) {
+    logApiError('RESEND_MAIL', error);
+    // Detail Diagnostic Output
     console.error("🚨 Resend Dispatch Error:", {
         status: error.status,
         message: error.message,
@@ -153,8 +176,8 @@ app.post('/api/stripe/create-checkout-session', async (req, res) => {
     });
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
-    console.error('Stripe Error:', error);
-    res.status(500).json({ error: error.message });
+    logApiError('STRIPE_CHECKOUT', error);
+    res.status(500).json({ error: "Stripe connection failed", details: error.message });
   }
 });
 
@@ -195,7 +218,9 @@ io.on('connection', (socket) => {
             text = res.choices[0].message.content || "";
           }
           io.emit('ai:response', { id: crypto.randomUUID(), name: model.name, content: text, sender: 'ai' });
-        } catch (error: any) { console.error(error); }
+        } catch (error: any) { 
+          logApiError(`AI_COUNCIL_${model.id}`, error);
+        }
       });
 
       if (user.role !== 'GOD_MODE') {
