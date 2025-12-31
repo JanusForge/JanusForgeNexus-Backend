@@ -32,7 +32,7 @@ app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
 
-// 1. Register (FIXED: Added this route to prevent the HTML-as-JSON error)
+// 1. Register (THE FIX FOR YOUR SCREENSHOT)
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password } = req.body;
   try {
@@ -42,19 +42,15 @@ app.post('/api/auth/register', async (req, res) => {
         username,
         email,
         password_hash: hashedPassword,
-        tokens_remaining: 10, // Default starting fuel
-        digest_subscribed: true // Default opt-in
+        tokens_remaining: 10,
+        digest_subscribed: true // New required field
       }
     });
-    res.status(201).json({
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      tokens_remaining: user.tokens_remaining
-    });
+    // Return JSON so the frontend doesn't see a '<' error
+    res.status(201).json({ id: user.id, username: user.username, email: user.email });
   } catch (err) {
-    console.error("Registration Error:", err);
-    res.status(400).json({ error: "User already exists or invalid data." });
+    console.error("Registration Failure:", err);
+    res.status(400).json({ error: "Username or Email already in use." });
   }
 });
 
