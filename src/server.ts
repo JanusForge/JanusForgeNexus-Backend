@@ -91,7 +91,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     });
 
     await resend.emails.send({
-      from: 'Janus Forge <nexus@janusforge.ai>',
+      from: 'Janus Forge <admin@janusforge.ai>',
       to: email,
       subject: 'Access Recovery: Janus Forge Nexus',
       html: `
