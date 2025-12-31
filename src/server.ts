@@ -67,8 +67,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 // --- 🗝️ FORGOT & RESET PASSWORD LOGIC ---
 
-// 1. Request the reset link (The part that sends the email)
-const forgotPasswordHandler = async (req: any, res: any) => {
+app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], async (req, res) => {
   const { email } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email } });
@@ -90,29 +89,29 @@ const forgotPasswordHandler = async (req: any, res: any) => {
     logApiError('RESEND_MAIL', error);
     res.status(500).json({ error: "Failed to process request" });
   }
-};
-app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], forgotPasswordHandler);
+});
 
-// 2. Execute the password change (The part that saves the new credentials)
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, password } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    // Find user with valid token that hasn't expired
-    const user = await prisma.user.findFirst({
-      where: { reset_token: token, reset_expires: { gt: new Date() } }
-    });
-
-    if (!user) return res.status(400).json({ error: "Invalid or expired recovery token." });
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { 
-        password_hash: hashedPassword, 
-        reset_token: null, 
-        reset_expires: null 
+    
+    // Use updateMany to safely match token and expiry
+    const result = await prisma.user.updateMany({
+      where: { 
+        reset_token: token, 
+        reset_expires: { gt: new Date() } 
+      },
+      data: {
+        password_hash: hashedPassword,
+        reset_token: null,
+        reset_expires: null
       }
     });
+
+    if (result.count === 0) {
+      return res.status(400).json({ error: "Invalid or expired recovery token." });
+    }
 
     res.json({ message: "Credentials successfully updated. You may now log in." });
   } catch (error: any) {
@@ -122,7 +121,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // --- 💳 STRIPE CHECKOUT ROUTE (WITH ALIAS) ---
-const stripeCheckoutHandler = async (req: any, res: any) => {
+app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], async (req, res) => {
   const { priceId, userId } = req.body;
   try {
     const session = await stripe.checkout.sessions.create({
@@ -138,8 +137,7 @@ const stripeCheckoutHandler = async (req: any, res: any) => {
     logApiError('STRIPE_CHECKOUT', error);
     res.status(500).json({ error: "Stripe connection failed" });
   }
-};
-app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], stripeCheckoutHandler);
+});
 
 // Special handling for Stripe Webhook raw body
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
