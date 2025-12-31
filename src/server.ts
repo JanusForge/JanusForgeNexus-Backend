@@ -24,91 +24,24 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const logApiError = (service: string, error: any) => {
   console.error(`\n[🚨 ${service} FAILURE] @ ${new Date().toISOString()}`);
   console.error(`- Message: ${error.message || 'No message provided'}`);
-
-  if (error.status || error.statusCode) {
-    console.error(`- Status Code: ${error.status || error.statusCode}`);
-  }
-
-  if (error.type && error.type.includes('Stripe')) {
-    console.error(`- Stripe Code: ${error.code}`);
-    console.error(`- Param: ${error.param}`);
-  }
-
-  if (error.response?.data) {
-    console.error(`- Raw Data:`, JSON.stringify(error.response.data, null, 2));
-  }
+  if (error.status || error.statusCode) console.error(`- Status Code: ${error.status || error.statusCode}`);
+  if (error.response?.data) console.error(`- Raw Data:`, JSON.stringify(error.response.data, null, 2));
   console.error(`---------------------------------------------------\n`);
 };
 
-// --- 💳 STRIPE INITIALIZATION ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-
-// --- AI CLIENTS ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
 // --- 🛡️ ROBUST UNIVERSAL CORS MIDDLEWARE ---
-// Standardizing to HTTPS to resolve "Mixed Content" blocks and domain mismatches.
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allows requests from your specific domains and Vercel previews securely
-    const allowedOrigins = [
-      'https://janusforge.ai', 
-      'https://www.janusforge.ai', 
-      /\.vercel\.app$/, 
-      'http://localhost:3000'
-    ];
-
-    if (!origin) return callback(null, true);
-    
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (allowed instanceof RegExp) return allowed.test(origin);
-      return allowed === origin;
-    });
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      // Fallback: Allows the request but logs the origin for troubleshooting
-      console.log(`📡 Connection from origin: ${origin}`);
-      callback(null, true);
-    }
-  },
+  origin: (origin, callback) => callback(null, true),
   credentials: true
 }));
 
-// Special handling for Stripe Webhook raw body
-app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'] as string;
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET as string);
-  } catch (error: any) {
-    logApiError('STRIPE_WEBHOOK', error);
-    return res.status(400).send(`Webhook Error: ${error.message}`);
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as any;
-    const userId = session.metadata.userId;
-    const amount = parseInt(session.metadata.tokens) || 50;
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        purchased_tokens: { increment: amount },
-        tokens_remaining: { increment: amount }
-      }
-    });
-    console.log(`⛽ Fuel Delivered: ${amount} tokens added to user ${userId}`);
-  }
-  res.json({ received: true });
-});
-
-// Standard JSON middleware
+// Standard middleware
 app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
@@ -118,52 +51,31 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: {
-        username,
-        email,
-        password_hash: hashedPassword,
-        tokens_remaining: 10,
-        digest_subscribed: true
-      }
+      data: { username, email, password_hash: hashedPassword, tokens_remaining: 10, digest_subscribed: true }
     });
     res.status(201).json({ id: user.id, username: user.username, email: user.email });
-  } catch (error: any) {
-    res.status(400).json({ error: "Username or Email already in use." });
-  }
+  } catch (error: any) { res.status(400).json({ error: "Username or Email already in use." }); }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-        return res.status(401).json({ error: "Unauthorized" });
-    }
-    res.json({
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      role: user.role,
-      tokens_remaining: user.tokens_remaining,
-      digest_subscribed: user.digest_subscribed
-    });
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ error: "Unauthorized" });
+    res.json({ id: user.id, email: user.email, username: user.username, role: user.role, tokens_remaining: user.tokens_remaining });
   } catch (error: any) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
-app.post('/api/auth/forgot-password', async (req, res) => {
+// --- 🗝️ ALIASED FORGOT PASSWORD HANDLER ---
+// This function handles the logic for both the original and aliased paths.
+const forgotPasswordHandler = async (req: any, res: any) => {
   const { email } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.json({ message: "Check your email for reset instructions." });
-
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 3600000);
-
-    await prisma.user.update({
-      where: { email },
-      data: { reset_token: token, reset_expires: expires }
-    });
-
+    await prisma.user.update({ where: { email }, data: { reset_token: token, reset_expires: expires } });
     await resend.emails.send({
       from: 'Janus Forge <admin@janusforge.ai>',
       to: email,
@@ -176,12 +88,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     res.json({ message: "Reset link sent." });
   } catch (error: any) {
     logApiError('RESEND_MAIL', error);
-    res.status(500).json({ error: "Failed to process request", details: error.message });
+    res.status(500).json({ error: "Failed to process request" });
   }
-});
+};
 
-// --- 💳 STRIPE CHECKOUT ROUTE ---
-app.post('/api/stripe/create-checkout-session', async (req, res) => {
+// Aliasing both paths to the same handler.
+app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], forgotPasswordHandler);
+
+// --- 💳 STRIPE CHECKOUT ROUTE (WITH ALIAS) ---
+const stripeCheckoutHandler = async (req: any, res: any) => {
   const { priceId, userId } = req.body;
   try {
     const session = await stripe.checkout.sessions.create({
@@ -195,16 +110,40 @@ app.post('/api/stripe/create-checkout-session', async (req, res) => {
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
     logApiError('STRIPE_CHECKOUT', error);
-    res.status(500).json({ error: "Stripe connection failed", details: error.message });
+    res.status(500).json({ error: "Stripe connection failed" });
   }
+};
+
+// Map original path and the new 'v1' path requested by frontend.
+app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], stripeCheckoutHandler);
+
+// Special handling for Stripe Webhook raw body
+app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'] as string;
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET as string);
+  } catch (error: any) {
+    logApiError('STRIPE_WEBHOOK', error);
+    return res.status(400).send(`Webhook Error: ${error.message}`);
+  }
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as any;
+    const userId = session.metadata.userId;
+    const amount = parseInt(session.metadata.tokens) || 50;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { purchased_tokens: { increment: amount }, tokens_remaining: { increment: amount } }
+    });
+  }
+  res.json({ received: true });
 });
 
 app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
 app.use('/api/daily-forge', dailyForgeRouter);
 
-// --- 🏛️ SOCKET.IO (The Council) ---
 const io = new Server(httpServer, {
-  cors: { origin: true, credentials: true }, 
+  cors: { origin: true, credentials: true },
   transports: ['polling', 'websocket']
 });
 
@@ -213,15 +152,8 @@ io.on('connection', (socket) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
       if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) return;
-
       io.emit('post:incoming', { id: crypto.randomUUID(), name: user.username, content: postData.content, sender: 'user' });
-
-      const activeModels = [
-        { id: 'CHATGPT', name: 'GPT-4 (Architect)' },
-        { id: 'CLAUDE', name: 'Claude (Analyst)' },
-        { id: 'DEEPSEEK', name: 'DeepSeek (Logic)' }
-      ];
-
+      const activeModels = [{ id: 'CHATGPT', name: 'GPT-4 (Architect)' }, { id: 'CLAUDE', name: 'Claude (Analyst)' }, { id: 'DEEPSEEK', name: 'DeepSeek (Logic)' }];
       activeModels.forEach(async (model) => {
         try {
           let text = "";
@@ -236,16 +168,10 @@ io.on('connection', (socket) => {
             text = res.choices[0].message.content || "";
           }
           io.emit('ai:response', { id: crypto.randomUUID(), name: model.name, content: text, sender: 'ai' });
-        } catch (error: any) {
-          logApiError(`AI_COUNCIL_${model.id}`, error);
-        }
+        } catch (error: any) { logApiError(`AI_COUNCIL_${model.id}`, error); }
       });
-
       if (user.role !== 'GOD_MODE') {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { tokens_remaining: { decrement: 1 }, tokens_used: { increment: 1 } }
-        });
+        await prisma.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 }, tokens_used: { increment: 1 } } });
       }
     } catch (error: any) { console.error(error); }
   });
