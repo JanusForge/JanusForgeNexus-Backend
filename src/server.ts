@@ -194,7 +194,7 @@ io.on('connection', (socket) => {
             const res = await openai.chat.completions.create({ model: 'gpt-4-turbo', messages: [{role: 'user', content: postData.content}] });
             text = res.choices[0].message.content || "";
           } else if (model.id === 'CLAUDE') {
-            const res = await anthropic.messages.create({ model: 'claude-3-5-sonnet-20240620', max_tokens: 1024, messages: [{role: 'user', content: postData.content}] });
+            const res = await anthropic.messages.create({ model: 'claude-opus-4-5-20251101', max_tokens: 1024, messages: [{role: 'user', content: postData.content}] });
             text = res.content[0].type === 'text' ? res.content[0].text : "";
           } else if (model.id === 'DEEPSEEK') {
             const res = await deepseek.chat.completions.create({ model: 'deepseek-chat', messages: [{role: 'user', content: postData.content}] });
