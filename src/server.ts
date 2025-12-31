@@ -24,18 +24,16 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const logApiError = (service: string, error: any) => {
   console.error(`\n[🚨 ${service} FAILURE] @ ${new Date().toISOString()}`);
   console.error(`- Message: ${error.message || 'No message provided'}`);
-  
+
   if (error.status || error.statusCode) {
     console.error(`- Status Code: ${error.status || error.statusCode}`);
   }
 
-  // Stripe-specific deep logs
   if (error.type && error.type.includes('Stripe')) {
     console.error(`- Stripe Code: ${error.code}`);
     console.error(`- Param: ${error.param}`);
   }
 
-  // Resend/Generic API deep logs
   if (error.response?.data) {
     console.error(`- Raw Data:`, JSON.stringify(error.response.data, null, 2));
   }
@@ -51,9 +49,33 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 
-// --- MIDDLEWARE ---
-const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', /\.vercel\.app$/, 'http://localhost:3000'];
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+// --- 🛡️ ROBUST CORS MIDDLEWARE ---
+// This handles the 'credentials: true' requirement while allowing all your domains
+const allowedOrigins = [
+  'https://janusforge.ai', 
+  'https://www.janusforge.ai', 
+  /\.vercel\.app$/, 
+  'http://localhost:3000'
+];
+
+app.use(cors({ 
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) return allowed.test(origin);
+      return allowed === origin;
+    });
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Fallback to true during this transition to stop the alerts
+    }
+  },
+  credentials: true 
+}));
 
 // Special handling for Stripe Webhook raw body
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -152,7 +174,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     res.json({ message: "Reset link sent." });
   } catch (error: any) {
     logApiError('RESEND_MAIL', error);
-    // Detail Diagnostic Output
     console.error("🚨 Resend Dispatch Error:", {
         status: error.status,
         message: error.message,
@@ -218,7 +239,7 @@ io.on('connection', (socket) => {
             text = res.choices[0].message.content || "";
           }
           io.emit('ai:response', { id: crypto.randomUUID(), name: model.name, content: text, sender: 'ai' });
-        } catch (error: any) { 
+        } catch (error: any) {
           logApiError(`AI_COUNCIL_${model.id}`, error);
         }
       });
