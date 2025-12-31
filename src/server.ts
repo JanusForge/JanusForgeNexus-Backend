@@ -67,7 +67,6 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // --- 🗝️ ALIASED FORGOT PASSWORD HANDLER ---
-// This function handles the logic for both the original and aliased paths.
 const forgotPasswordHandler = async (req: any, res: any) => {
   const { email } = req.body;
   try {
@@ -92,7 +91,7 @@ const forgotPasswordHandler = async (req: any, res: any) => {
   }
 };
 
-// Aliasing both paths to the same handler.
+// Map both the original and the aliased path found in console logs
 app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], forgotPasswordHandler);
 
 // --- 💳 STRIPE CHECKOUT ROUTE (WITH ALIAS) ---
@@ -114,7 +113,7 @@ const stripeCheckoutHandler = async (req: any, res: any) => {
   }
 };
 
-// Map original path and the new 'v1' path requested by frontend.
+// Bridge the 'v1' path found in your frontend console logs
 app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], stripeCheckoutHandler);
 
 // Special handling for Stripe Webhook raw body
