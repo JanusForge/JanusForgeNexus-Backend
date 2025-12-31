@@ -41,7 +41,6 @@ app.use(cors({
   credentials: true
 }));
 
-// Standard middleware
 app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
@@ -66,7 +65,9 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
-// --- 🗝️ ALIASED FORGOT PASSWORD HANDLER ---
+// --- 🗝️ FORGOT & RESET PASSWORD LOGIC ---
+
+// 1. Request the reset link (The part that sends the email)
 const forgotPasswordHandler = async (req: any, res: any) => {
   const { email } = req.body;
   try {
@@ -90,9 +91,35 @@ const forgotPasswordHandler = async (req: any, res: any) => {
     res.status(500).json({ error: "Failed to process request" });
   }
 };
-
-// Map both the original and the aliased path found in console logs
 app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], forgotPasswordHandler);
+
+// 2. Execute the password change (The part that saves the new credentials)
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, password } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    // Find user with valid token that hasn't expired
+    const user = await prisma.user.findFirst({
+      where: { reset_token: token, reset_expires: { gt: new Date() } }
+    });
+
+    if (!user) return res.status(400).json({ error: "Invalid or expired recovery token." });
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { 
+        password_hash: hashedPassword, 
+        reset_token: null, 
+        reset_expires: null 
+      }
+    });
+
+    res.json({ message: "Credentials successfully updated. You may now log in." });
+  } catch (error: any) {
+    logApiError('PASSWORD_RESET_EXECUTION', error);
+    res.status(500).json({ error: "Finalizing reset failed." });
+  }
+});
 
 // --- 💳 STRIPE CHECKOUT ROUTE (WITH ALIAS) ---
 const stripeCheckoutHandler = async (req: any, res: any) => {
@@ -112,8 +139,6 @@ const stripeCheckoutHandler = async (req: any, res: any) => {
     res.status(500).json({ error: "Stripe connection failed" });
   }
 };
-
-// Bridge the 'v1' path found in your frontend console logs
 app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], stripeCheckoutHandler);
 
 // Special handling for Stripe Webhook raw body
