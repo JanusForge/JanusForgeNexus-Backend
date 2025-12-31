@@ -80,9 +80,9 @@ app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], async (req, 
       to: email,
       subject: 'Access Recovery: Janus Forge Nexus',
       html: `<div style="background-color: #000; color: #fff; padding: 40px; font-family: sans-serif;">
-               <h1>Janus Forge Nexus</h1>
-               <p>Reset link: https://janusforge.ai/reset-password?token=${token}</p>
-             </div>`
+                <h1>Janus Forge Nexus</h1>
+                <p>Reset link: https://janusforge.ai/reset-password?token=${token}</p>
+              </div>`
     });
     res.json({ message: "Reset link sent." });
   } catch (error: any) {
@@ -149,7 +149,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   res.json({ received: true });
 });
 
-// --- 🛰️ DYNAMIC DAILY FORGE STATUS [REFINED] ---
+// --- 🛰️ DYNAMIC DAILY FORGE STATUS [REFINED & BULLETPROOF] ---
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latestForge = await prisma.dailyForge.findFirst({
