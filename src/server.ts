@@ -149,7 +149,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   res.json({ received: true });
 });
 
-// --- 🛰️ DYNAMIC DAILY FORGE STATUS [NEW] ---
+// --- 🛰️ DYNAMIC DAILY FORGE STATUS [REFINED] ---
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latestForge = await prisma.dailyForge.findFirst({
@@ -159,14 +159,16 @@ app.get('/api/daily-forge/status', async (req, res) => {
     const nextReset = new Date();
     nextReset.setUTCHours(24, 0, 0, 0); // Sync to UTC midnight
 
+    // Use flexible field mapping to prevent 500 crashes if schema names vary slightly
     res.json({
-      topic: latestForge?.topic || "Initializing Neural Link...",
-      scoutQuote: latestForge?.scout_quote || "Scouting the perimeter...",
-      councilQuote: latestForge?.council_quote || "Analyzing synthesis streams...",
+      topic: latestForge?.topic || "Neural Link Pending...",
+      scoutQuote: (latestForge as any)?.scout_quote || (latestForge as any)?.scoutQuote || "The Scout is on patrol...",
+      councilQuote: (latestForge as any)?.council_quote || (latestForge as any)?.councilQuote || "The Council is analyzing...",
       nextReset: nextReset.toISOString()
     });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch Forge status" });
+  } catch (error: any) {
+    logApiError('FORGE_STATUS_FETCH', error);
+    res.status(500).json({ error: "Failed to sync Forge status" });
   }
 });
 
