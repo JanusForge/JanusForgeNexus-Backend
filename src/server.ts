@@ -149,17 +149,17 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   res.json({ received: true });
 });
 
-// --- 🛰️ DYNAMIC DAILY FORGE STATUS [ULTRA-RESILIENT] ---
+// --- 🛰️ DYNAMIC DAILY FORGE STATUS [NEON-ALIGNED] ---
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
-    // 1. Primary Fetch via Prisma
+    // 1. Fetch using 'date' column for ordering as found in Neon
     let latestForge = await prisma.dailyForge.findFirst({
-      orderBy: { created_at: 'desc' }
+      orderBy: { date: 'desc' }
     });
 
     // 2. RAW Fallback for Schema Mismatches
     if (!latestForge) {
-      const rawResult: any = await prisma.$queryRaw`SELECT * FROM "DailyForge" ORDER BY created_at DESC LIMIT 1`;
+      const rawResult: any = await prisma.$queryRaw`SELECT * FROM "DailyForge" ORDER BY date DESC LIMIT 1`;
       latestForge = rawResult[0];
     }
 
@@ -175,11 +175,11 @@ app.get('/api/daily-forge/status', async (req, res) => {
       });
     }
 
-    // 3. Robust Mapping
+    // 3. Mapping to actual Neon columns
     res.json({
-      topic: latestForge.topic || "Topic Pending",
-      scoutQuote: (latestForge as any).scout_quote || (latestForge as any).scoutQuote || "Patrolling...",
-      councilQuote: (latestForge as any).council_quote || (latestForge as any).councilQuote || "Synthesizing...",
+      topic: (latestForge as any).winningTopic || "Topic Pending",
+      scoutQuote: (latestForge as any).openingThoughts || "The Scout is on patrol...",
+      councilQuote: (latestForge as any).councilVotes || "Analyzing synthesis streams...",
       nextReset: nextReset.toISOString()
     });
   } catch (error: any) {
