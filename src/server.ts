@@ -32,7 +32,33 @@ app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
 
-// 1. Login
+// 1. Register (FIXED: Added this route to prevent the HTML-as-JSON error)
+app.post('/api/auth/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: {
+        username,
+        email,
+        password_hash: hashedPassword,
+        tokens_remaining: 10, // Default starting fuel
+        digest_subscribed: true // Default opt-in
+      }
+    });
+    res.status(201).json({
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      tokens_remaining: user.tokens_remaining
+    });
+  } catch (err) {
+    console.error("Registration Error:", err);
+    res.status(400).json({ error: "User already exists or invalid data." });
+  }
+});
+
+// 2. Login
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -53,7 +79,7 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
-// 2. Forgot Password (Branded Template)
+// 3. Forgot Password (Branded Template)
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   try {
@@ -68,7 +94,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       data: { reset_token: token, reset_expires: expires }
     });
 
-    // Branded HTML Intelligence Briefing Template
     await resend.emails.send({
       from: 'Janus Forge <nexus@janusforge.ai>',
       to: email,
@@ -103,7 +128,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Failed to process request" }); }
 });
 
-// 3. Reset Password (Verification Route)
+// 4. Reset Password Verification
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   try {
@@ -131,7 +156,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Failed to reset password." }); }
 });
 
-// 4. Toggle Nightly Digest
+// 5. Toggle Nightly Digest
 app.post('/api/user/toggle-digest', async (req, res) => {
   const { userId, subscribe } = req.body;
   try {
