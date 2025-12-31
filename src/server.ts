@@ -93,14 +93,19 @@ app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], async (req, 
 
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, password } = req.body;
+  
+  if (!token || !password) {
+    return res.status(400).json({ error: "Token and Password are required." });
+  }
+
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Use updateMany to safely match token and expiry
+
+    // Use updateMany to safely match token and check that it hasn't expired
     const result = await prisma.user.updateMany({
-      where: { 
-        reset_token: token, 
-        reset_expires: { gt: new Date() } 
+      where: {
+        reset_token: token,
+        reset_expires: { gt: new Date() }
       },
       data: {
         password_hash: hashedPassword,
@@ -110,13 +115,16 @@ app.post('/api/auth/reset-password', async (req, res) => {
     });
 
     if (result.count === 0) {
+      console.warn(`⚠️ Reset Failed: Invalid/Expired token used.`);
       return res.status(400).json({ error: "Invalid or expired recovery token." });
     }
 
-    res.json({ message: "Credentials successfully updated. You may now log in." });
+    console.log(`✅ Password successfully updated via recovery token.`);
+    res.json({ success: true, message: "Credentials successfully updated. You may now log in." });
   } catch (error: any) {
+    // This logs the ACTUAL error to Render console so we can see if it's a Neon issue
     logApiError('PASSWORD_RESET_EXECUTION', error);
-    res.status(500).json({ error: "Finalizing reset failed." });
+    res.status(500).json({ error: "Finalizing reset failed due to a server error." });
   }
 });
 
@@ -139,7 +147,7 @@ app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], as
   }
 });
 
-// Special handling for Stripe Webhook raw body
+// Webhook for Stripe completion
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'] as string;
   let event;
