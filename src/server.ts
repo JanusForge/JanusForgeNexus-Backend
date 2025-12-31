@@ -93,36 +93,16 @@ app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], async (req, 
 
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, password } = req.body;
-  
-  if (!token || !password) {
-    return res.status(400).json({ error: "Token and Password are required." });
-  }
-
+  if (!token || !password) return res.status(400).json({ error: "Token and Password are required." });
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Use updateMany to safely match token and check that it hasn't expired
     const result = await prisma.user.updateMany({
-      where: {
-        reset_token: token,
-        reset_expires: { gt: new Date() }
-      },
-      data: {
-        password_hash: hashedPassword,
-        reset_token: null,
-        reset_expires: null
-      }
+      where: { reset_token: token, reset_expires: { gt: new Date() } },
+      data: { password_hash: hashedPassword, reset_token: null, reset_expires: null }
     });
-
-    if (result.count === 0) {
-      console.warn(`⚠️ Reset Failed: Invalid/Expired token used.`);
-      return res.status(400).json({ error: "Invalid or expired recovery token." });
-    }
-
-    console.log(`✅ Password successfully updated via recovery token.`);
+    if (result.count === 0) return res.status(400).json({ error: "Invalid or expired recovery token." });
     res.json({ success: true, message: "Credentials successfully updated. You may now log in." });
   } catch (error: any) {
-    // This logs the ACTUAL error to Render console so we can see if it's a Neon issue
     logApiError('PASSWORD_RESET_EXECUTION', error);
     res.status(500).json({ error: "Finalizing reset failed due to a server error." });
   }
@@ -167,6 +147,27 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     });
   }
   res.json({ received: true });
+});
+
+// --- 🛰️ DYNAMIC DAILY FORGE STATUS [NEW] ---
+app.get('/api/daily-forge/status', async (req, res) => {
+  try {
+    const latestForge = await prisma.dailyForge.findFirst({
+      orderBy: { created_at: 'desc' }
+    });
+
+    const nextReset = new Date();
+    nextReset.setUTCHours(24, 0, 0, 0); // Sync to UTC midnight
+
+    res.json({
+      topic: latestForge?.topic || "Initializing Neural Link...",
+      scoutQuote: latestForge?.scout_quote || "Scouting the perimeter...",
+      councilQuote: latestForge?.council_quote || "Analyzing synthesis streams...",
+      nextReset: nextReset.toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch Forge status" });
+  }
 });
 
 app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
