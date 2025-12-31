@@ -32,6 +32,37 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 // --- MIDDLEWARE ---
 const allowedOrigins = ['https://janusforge.ai', 'https://www.janusforge.ai', /\.vercel\.app$/, 'http://localhost:3000'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+// Special handling for Stripe Webhook raw body
+app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'] as string;
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET as string);
+  } catch (error: any) {
+    return res.status(400).send(`Webhook Error: ${error.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as any;
+    const userId = session.metadata.userId;
+    // Default to 50 tokens if not specified in metadata
+    const amount = parseInt(session.metadata.tokens) || 50; 
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { 
+        purchased_tokens: { increment: amount },
+        tokens_remaining: { increment: amount } 
+      }
+    });
+    console.log(`⛽ Fuel Delivered: ${amount} tokens added to user ${userId}`);
+  }
+  res.json({ received: true });
+});
+
+// Standard JSON middleware for all other routes
 app.use(express.json());
 
 // --- 🔑 AUTHENTICATION & SECURITY ---
@@ -50,7 +81,7 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
     res.status(201).json({ id: user.id, username: user.username, email: user.email });
-  } catch (err) {
+  } catch (error: any) {
     res.status(400).json({ error: "Username or Email already in use." });
   }
 });
@@ -70,7 +101,7 @@ app.post('/api/auth/login', async (req, res) => {
       tokens_remaining: user.tokens_remaining,
       digest_subscribed: user.digest_subscribed
     });
-  } catch (err) { res.status(500).json({ error: "Auth Failure" }); }
+  } catch (error: any) { res.status(500).json({ error: "Auth Failure" }); }
 });
 
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -80,7 +111,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!user) return res.json({ message: "Check your email for reset instructions." });
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 3600000); 
+    const expires = new Date(Date.now() + 3600000);
 
     await prisma.user.update({
       where: { email },
@@ -97,7 +128,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
              </div>`
     });
     res.json({ message: "Reset link sent." });
-  } catch (err) { res.status(500).json({ error: "Failed to process request" }); }
+  } catch (error: any) { 
+    // New Diagnostic Code Snippet
+    console.error("🚨 Resend Dispatch Error:", {
+        status: error.status,
+        message: error.message,
+        name: error.name
+    });
+    res.status(500).json({ error: "Failed to process request", details: error.message });
+  }
 });
 
 // --- 💳 STRIPE CHECKOUT ROUTE ---
@@ -156,7 +195,7 @@ io.on('connection', (socket) => {
             text = res.choices[0].message.content || "";
           }
           io.emit('ai:response', { id: crypto.randomUUID(), name: model.name, content: text, sender: 'ai' });
-        } catch (e) { console.error(e); }
+        } catch (error: any) { console.error(error); }
       });
 
       if (user.role !== 'GOD_MODE') {
@@ -165,7 +204,7 @@ io.on('connection', (socket) => {
           data: { tokens_remaining: { decrement: 1 }, tokens_used: { increment: 1 } }
         });
       }
-    } catch (err) { console.error(err); }
+    } catch (error: any) { console.error(error); }
   });
 });
 
