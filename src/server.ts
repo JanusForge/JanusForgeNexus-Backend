@@ -149,26 +149,42 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   res.json({ received: true });
 });
 
-// --- 🛰️ DYNAMIC DAILY FORGE STATUS [REFINED & BULLETPROOF] ---
+// --- 🛰️ DYNAMIC DAILY FORGE STATUS [ULTRA-RESILIENT] ---
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
-    const latestForge = await prisma.dailyForge.findFirst({
+    // 1. Primary Fetch via Prisma
+    let latestForge = await prisma.dailyForge.findFirst({
       orderBy: { created_at: 'desc' }
     });
 
-    const nextReset = new Date();
-    nextReset.setUTCHours(24, 0, 0, 0); // Sync to UTC midnight
+    // 2. RAW Fallback for Schema Mismatches
+    if (!latestForge) {
+      const rawResult: any = await prisma.$queryRaw`SELECT * FROM "DailyForge" ORDER BY created_at DESC LIMIT 1`;
+      latestForge = rawResult[0];
+    }
 
-    // Use flexible field mapping to prevent 500 crashes if schema names vary slightly
+    const nextReset = new Date();
+    nextReset.setUTCHours(24, 0, 0, 0);
+
+    if (!latestForge) {
+      return res.json({
+        topic: "Neural Link Pending...",
+        scoutQuote: "The Scout is on patrol...",
+        councilQuote: "Awaiting synthesis...",
+        nextReset: nextReset.toISOString()
+      });
+    }
+
+    // 3. Robust Mapping
     res.json({
-      topic: latestForge?.topic || "Neural Link Pending...",
-      scoutQuote: (latestForge as any)?.scout_quote || (latestForge as any)?.scoutQuote || "The Scout is on patrol...",
-      councilQuote: (latestForge as any)?.council_quote || (latestForge as any)?.councilQuote || "The Council is analyzing...",
+      topic: latestForge.topic || "Topic Pending",
+      scoutQuote: (latestForge as any).scout_quote || (latestForge as any).scoutQuote || "Patrolling...",
+      councilQuote: (latestForge as any).council_quote || (latestForge as any).councilQuote || "Synthesizing...",
       nextReset: nextReset.toISOString()
     });
   } catch (error: any) {
     logApiError('FORGE_STATUS_FETCH', error);
-    res.status(500).json({ error: "Failed to sync Forge status" });
+    res.status(500).json({ error: "Internal Database Sync Error", details: error.message });
   }
 });
 
