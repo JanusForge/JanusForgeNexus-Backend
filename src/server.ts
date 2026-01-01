@@ -85,14 +85,14 @@ app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: n
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
-  pingTimeout: 60000, // Prevent channel closure during long AI tasks
+  pingTimeout: 60000, // Increased timeout to prevent channel closure
   connectionStateRecovery: {}
 });
 
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
-      // 🎯 ANCHORING: Explicitly find the active conversation to prevent daemon threads
+      // 🎯 ANCHORING: Explicitly find the active conversation
       const [user, activeConversation] = await Promise.all([
         prisma.user.findUnique({ where: { id: postData.userId } }),
         prisma.conversation.findFirst({
@@ -109,7 +109,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // 💎 ATOMIC TRANSACTION: Link post directly to active thread
+      // 💎 ATOMIC TRANSACTION
       const savedPost = await prisma.$transaction(async (tx) => {
         let currentTokens = user.tokens_remaining;
         if (!isGodMode) {
@@ -121,12 +121,12 @@ io.on('connection', (socket) => {
             content: postData.content,
             is_human: true,
             user_id: user.id,
-            conversation_id: activeConversation.id // Attached to complete dialog
+            conversation_id: activeConversation.id 
           }
         });
       });
 
-      // 📢 GLOBAL BROADCAST: Unlocks input fields globally
+      // 📢 GLOBAL BROADCAST: Unlocks input fields for ALL clients
       io.emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -136,10 +136,10 @@ io.on('connection', (socket) => {
         tokens_remaining: isGodMode ? 999999 : user.tokens_remaining - 1
       });
 
-      // 🛰️ THE PENTARCHY SUMMONING (Parallel with role markers)
       const runCouncilMember = async (name: string, modelCall: () => Promise<string>) => {
         try {
           const content = await modelCall();
+          // Use io.emit so the response is seen by the sender and unlocks their UI
           io.emit('post:incoming', { 
             id: crypto.randomUUID(), 
             name, 
@@ -156,16 +156,25 @@ io.on('connection', (socket) => {
         const isPro = user.role === 'PROFESSIONAL' || isGodMode;
         const isBasic = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isPro;
 
+        // --- LEVEL 1: FREE MODELS ---
         runCouncilMember("GEMINI", async () => {
           const res = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(postData.content);
           return res.response.text();
         });
 
         runCouncilMember("DEEPSEEK", async () => {
-          const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
+          // Explicit system prompt to force English
+          const res = await deepseek.chat.completions.create({ 
+            model: "deepseek-chat", 
+            messages: [
+              { role: "system", content: "You are a helpful assistant. You MUST always respond in English." },
+              { role: "user", content: postData.content }
+            ] 
+          });
           return res.choices[0].message.content || "";
         });
 
+        // --- LEVEL 2 & 3: BASIC & PRO MODELS (Unchanged logic) ---
         if (isBasic) {
           runCouncilMember("GROK", async () => {
             const res = await openai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
@@ -184,7 +193,6 @@ io.on('connection', (socket) => {
           });
         }
       })();
-
     } catch (error: any) {
       socket.emit('error', { message: "The Forge is unstable. Refreshing..." });
     }
