@@ -47,8 +47,6 @@ app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // ✨ Explicit Beta Protocol Logic
     const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
     const startTokens = isBeta ? 50 : 10;
     const userRole = isBeta ? UserRole.BETA_ARCHITECT : UserRole.USER;
@@ -61,8 +59,8 @@ app.post('/api/auth/register', async (req, res) => {
         email,
         password_hash: hashedPassword,
         role: userRole,
-        tokens_remaining: startTokens, // Ensure explicit assignment
-        token_balance: startTokens,    // Sync initial balance
+        tokens_remaining: startTokens,
+        token_balance: startTokens,
         digest_subscribed: true
       }
     });
@@ -166,19 +164,17 @@ app.get('/api/daily-forge/status', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Sync Error" }); }
 });
 
-// --- 🛰️ FINAL SERVER STABILITY BLOCK ---
-
-app.get('/', (req, res) => { 
-  res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }); 
+app.get('/', (req, res) => {
+  res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() });
 });
 
-// Initializing Socket.io with enhanced stability for long AI generations
+// --- 🏛️ REAL-TIME ADVERSARIAL DISCOURSE ---
 const io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
-  pingTimeout: 60000,          // Wait 60s for AI to respond before timing out
-  pingInterval: 25000,         // Check connection every 25s
-  connectTimeout: 45000,       // Allow more time for initial handshake
-  connectionStateRecovery: {}  // Enable automatic recovery for minor blips
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  connectTimeout: 45000,
+  connectionStateRecovery: {}
 });
 
 io.on('connection', (socket) => {
@@ -186,29 +182,57 @@ io.on('connection', (socket) => {
 
   socket.on('post:new', async (postData) => {
     try {
-      const user = await prisma.user.findUnique({ where: { id: postData.userId } });
-      
-      // Security & Token Check
+      // 1. Identify User and the current Active Conversation
+      const [user, activeConversation] = await Promise.all([
+        prisma.user.findUnique({ where: { id: postData.userId } }),
+        prisma.conversation.findFirst({ 
+          where: { is_daily_forge: true }, 
+          orderBy: { created_at: 'desc' } 
+        })
+      ]);
+
+      if (!activeConversation) throw new Error("No active Forge stream detected.");
+
+      // 2. Validate Authorization and Token Balance
       if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
-        socket.emit('error', { message: "Insufficient tokens or unauthorized." });
+        socket.emit('error', { message: "The Forge requires tribute (tokens) to enter." });
         return;
       }
 
-      // 1. Broadcast the human message immediately
-      const newPostId = crypto.randomUUID();
-      io.emit('post:incoming', { 
-        id: newPostId, 
-        name: user.username, 
-        content: postData.content, 
-        sender: 'user',
-        role: user.role 
+      // 3. ATOMIC TRANSACTION: Subtract token and persist post to 'posts' table
+      const savedPost = await prisma.$transaction(async (tx) => {
+        if (user.role !== 'GOD_MODE') {
+          await tx.user.update({
+            where: { id: user.id },
+            data: { tokens_remaining: { decrement: 1 } }
+          });
+        }
+
+        return await tx.post.create({
+          data: {
+            content: postData.content,
+            is_human: true,
+            user_id: user.id,
+            conversation_id: activeConversation.id
+          }
+        });
       });
 
-      // 2. LOGIC NOTE: This is where your AI orchestration logic (Grok, Claude, etc.) 
-      // should be triggered to respond back to the thread.
-      
-    } catch (error) { 
-      console.error("[SOCKET ERROR]", error); 
+      // 4. Broadcast to frontend to kill the "Spinner" and update UI
+      io.emit('post:incoming', {
+        id: savedPost.id,
+        name: user.username,
+        content: savedPost.content,
+        sender: 'user',
+        role: user.role,
+        tokens_remaining: user.role === 'GOD_MODE' ? 999 : user.tokens_remaining - 1
+      });
+
+      console.log(`[STIMULUS] Human interjection saved: ${savedPost.id}`);
+
+    } catch (error: any) {
+      console.error("[SYNTHESIS ERROR]", error);
+      socket.emit('error', { message: "The Forge is cooling. Check your connection." });
     }
   });
 
