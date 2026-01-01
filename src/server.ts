@@ -182,24 +182,21 @@ io.on('connection', (socket) => {
 
   socket.on('post:new', async (postData) => {
     try {
-      // 1. Identify User and the current Active Conversation
       const [user, activeConversation] = await Promise.all([
         prisma.user.findUnique({ where: { id: postData.userId } }),
-        prisma.conversation.findFirst({ 
-          where: { is_daily_forge: true }, 
-          orderBy: { created_at: 'desc' } 
+        prisma.conversation.findFirst({
+          where: { is_daily_forge: true },
+          orderBy: { created_at: 'desc' }
         })
       ]);
 
       if (!activeConversation) throw new Error("No active Forge stream detected.");
 
-      // 2. Validate Authorization and Token Balance
       if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
         socket.emit('error', { message: "The Forge requires tribute (tokens) to enter." });
         return;
       }
 
-      // 3. ATOMIC TRANSACTION: Subtract token and persist post to 'posts' table
       const savedPost = await prisma.$transaction(async (tx) => {
         if (user.role !== 'GOD_MODE') {
           await tx.user.update({
@@ -218,7 +215,7 @@ io.on('connection', (socket) => {
         });
       });
 
-      // 4. Broadcast to frontend to kill the "Spinner" and update UI
+      // 🛰️ KILL-SWITCH: Broadcast immediately to update frontend & stop spinner
       io.emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -228,7 +225,7 @@ io.on('connection', (socket) => {
         tokens_remaining: user.role === 'GOD_MODE' ? 999 : user.tokens_remaining - 1
       });
 
-      console.log(`[STIMULUS] Human interjection saved: ${savedPost.id}`);
+      console.log(`[STIMULUS] Human interjection saved and broadcast: ${savedPost.id}`);
 
     } catch (error: any) {
       console.error("[SYNTHESIS ERROR]", error);
