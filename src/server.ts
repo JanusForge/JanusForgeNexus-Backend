@@ -100,22 +100,26 @@ io.on('connection', (socket) => {
       }
 
       const saved = await prisma.$transaction(async (tx) => {
+        let currentTokens = user.tokens_remaining;
         if (!isGodMode) {
-          await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
+          const u = await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
+          currentTokens = u.tokens_remaining;
         }
-        return await tx.post.create({ data: { content: postData.content, is_human: true, user_id: user.id, conversation_id: activeConversation.id } });
+        const post = await tx.post.create({ data: { content: postData.content, is_human: true, user_id: user.id, conversation_id: activeConversation.id } });
+        return { post, currentTokens };
       });
 
-      // 🚀 KILL-SWITCH: Stops the "spinny" and syncs UI tokens
+      // 📢 GLOBAL BROADCAST: io.emit ensures every tab sees the user interjection immediately
       io.emit('post:incoming', {
-        id: saved.id, name: user.username, content: postData.content, sender: 'user', role: user.role,
-        tokens_remaining: isGodMode ? 999999 : user.tokens_remaining - 1
+        id: saved.post.id, name: user.username, content: postData.content, sender: 'user', role: user.role,
+        tokens_remaining: isGodMode ? 999999 : saved.currentTokens
       });
 
-      // 🛰️ THE PENTARCHY SUMMONING Helper
+      // 🛰️ THE COUNCIL SUMMONING Helper
       const runAI = async (name: string, modelCall: () => Promise<string>) => {
         try {
           const content = await modelCall();
+          // GLOBAL BROADCAST: Responses appear for everyone in the Live Conversation
           io.emit('post:incoming', { id: crypto.randomUUID(), name, content, sender: 'ai', role: 'COUNCIL' });
         } catch (err) { console.error(`[COUNCIL FAILURE: ${name}]`, err); }
       };
@@ -126,11 +130,11 @@ io.on('connection', (socket) => {
 
         // FREE TIER
         runAI("GEMINI", async () => {
-        // Fixed model name to prevent 404 Fetch Error
-          const gemModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" }); 
+          // Stable model name to prevent 404 Fetch Errors
+          const gemModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
           const gemResult = await gemModel.generateContent(`Adversarial Response: ${postData.content}`);
           return gemResult.response.text();
-        });        
+        });
 
         runAI("DEEPSEEK", async () => {
           const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
