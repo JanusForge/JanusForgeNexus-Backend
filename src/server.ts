@@ -30,7 +30,7 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTH & TIERED LEDGER ---
+// --- 🔑 AUTH & TIERED LEDGER (Preserved) ---
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
   try {
@@ -45,7 +45,7 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
     res.status(201).json(user);
-  } catch (error) { res.status(400).json({ error: "Auth registration conflict." }); }
+  } catch (error) { res.status(400).json({ error: "Registration conflict." }); }
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -57,7 +57,7 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Login failed." }); }
 });
 
-// --- 💳 STRIPE WEBHOOK (90% MARGIN PROTECTION) ---
+// --- 💳 STRIPE WEBHOOK ---
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'] as string;
   let event;
@@ -77,7 +77,7 @@ app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     res.json({ topic: latest?.winningTopic, scoutQuote: latest?.openingThoughts, councilQuote: latest?.councilVotes });
-  } catch (error) { res.status(500).json({ error: "Daily Forge Sync Failure" }); }
+  } catch (error) { res.status(500).json({ error: "Sync Failure" }); }
 });
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
@@ -85,14 +85,14 @@ app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: n
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
-  pingTimeout: 60000,
+  pingTimeout: 60000, // Prevent channel closure during long AI tasks
   connectionStateRecovery: {}
 });
 
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
-      // 🎯 ANCHORING: Finding the exact conversation thread to prevent "daemon space"
+      // 🎯 ANCHORING: Explicitly find the active conversation to prevent daemon threads
       const [user, activeConversation] = await Promise.all([
         prisma.user.findUnique({ where: { id: postData.userId } }),
         prisma.conversation.findFirst({
@@ -104,13 +104,12 @@ io.on('connection', (socket) => {
       if (!activeConversation) throw new Error("No active Forge detected.");
       const isGodMode = user?.role === UserRole.GOD_MODE;
 
-      // 🛡️ TICKET GATE: Founder (BETA_ARCHITECT) uses tokens like a normal user for auditing
       if (!user || (!isGodMode && user.tokens_remaining < 1)) {
-        socket.emit('error', { message: "The Forge requires Nexus tokens." });
+        socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
 
-      // 💎 ATOMIC TRANSACTION: Burn token & Append interjection to the existing thread
+      // 💎 ATOMIC TRANSACTION: Link post directly to active thread
       const savedPost = await prisma.$transaction(async (tx) => {
         let currentTokens = user.tokens_remaining;
         if (!isGodMode) {
@@ -122,13 +121,12 @@ io.on('connection', (socket) => {
             content: postData.content,
             is_human: true,
             user_id: user.id,
-            conversation_id: activeConversation.id // Anchors interjection to the current Daily Forge
-          },
-          include: { user: true }
+            conversation_id: activeConversation.id // Attached to complete dialog
+          }
         });
       });
 
-      // 🚀 GLOBAL HANDSHAKE: io.emit kills the spinner for ALL clients
+      // 📢 GLOBAL BROADCAST: Unlocks input fields globally
       io.emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -138,7 +136,7 @@ io.on('connection', (socket) => {
         tokens_remaining: isGodMode ? 999999 : user.tokens_remaining - 1
       });
 
-      // 🛰️ THE PENTARCHY SUMMONING (Hardened parallel loop to fix "undefined")
+      // 🛰️ THE PENTARCHY SUMMONING (Parallel with role markers)
       const runCouncilMember = async (name: string, modelCall: () => Promise<string>) => {
         try {
           const content = await modelCall();
@@ -158,7 +156,6 @@ io.on('connection', (socket) => {
         const isPro = user.role === 'PROFESSIONAL' || isGodMode;
         const isBasic = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isPro;
 
-        // --- LEVEL 1: FREE MODELS ---
         runCouncilMember("GEMINI", async () => {
           const res = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(postData.content);
           return res.response.text();
@@ -169,7 +166,6 @@ io.on('connection', (socket) => {
           return res.choices[0].message.content || "";
         });
 
-        // --- LEVEL 2: BASIC (+Grok) ---
         if (isBasic) {
           runCouncilMember("GROK", async () => {
             const res = await openai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
@@ -177,7 +173,6 @@ io.on('connection', (socket) => {
           });
         }
 
-        // --- LEVEL 3: PROFESSIONAL (+Claude & GPT-4o) ---
         if (isPro) {
           runCouncilMember("CLAUDE", async () => {
             const res = await anthropic.messages.create({ model: "claude-3-opus-20240229", max_tokens: 1024, messages: [{ role: "user", content: postData.content }] });
@@ -191,8 +186,7 @@ io.on('connection', (socket) => {
       })();
 
     } catch (error: any) {
-      console.error("[SYNTHESIS CRASH]", error.message);
-      socket.emit('error', { message: "The Forge is unstable. Refreshing connection..." });
+      socket.emit('error', { message: "The Forge is unstable. Refreshing..." });
     }
   });
 });
