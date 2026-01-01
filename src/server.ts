@@ -126,9 +126,11 @@ io.on('connection', (socket) => {
 
         // FREE TIER
         runAI("GEMINI", async () => {
-          const res = await genAI.getGenerativeModel({ model: "gemini-pro" }).generateContent(postData.content);
-          return res.response.text();
-        });
+        // Fixed model name to prevent 404 Fetch Error
+          const gemModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" }); 
+          const gemResult = await gemModel.generateContent(`Adversarial Response: ${postData.content}`);
+          return gemResult.response.text();
+        });        
 
         runAI("DEEPSEEK", async () => {
           const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
