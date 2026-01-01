@@ -29,7 +29,7 @@ const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "ht
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTH ROUTES (Explicitly mapped to fix 404 Login errors) ---
+// --- 🔑 AUTH ROUTES ---
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
   try {
@@ -100,46 +100,60 @@ io.on('connection', (socket) => {
       }
 
       const saved = await prisma.$transaction(async (tx) => {
-        let tokens = user.tokens_remaining;
         if (!isGodMode) {
-          const u = await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
-          tokens = u.tokens_remaining;
+          await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
         }
         return await tx.post.create({ data: { content: postData.content, is_human: true, user_id: user.id, conversation_id: activeConversation.id } });
       });
 
-      // 🚀 KILL-SWITCH: Stops the "spinny" for the Founder/User immediately
-      io.emit('post:incoming', { 
-        id: saved.id, name: user.username, content: postData.content, sender: 'user', role: user.role, 
-        tokens_remaining: isGodMode ? 999999 : user.tokens_remaining - 1 
+      // 🚀 KILL-SWITCH: Stops the "spinny" and syncs UI tokens
+      io.emit('post:incoming', {
+        id: saved.id, name: user.username, content: postData.content, sender: 'user', role: user.role,
+        tokens_remaining: isGodMode ? 999999 : user.tokens_remaining - 1
       });
 
-      // 2. 🛰️ THE PENTARCHY SUMMONING (Parallel AI Synthesis)
-      (async () => {
+      // 🛰️ THE PENTARCHY SUMMONING Helper
+      const runAI = async (name: string, modelCall: () => Promise<string>) => {
         try {
-          const isPro = user.role === 'PROFESSIONAL' || isGodMode;
-          const isBasic = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isPro;
+          const content = await modelCall();
+          io.emit('post:incoming', { id: crypto.randomUUID(), name, content, sender: 'ai', role: 'COUNCIL' });
+        } catch (err) { console.error(`[COUNCIL FAILURE: ${name}]`, err); }
+      };
 
-          // FREE MODELS
-          const gemRes = await genAI.getGenerativeModel({ model: "gemini-pro" }).generateContent(postData.content);
-          io.emit('post:incoming', { id: crypto.randomUUID(), name: "GEMINI", content: gemRes.response.text(), sender: 'ai' });
+      (async () => {
+        const isPro = user.role === 'PROFESSIONAL' || isGodMode;
+        const isBasic = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isPro;
 
-          const dsRes = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
-          io.emit('post:incoming', { id: crypto.randomUUID(), name: "DEEPSEEK", content: dsRes.choices[0].message.content, sender: 'ai' });
+        // FREE TIER
+        runAI("GEMINI", async () => {
+          const res = await genAI.getGenerativeModel({ model: "gemini-pro" }).generateContent(postData.content);
+          return res.response.text();
+        });
 
-          if (isBasic) {
-            const grokRes = await openai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
-            io.emit('post:incoming', { id: crypto.randomUUID(), name: "GROK", content: grokRes.choices[0].message.content, sender: 'ai' });
-          }
+        runAI("DEEPSEEK", async () => {
+          const res = await deepseek.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: postData.content }] });
+          return res.choices[0].message.content || "Synthesis error.";
+        });
 
-          if (isPro) {
-            const claudeRes = await anthropic.messages.create({ model: "claude-3-opus-20240229", max_tokens: 300, messages: [{ role: "user", content: postData.content }] });
-            io.emit('post:incoming', { id: crypto.randomUUID(), name: "CLAUDE", content: (claudeRes.content[0] as any).text, sender: 'ai' });
+        // BASIC TIER
+        if (isBasic) {
+          runAI("GROK", async () => {
+            const res = await openai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
+            return res.choices[0].message.content || "Synthesis error.";
+          });
+        }
 
-            const gptRes = await openai.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: postData.content }] });
-            io.emit('post:incoming', { id: crypto.randomUUID(), name: "GPT_4", content: gptRes.choices[0].message.content, sender: 'ai' });
-          }
-        } catch (aiErr) { console.error("[COUNCIL FAILURE]", aiErr); }
+        // PRO TIER
+        if (isPro) {
+          runAI("CLAUDE", async () => {
+            const res = await anthropic.messages.create({ model: "claude-3-opus-20240229", max_tokens: 1024, messages: [{ role: "user", content: postData.content }] });
+            return (res.content[0] as any).text;
+          });
+          runAI("GPT_4", async () => {
+            const res = await openai.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: postData.content }] });
+            return res.choices[0].message.content || "Synthesis error.";
+          });
+        }
       })();
 
     } catch (e: any) { socket.emit('error', { message: "Synthesis failed." }); }
