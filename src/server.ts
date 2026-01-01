@@ -44,24 +44,25 @@ app.use(express.json());
 
 // --- 🔑 AUTH ROUTES ---
 app.post('/api/auth/register', async (req, res) => {
-  const { username, email, password, referralCode } = req.body;
+  const { username, email, password, referralCode = "" } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Beta Protocol Logic with Enum Safety
-    const isBeta = referralCode === 'BETA_2026';
+    // ✨ Explicit Beta Protocol Logic
+    const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
     const startTokens = isBeta ? 50 : 10;
-    
-    // Explicitly using the UserRole enum from Prisma
     const userRole = isBeta ? UserRole.BETA_ARCHITECT : UserRole.USER;
+
+    console.log(`[SYS] Initializing Profile: ${email} | Role: ${userRole} | Tokens: ${startTokens}`);
 
     const user = await prisma.user.create({
       data: {
         username,
         email,
         password_hash: hashedPassword,
-        tokens_remaining: startTokens,
         role: userRole,
+        tokens_remaining: startTokens, // Ensure explicit assignment
+        token_balance: startTokens,    // Sync initial balance
         digest_subscribed: true
       }
     });
