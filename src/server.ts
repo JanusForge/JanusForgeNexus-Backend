@@ -92,29 +92,30 @@ const io = new Server(httpServer, {
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
-      const [user, activeConversation] = await Promise.all([
-        prisma.user.findUnique({ where: { id: postData.userId } }),
-        prisma.conversation.findFirst({
+      const user = await prisma.user.findUnique({ where: { id: postData.userId } });
+      const activeConversation = await prisma.conversation.findFirst({
           where: { is_daily_forge: true },
           orderBy: { created_at: 'desc' }
-        })
-      ]);
+      });
 
-      // If on the Live side (left), we use the incoming conversation ID, otherwise Forge ID
       const targetConversationId = postData.conversationId || activeConversation?.id;
       if (!targetConversationId) throw new Error("No active thread detected.");
 
+      // 🛠️ IDENTITY MAPPING: Separating Beta Architect from Enterprise/GodMode
       const isGodMode = user?.role === 'GOD_MODE';
+      const isEnterprise = user?.role === 'ENTERPRISE';
       const isBeta = user?.role === 'BETA_ARCHITECT';
 
-      // 🛡️ SECURITY & LEDGER GATE
-      if (!user || (!isGodMode && user.tokens_remaining < 1)) {
+      // Permission Gate: GodMode and Enterprise bypass token drain
+      const hasTokenBypass = isGodMode || isEnterprise;
+
+      if (!user || (!hasTokenBypass && user.tokens_remaining < 1)) {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
 
       const savedPost = await prisma.$transaction(async (tx) => {
-        if (!isGodMode) {
+        if (!hasTokenBypass) {
           await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
         }
         return await tx.post.create({
@@ -122,56 +123,47 @@ io.on('connection', (socket) => {
             content: postData.content,
             is_human: true,
             user_id: user.id,
-            conversation_id: targetConversationId 
+            conversation_id: targetConversationId
           }
         });
       });
 
-      // 📢 GLOBAL BROADCAST: Forces UI to unlock for ALL clients immediately
+      // 📢 GLOBAL BROADCAST: Unlocks UI for all privileged roles
       io.emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
         content: savedPost.content,
         sender: 'user',
         role: user.role,
-        tokens_remaining: isGodMode ? 999999 : user.tokens_remaining - 1
+        tokens_remaining: hasTokenBypass ? 999999 : user.tokens_remaining - 1
       });
 
       const runCouncilMember = async (name: string, modelCall: () => Promise<string>) => {
         try {
           const content = await modelCall();
-          io.emit('post:incoming', { 
-            id: crypto.randomUUID(), 
-            name, 
-            content, 
-            sender: 'ai', 
-            role: 'COUNCIL' 
-          });
-        } catch (aiErr) {
-          console.error(`[${name} FAILURE]`, aiErr);
-        }
+          // Broadcast to everyone to ensure AIs "see" each other in the stream
+          io.emit('post:incoming', { id: crypto.randomUUID(), name, content, sender: 'ai', role: 'COUNCIL' });
+        } catch (aiErr) { console.error(`[${name} FAILURE]`, aiErr); }
       };
 
       (async () => {
-        // 🚀 GOD_MODE & PROFESSIONAL: Force all 5 models
-        const isFullCouncil = isGodMode || user.role === 'PROFESSIONAL';
+        // 🚀 THE FULL SUMMONING: Fires for Enterprise, GodMode, or Beta Architect
+        const isFullCouncil = isGodMode || isEnterprise || isBeta || user.role === 'PROFESSIONAL';
         const isBasicPlus = isBeta || user.role === 'BASIC' || isFullCouncil;
 
-        // --- LEVEL 1: ALWAYS ON ---
         runCouncilMember("GEMINI", async () => {
           const res = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(postData.content);
           return res.response.text();
         });
 
         runCouncilMember("DEEPSEEK", async () => {
-          const res = await deepseek.chat.completions.create({ 
-            model: "deepseek-chat", 
-            messages: [{ role: "system", content: "Respond in English." }, { role: "user", content: postData.content }] 
+          const res = await deepseek.chat.completions.create({
+            model: "deepseek-chat",
+            messages: [{ role: "system", content: "Respond in English." }, { role: "user", content: postData.content }]
           });
           return res.choices[0].message.content || "";
         });
 
-        // --- LEVEL 2: BASIC/BETA ---
         if (isBasicPlus) {
           runCouncilMember("GROK", async () => {
             const res = await openai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
@@ -179,7 +171,6 @@ io.on('connection', (socket) => {
           });
         }
 
-        // --- LEVEL 3: GOD_MODE/PRO ---
         if (isFullCouncil) {
           runCouncilMember("CLAUDE", async () => {
             const res = await anthropic.messages.create({ model: "claude-3-opus-20240229", max_tokens: 1024, messages: [{ role: "user", content: postData.content }] });
@@ -192,11 +183,10 @@ io.on('connection', (socket) => {
         }
       })();
     } catch (error: any) {
-      io.emit('error', { message: "Channel Sync Lost. Re-establishing..." });
+      io.emit('error', { message: "Channel Sync Lost." });
     }
   });
 });
-
 
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
