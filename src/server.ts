@@ -166,19 +166,56 @@ app.get('/api/daily-forge/status', async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Sync Error" }); }
 });
 
-app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
+// --- 🛰️ FINAL SERVER STABILITY BLOCK ---
 
-const io = new Server(httpServer, { cors: { origin: true, credentials: true } });
+app.get('/', (req, res) => { 
+  res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }); 
+});
+
+// Initializing Socket.io with enhanced stability for long AI generations
+const io = new Server(httpServer, {
+  cors: { origin: true, credentials: true },
+  pingTimeout: 60000,          // Wait 60s for AI to respond before timing out
+  pingInterval: 25000,         // Check connection every 25s
+  connectTimeout: 45000,       // Allow more time for initial handshake
+  connectionStateRecovery: {}  // Enable automatic recovery for minor blips
+});
 
 io.on('connection', (socket) => {
+  console.log(`[SYS] Socket Connected: ${socket.id}`);
+
   socket.on('post:new', async (postData) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
-      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) return;
-      io.emit('post:incoming', { id: crypto.randomUUID(), name: user.username, content: postData.content, sender: 'user' });
-    } catch (error) { console.error(error); }
+      
+      // Security & Token Check
+      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
+        socket.emit('error', { message: "Insufficient tokens or unauthorized." });
+        return;
+      }
+
+      // 1. Broadcast the human message immediately
+      const newPostId = crypto.randomUUID();
+      io.emit('post:incoming', { 
+        id: newPostId, 
+        name: user.username, 
+        content: postData.content, 
+        sender: 'user',
+        role: user.role 
+      });
+
+      // 2. LOGIC NOTE: This is where your AI orchestration logic (Grok, Claude, etc.) 
+      // should be triggered to respond back to the thread.
+      
+    } catch (error) { 
+      console.error("[SOCKET ERROR]", error); 
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[SYS] Socket Disconnected: ${socket.id}`);
   });
 });
 
 const PORT = process.env.PORT || 10000;
-httpServer.listen(PORT, () => console.log(`🚀 Live on ${PORT}`));
+httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
