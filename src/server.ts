@@ -85,14 +85,13 @@ app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: n
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
-  pingTimeout: 60000, // Increased timeout to prevent channel closure
+  pingTimeout: 60000,
   connectionStateRecovery: {}
 });
 
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
-      // 🎯 ANCHORING: Explicitly find the active conversation
       const [user, activeConversation] = await Promise.all([
         prisma.user.findUnique({ where: { id: postData.userId } }),
         prisma.conversation.findFirst({
@@ -101,32 +100,34 @@ io.on('connection', (socket) => {
         })
       ]);
 
-      if (!activeConversation) throw new Error("No active Forge detected.");
-      const isGodMode = user?.role === UserRole.GOD_MODE;
+      // If on the Live side (left), we use the incoming conversation ID, otherwise Forge ID
+      const targetConversationId = postData.conversationId || activeConversation?.id;
+      if (!targetConversationId) throw new Error("No active thread detected.");
 
+      const isGodMode = user?.role === 'GOD_MODE';
+      const isBeta = user?.role === 'BETA_ARCHITECT';
+
+      // 🛡️ SECURITY & LEDGER GATE
       if (!user || (!isGodMode && user.tokens_remaining < 1)) {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
 
-      // 💎 ATOMIC TRANSACTION
       const savedPost = await prisma.$transaction(async (tx) => {
-        let currentTokens = user.tokens_remaining;
         if (!isGodMode) {
-          const u = await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
-          currentTokens = u.tokens_remaining;
+          await tx.user.update({ where: { id: user.id }, data: { tokens_remaining: { decrement: 1 } } });
         }
         return await tx.post.create({
           data: {
             content: postData.content,
             is_human: true,
             user_id: user.id,
-            conversation_id: activeConversation.id 
+            conversation_id: targetConversationId 
           }
         });
       });
 
-      // 📢 GLOBAL BROADCAST: Unlocks input fields for ALL clients
+      // 📢 GLOBAL BROADCAST: Forces UI to unlock for ALL clients immediately
       io.emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -139,7 +140,6 @@ io.on('connection', (socket) => {
       const runCouncilMember = async (name: string, modelCall: () => Promise<string>) => {
         try {
           const content = await modelCall();
-          // Use io.emit so the response is seen by the sender and unlocks their UI
           io.emit('post:incoming', { 
             id: crypto.randomUUID(), 
             name, 
@@ -153,36 +153,34 @@ io.on('connection', (socket) => {
       };
 
       (async () => {
-        const isPro = user.role === 'PROFESSIONAL' || isGodMode;
-        const isBasic = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isPro;
+        // 🚀 GOD_MODE & PROFESSIONAL: Force all 5 models
+        const isFullCouncil = isGodMode || user.role === 'PROFESSIONAL';
+        const isBasicPlus = isBeta || user.role === 'BASIC' || isFullCouncil;
 
-        // --- LEVEL 1: FREE MODELS ---
+        // --- LEVEL 1: ALWAYS ON ---
         runCouncilMember("GEMINI", async () => {
           const res = await genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent(postData.content);
           return res.response.text();
         });
 
         runCouncilMember("DEEPSEEK", async () => {
-          // Explicit system prompt to force English
           const res = await deepseek.chat.completions.create({ 
             model: "deepseek-chat", 
-            messages: [
-              { role: "system", content: "You are a helpful assistant. You MUST always respond in English." },
-              { role: "user", content: postData.content }
-            ] 
+            messages: [{ role: "system", content: "Respond in English." }, { role: "user", content: postData.content }] 
           });
           return res.choices[0].message.content || "";
         });
 
-        // --- LEVEL 2 & 3: BASIC & PRO MODELS (Unchanged logic) ---
-        if (isBasic) {
+        // --- LEVEL 2: BASIC/BETA ---
+        if (isBasicPlus) {
           runCouncilMember("GROK", async () => {
             const res = await openai.chat.completions.create({ model: "grok-beta", messages: [{ role: "user", content: postData.content }] });
             return res.choices[0].message.content || "";
           });
         }
 
-        if (isPro) {
+        // --- LEVEL 3: GOD_MODE/PRO ---
+        if (isFullCouncil) {
           runCouncilMember("CLAUDE", async () => {
             const res = await anthropic.messages.create({ model: "claude-3-opus-20240229", max_tokens: 1024, messages: [{ role: "user", content: postData.content }] });
             return (res.content[0] as any).text;
@@ -194,10 +192,11 @@ io.on('connection', (socket) => {
         }
       })();
     } catch (error: any) {
-      socket.emit('error', { message: "The Forge is unstable. Refreshing..." });
+      io.emit('error', { message: "Channel Sync Lost. Re-establishing..." });
     }
   });
 });
+
 
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
