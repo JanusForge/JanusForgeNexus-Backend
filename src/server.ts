@@ -1,160 +1,181 @@
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient } from '@prisma/client';
-import crypto from 'crypto';
-import bcrypt from 'bcrypt';
-import { Resend } from 'resend';
-import Stripe from 'stripe';
-import dailyForgeRouter from './routes/dailyForge';
+'use client';
 
-dotenv.config();
+import { useState, Suspense } from 'react'; // ✨ Added Suspense for searchParams
+import { useRouter, useSearchParams } from 'next/navigation'; // ✨ Added useSearchParams
+import Link from 'next/link';
+import { Loader2, ShieldCheck, UserPlus, AlertCircle, Zap } from 'lucide-react';
 
-const app = express();
-const httpServer = createServer(app);
-const prisma = new PrismaClient();
-const resend = new Resend(process.env.RESEND_API_KEY);
+export const dynamic = 'force-dynamic';
 
-const logApiError = (service: string, error: any) => {
-  console.error(`\n[🚨 ${service} FAILURE] @ ${new Date().toISOString()}`);
-  console.error(`- Message: ${error.message || 'No message provided'}`);
-  if (error.status || error.statusCode) console.error(`- Status Code: ${error.status || error.statusCode}`);
-  if (error.response?.data) console.error(`- Raw Data:`, JSON.stringify(error.response.data, null, 2));
-  console.error(`---------------------------------------------------\n`);
-};
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://janusforgenexus-backend.onrender.com';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+// ✨ Sub-component to handle Search Params safely in Next.js
+function RegisterForm() {
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success'>('idle');
 
-// --- 🛡️ CORS MIDDLEWARE ---
-app.use(cors({
-  origin: (origin, callback) => callback(null, true),
-  credentials: true
-}));
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const referralCode = searchParams.get('ref') || ''; // ✨ Capture BETA_2026
 
-app.use(express.json());
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setStatus('loading');
 
-// --- 🔑 AUTH ROUTES (MUST BE AT ROOT /api) ---
-app.post('/api/auth/register', async (req, res) => {
-  const { username, email, password } = req.body;
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({
-      data: { username, email, password_hash: hashedPassword, tokens_remaining: 10, digest_subscribed: true }
-    });
-    res.status(201).json({ id: user.id, username: user.username, email: user.email });
-  } catch (error: any) { res.status(400).json({ error: "Username or Email already in use." }); }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ error: "Unauthorized" });
-    res.json({ id: user.id, email: user.email, username: user.username, role: user.role, tokens_remaining: user.tokens_remaining });
-  } catch (error: any) { res.status(500).json({ error: "Auth Failure" }); }
-});
-
-// --- 🗝️ PASSWORD RECOVERY ---
-app.post(['/api/auth/forgot-password', '/api/auth/forgotpassword'], async (req, res) => {
-  const { email } = req.body;
-  try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.json({ message: "Check your email for reset instructions." });
-    const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 3600000);
-    await prisma.user.update({ where: { email }, data: { reset_token: token, reset_expires: expires } });
-    await resend.emails.send({
-      from: 'Janus Forge <admin@janusforge.ai>',
-      to: email,
-      subject: 'Access Recovery: Janus Forge Nexus',
-      html: `<div style="background-color: #000; color: #fff; padding: 40px; font-family: sans-serif;"><h1>Janus Forge Nexus</h1><p>Reset link: https://janusforge.ai/reset-password?token=${token}</p></div>`
-    });
-    res.json({ message: "Reset link sent." });
-  } catch (error: any) { logApiError('RESEND_MAIL', error); res.status(500).json({ error: "Failed to process request" }); }
-});
-
-app.post('/api/auth/reset-password', async (req, res) => {
-  const { token, password } = req.body;
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await prisma.user.updateMany({
-      where: { reset_token: token, reset_expires: { gt: new Date() } },
-      data: { password_hash: hashedPassword, reset_token: null, reset_expires: null }
-    });
-    if (result.count === 0) return res.status(400).json({ error: "Invalid or expired recovery token." });
-    res.json({ success: true, message: "Credentials updated." });
-  } catch (error: any) { res.status(500).json({ error: "Reset failed." }); }
-});
-
-// --- 💳 STRIPE & WEBHOOKS ---
-app.post(['/api/stripe/create-checkout-session', '/api/v1/billing/checkout'], async (req, res) => {
-  const { priceId, userId } = req.body;
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
-      mode: 'payment',
-      success_url: `${process.env.CLIENT_URL}/dashboard?success=true`,
-      cancel_url: `${process.env.CLIENT_URL}/pricing?canceled=true`,
-      metadata: { userId },
-    });
-    res.json({ id: session.id, url: session.url });
-  } catch (error: any) { res.status(500).json({ error: "Stripe connection failed" }); }
-});
-
-app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'] as string;
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET as string);
-  } catch (error: any) { return res.status(400).send(`Webhook Error: ${error.message}`); }
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as any;
-    const userId = session.metadata.userId;
-    const amount = parseInt(session.metadata.tokens) || 50;
-    await prisma.user.update({ where: { id: userId }, data: { tokens_remaining: { increment: amount } } });
-  }
-  res.json({ received: true });
-});
-
-// --- 🛰️ DAILY FORGE ROUTER ---
-// This handles /api/daily-forge, /api/daily-forge/history, and /api/daily-forge/interject
-app.use('/api/daily-forge', dailyForgeRouter);
-
-// Root Status
-app.get('/api/daily-forge/status', async (req, res) => {
-  try {
-    const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    const nextReset = new Date();
-    nextReset.setUTCHours(24, 0, 0, 0);
-    if (!latestForge) return res.json({ topic: "Pending...", scoutQuote: "Scouting...", councilQuote: "Analyzing...", nextReset: nextReset.toISOString() });
-    res.json({ topic: latestForge.winningTopic, scoutQuote: latestForge.openingThoughts, councilQuote: latestForge.councilVotes, nextReset: nextReset.toISOString() });
-  } catch (error) { res.status(500).json({ error: "Sync Error" }); }
-});
-
-app.get('/', (req, res) => { res.status(200).json({ status: "ONLINE" }); });
-
-const io = new Server(httpServer, { cors: { origin: true, credentials: true } });
-
-io.on('connection', (socket) => {
-  socket.on('post:new', async (postData) => {
     try {
-      const user = await prisma.user.findUnique({ where: { id: postData.userId } });
-      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) return;
-      io.emit('post:incoming', { id: crypto.randomUUID(), name: user.username, content: postData.content, sender: 'user' });
-      // ... Council Logic remains the same ...
-    } catch (error) { console.error(error); }
-  });
-});
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username, 
+          email, 
+          password, 
+          referralCode // ✨ Transmit the code to the backend
+        }),
+      });
 
-const PORT = process.env.PORT || 10000;
-httpServer.listen(PORT, () => console.log(`🚀 Live on ${PORT}`));
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(`Server connection error. Please try again later.`);
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed');
+      }
+
+      setStatus('success');
+      setTimeout(() => {
+        router.push('/login');
+      }, 2000);
+
+    } catch (err: any) {
+      setError(err.message || 'Initialization failed. Please try again.');
+      setStatus('idle');
+    }
+  };
+
+  return (
+    <>
+      {status === 'success' ? (
+        <div className="text-center py-10 animate-in fade-in zoom-in duration-500">
+          <div className="w-20 h-20 bg-green-500/10 border border-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ShieldCheck className="text-green-500" size={40} />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2 uppercase italic">Access Granted</h2>
+          <p className="text-gray-400 text-sm font-medium">Profile synthesized. Redirecting...</p>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {referralCode === 'BETA_2026' && (
+            <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center gap-3 animate-pulse">
+              <Zap size={18} className="text-blue-400 shrink-0 fill-blue-400" />
+              <p className="text-blue-400 text-[10px] font-black uppercase tracking-widest">
+                Beta Link Active: 50 Token Bounty Initialized
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
+              <AlertCircle size={18} className="text-red-500 shrink-0" />
+              <p className="text-red-400 text-xs font-black uppercase tracking-tight">{error}</p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="block text-gray-500 text-[10px] font-black uppercase tracking-[0.2em] ml-2">
+              Architect Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-5 py-4 bg-black border border-white/10 rounded-2xl text-white placeholder-gray-700 focus:outline-none focus:border-blue-500 transition-all text-sm font-bold"
+              placeholder="Enter your handle"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-gray-500 text-[10px] font-black uppercase tracking-[0.2em] ml-2">
+              Email Address
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-5 py-4 bg-black border border-white/10 rounded-2xl text-white placeholder-gray-700 focus:outline-none focus:border-blue-500 transition-all text-sm font-bold"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-gray-500 text-[10px] font-black uppercase tracking-[0.2em] ml-2">
+              Secure Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-5 py-4 bg-black border border-white/10 rounded-2xl text-white placeholder-gray-700 focus:outline-none focus:border-blue-500 transition-all text-sm font-bold"
+              placeholder="••••••••"
+              required
+              minLength={8}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={status === 'loading'}
+            className="w-full py-5 bg-white text-black font-black uppercase text-xs tracking-[0.3em] rounded-2xl transition-all hover:bg-blue-500 hover:text-white disabled:opacity-50 shadow-xl active:scale-95"
+          >
+            {status === 'loading' ? (
+              <Loader2 className="animate-spin mx-auto" size={20} />
+            ) : (
+              'Create Profile'
+            )}
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <div className="min-h-screen bg-black flex items-center justify-center p-4 selection:bg-blue-500/30">
+      <div className="w-full max-w-md">
+        <div className="bg-gray-900/40 backdrop-blur-xl rounded-[2.5rem] border border-white/10 p-10 shadow-2xl">
+          <div className="text-center mb-10">
+            <div className="inline-block mb-6 p-4 bg-blue-600/10 rounded-2xl border border-blue-500/20">
+              <UserPlus className="text-blue-500" size={32} />
+            </div>
+            <h1 className="text-4xl font-black text-white uppercase tracking-tighter italic">Initialize Profile</h1>
+            <p className="text-gray-500 mt-2 text-xs font-bold uppercase tracking-widest">Join the Nexus and engage the Council</p>
+          </div>
+
+          {/* ✨ Suspense Boundary is required for searchParams in Next.js App Router */}
+          <Suspense fallback={<Loader2 className="animate-spin mx-auto text-blue-500" />}>
+            <RegisterForm />
+          </Suspense>
+
+          <div className="mt-10 pt-8 border-t border-white/5 text-center">
+            <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">
+              Already an Architect?{' '}
+              <Link href="/login" className="text-blue-500 hover:text-white transition-colors ml-1">
+                Sign In
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
