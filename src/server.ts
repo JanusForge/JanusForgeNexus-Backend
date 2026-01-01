@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, UserRole, AIParticipant } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
@@ -192,20 +192,26 @@ io.on('connection', (socket) => {
 
       if (!activeConversation) throw new Error("No active Forge stream detected.");
 
-      if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
+      // Founder/Architects are charged tokens unless role is specifically GOD_MODE
+      const isGodMode = user?.role === UserRole.GOD_MODE;
+
+      if (!user || (!isGodMode && user.tokens_remaining < 1)) {
         socket.emit('error', { message: "The Forge requires tribute (tokens) to enter." });
         return;
       }
 
+      // 1. ATOMIC TRANSACTION: Save the interjection
       const savedPost = await prisma.$transaction(async (tx) => {
-        if (user.role !== 'GOD_MODE') {
-          await tx.user.update({
+        let currentTokens = user.tokens_remaining;
+        if (!isGodMode) {
+          const updatedUser = await tx.user.update({
             where: { id: user.id },
             data: { tokens_remaining: { decrement: 1 } }
           });
+          currentTokens = updatedUser.tokens_remaining;
         }
 
-        return await tx.post.create({
+        const post = await tx.post.create({
           data: {
             content: postData.content,
             is_human: true,
@@ -213,19 +219,60 @@ io.on('connection', (socket) => {
             conversation_id: activeConversation.id
           }
         });
+        return { post, currentTokens };
       });
 
-      // 🛰️ KILL-SWITCH: Broadcast immediately to update frontend & stop spinner
+      // 2. IMMEDIATE BROADCAST: Stop the local spinner
       io.emit('post:incoming', {
-        id: savedPost.id,
+        id: savedPost.post.id,
         name: user.username,
-        content: savedPost.content,
+        content: savedPost.post.content,
         sender: 'user',
         role: user.role,
-        tokens_remaining: user.role === 'GOD_MODE' ? 999 : user.tokens_remaining - 1
+        tokens_remaining: savedPost.currentTokens
       });
 
-      console.log(`[STIMULUS] Human interjection saved and broadcast: ${savedPost.id}`);
+      // 3. 🛰️ COUNCIL SYNTHESIS: Trigger AI Participants
+      console.log(`[STIMULUS] Human interjection saved. Triggering Council response: ${savedPost.post.id}`);
+
+      // Async IIFE to prevent blocking the socket
+      (async () => {
+        try {
+          // Gemini Response Heartbeat
+          const geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+          const geminiResult = await geminiModel.generateContent(`As a member of the Council of Synthesis, respond briefly to this interjection in the context of the 2026 judicial AI debate: "${postData.content}"`);
+          const geminiText = geminiResult.response.text();
+
+          io.emit('post:incoming', {
+            id: crypto.randomUUID(),
+            name: "GEMINI_PRO",
+            content: geminiText,
+            sender: 'ai',
+            role: 'COUNCIL'
+          });
+
+          // Claude Response Heartbeat
+          const claudeResponse = await anthropic.messages.create({
+            model: "claude-3-opus-20240229",
+            max_tokens: 300,
+            messages: [{ role: "user", content: `Respond to: ${postData.content}` }],
+          });
+          
+          // Logic for extracting Claude text content
+          const claudeText = (claudeResponse.content[0] as any).text;
+
+          io.emit('post:incoming', {
+            id: crypto.randomUUID(),
+            name: "CLAUDE",
+            content: claudeText,
+            sender: 'ai',
+            role: 'COUNCIL'
+          });
+
+        } catch (aiError) {
+          console.error("[COUNCIL ERROR]", aiError);
+        }
+      })();
 
     } catch (error: any) {
       console.error("[SYNTHESIS ERROR]", error);
