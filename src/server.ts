@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
@@ -47,32 +47,35 @@ app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // Beta Protocol Logic
+
+    // Beta Protocol Logic with Enum Safety
     const isBeta = referralCode === 'BETA_2026';
     const startTokens = isBeta ? 50 : 10;
-    const userRole = isBeta ? 'BETA_ARCHITECT' : 'USER';
+    
+    // Explicitly using the UserRole enum from Prisma
+    const userRole = isBeta ? UserRole.BETA_ARCHITECT : UserRole.USER;
 
     const user = await prisma.user.create({
-      data: { 
-        username, 
-        email, 
-        password_hash: hashedPassword, 
-        tokens_remaining: startTokens, 
-        role: userRole, 
-        digest_subscribed: true 
+      data: {
+        username,
+        email,
+        password_hash: hashedPassword,
+        tokens_remaining: startTokens,
+        role: userRole,
+        digest_subscribed: true
       }
     });
-    
-    res.status(201).json({ 
-      id: user.id, 
-      username: user.username, 
-      email: user.email, 
-      role: user.role, 
-      tokens_remaining: user.tokens_remaining 
+
+    res.status(201).json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      tokens_remaining: user.tokens_remaining
     });
-  } catch (error: any) { 
-    res.status(400).json({ error: "Username or Email already in use." }); 
+  } catch (error: any) {
+    console.error("Registration Error:", error);
+    res.status(400).json({ error: "Username or Email already in use." });
   }
 });
 
