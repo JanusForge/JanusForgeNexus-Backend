@@ -194,72 +194,54 @@ io.on('connection', (socket) => {
           councilQueue.push({ name: "GPT_4", modelKey: "gpt-4o" });
         }
 
-        for (const ai of councilQueue) {
-          const transcript = await prisma.post.findMany({
-            where: { conversation_id: targetConversationId },
-            orderBy: { created_at: 'asc' },
-            take: 15
-          });
+      for (const ai of councilQueue) {
+  // 1. RE-FETCH TRANSCRIPT: Every AI needs the absolute latest view of the chat
+  const transcript = await prisma.post.findMany({
+    where: { conversation_id: targetConversationId },
+    orderBy: { created_at: 'asc' },
+    take: 20 // Increased to ensure they see the full context of the debate
+  });
 
-          const context = transcript.map(p => `${p.is_human ? 'User' : (p.ai_model || 'AI')}: ${p.content}`).join("\n\n");
+  // 2. CONTEXT SYNTHESIS: Format the transcript so they recognize each other
+  const context = transcript.map(p => {
+    const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
+    return `${name}: ${p.content}`;
+  }).join("\n");
 
-          try {
+  try {
     let aiContent = "";
+    // ... (Your AI API Logic for GEMINI, DEEPSEEK, CLAUDE, etc.) ...
 
-    if (ai.name === "GEMINI") {
-      // Gemini can take instructions via SystemInstruction or prepended text
-      const model = genAI.getGenerativeModel({ 
-        model: ai.modelKey,
-        systemInstruction: councilDirective // Supported in 1.5 models
-      });
-      const res = await model.generateContent(context);
-      aiContent = res.response.text();
-
-    } else if (ai.name === "DEEPSEEK") {
-      const res = await deepseek.chat.completions.create({
-        model: ai.modelKey,
-        messages: [
-          { role: "system", content: councilDirective }, // Correctly sets persona
-          { role: "user", content: context }
-        ]
-      });
-      aiContent = res.choices[0].message.content || "";
-
-    } else if (ai.name === "CLAUDE") {
-      const res = await anthropic.messages.create({
-        model: ai.modelKey,
-        max_tokens: 1500,
-        system: councilDirective, // ANTHROPIC SPECIAL: System is a top-level field
-        messages: [{ role: "user", content: context }]
-      });
-      aiContent = (res.content[0] as any).text;
-
-    } else if (ai.name === "GPT_4" || ai.name === "GROK") {
-      const res = await openai.chat.completions.create({
-        model: ai.modelKey,
-        messages: [
-          { role: "system", content: councilDirective }, // Standard OpenAI/xAI format
-          { role: "user", content: context }
-        ]
-      });
-      aiContent = res.choices[0].message.content || "";
-    }
-
-            if (aiContent) {
-              await prisma.post.create({
-                data: {
-                  content: aiContent,
-                  is_human: false,
-                  ai_model: ai.name as any, 
-                  conversation_id: targetConversationId
-                }
-              });
-              io.emit('post:incoming', { id: crypto.randomUUID(), name: ai.name, content: aiContent, sender: 'ai', role: 'COUNCIL' });
-            }
-          } catch (err) {
-            console.error(`[${ai.name} FAILURE]`, err);
-          }
+    if (aiContent) {
+      // 3. SAVE TO DB: This must complete before the next AI starts
+      await prisma.post.create({
+        data: {
+          content: aiContent,
+          is_human: false,
+          ai_model: ai.name as any,
+          conversation_id: targetConversationId
         }
+      });
+
+      // 4. EMIT LIVE: Stream it to the UI
+      io.emit('post:incoming', { 
+        id: crypto.randomUUID(), 
+        name: ai.name, 
+        content: aiContent, 
+        sender: 'ai' 
+      });
+
+      // ⛓️ THE FIX: THE SYNCHRONIZATION DELAY
+      // We force the loop to wait 1.5 seconds so the DB is 100% ready for the next AI
+      await new Promise(r => setTimeout(r, 1500)); 
+      console.log(`📡 [Nexus Sync] ${ai.name} response settled. Moving to next Council member...`);
+    }
+  } catch (err) {
+    console.error(`[${ai.name} FAILURE]`, err);
+  }
+}        
+
+
       })();
     } catch (error: any) {
       io.emit('error', { message: "Channel Sync Lost." });
