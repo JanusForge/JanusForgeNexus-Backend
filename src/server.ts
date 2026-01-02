@@ -284,8 +284,13 @@ io.on('connection', (socket) => {
       console.error(`[${ai.name} FAILURE]`, err);
     }
   }
-})();
-
+// ... (Immediately after the end of your for-of councilQueue loop)
+      })(); // Closes the (async () => {
+    } catch (error: any) {
+      io.emit('error', { message: "Channel Sync Lost." });
+    }
+  }); // Closes the io.on('chat:message', ...
+}); // Closes the io.on('connection', ...
 
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
