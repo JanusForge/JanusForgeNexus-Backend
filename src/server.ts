@@ -11,7 +11,6 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
-import conversationRouter from './routes/conversations'; // Add this import
 import dailyForgeRouter from './routes/dailyForge';
 
 dotenv.config();
@@ -80,7 +79,6 @@ app.post('/api/auth/login', async (req, res) => {
 
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
-app.use('/api/conversations', conversationRouter);
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latest = await prisma.dailyForge.findFirst({
@@ -189,15 +187,12 @@ io.on('connection', (socket) => {
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
         const councilQueue = [];
-        councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });        // Updated: Gemini 2.5 Pro (high-performance)
-        // councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-flash" });   // Alternative: faster version
+        councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });
         councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
-        if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-4.1-fast" });  // Updated: Grok 4.1 Fast (agentic, 2M context)
+        if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-4.1-fast" });
         if (isFullCouncil) {
           councilQueue.push({ name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" });
-          councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2" });            // Updated: GPT-5.2 flagship
-          // councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2-pro" });     // Alternative: higher capability
-          // councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2-mini" });    // Alternative: faster/cheaper
+          councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2" });
         }
         for (const ai of councilQueue) {
           const transcript = await prisma.post.findMany({
@@ -205,26 +200,26 @@ io.on('connection', (socket) => {
             orderBy: { created_at: 'asc' },
             take: 20
           });
-          const Circulation = transcript.map(p => {
+          const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
-          }).join("\n");
+          }).join("\n") + "\n\nPRIORITIZE THIS LATEST DIRECTIVE FROM THE ARCHITECT: " + transcript[transcript.length - 1].content;
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
               const model = genAI.getGenerativeModel({ model: ai.modelKey, systemInstruction: councilDirective });
-              const res = await model.generateContent(Circulation);
+              const res = await model.generateContent(context);
               aiContent = res.response.text();
             } else if (ai.name === "DEEPSEEK") {
               const res = await deepseek.chat.completions.create({
                 model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: Circulation }]
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
               const res = await xai.chat.completions.create({
                 model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: Circulation }]
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "CLAUDE") {
@@ -232,13 +227,13 @@ io.on('connection', (socket) => {
                 model: ai.modelKey,
                 max_tokens: 1500,
                 system: councilDirective,
-                messages: [{ role: "user", content: Circulation }]
+                messages: [{ role: "user", content: context }]
               });
               aiContent = (res.content[0] as any).text;
             } else if (ai.name === "GPT_4") {
               const res = await openai.chat.completions.create({
                 model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: Circulation }]
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
               });
               aiContent = res.choices[0].message.content || "";
             }
@@ -256,14 +251,13 @@ io.on('connection', (socket) => {
                 name: ai.name,
                 content: aiContent,
                 sender: 'ai',
-                tokens_remaining: currentTokens // Consistent token display
+                tokens_remaining: currentTokens
               });
               await new Promise(r => setTimeout(r, 1500));
               console.log(`📡 [Nexus Sync] ${ai.name} response settled. Moving to next Council member...`);
             }
           } catch (err) {
             console.error(`[${ai.name} FAILURE]`, err);
-            // Continue to next AI even if one fails
             io.emit('post:incoming', {
               id: crypto.randomUUID(),
               name: ai.name,
