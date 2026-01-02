@@ -12,8 +12,8 @@ import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
 import dailyForgeRouter from './routes/dailyForge';
-dotenv.config();
 
+dotenv.config();
 console.log('Auth routes loading...'); // Force redeploy
 
 const app = express();
@@ -36,7 +36,46 @@ app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: 
 app.use(express.json());
 
 // --- 🔑 AUTH & TIERED LEDGER ---
-// ... (unchanged register/login routes remain here)
+app.post('/api/auth/register', async (req, res) => {
+  const { username, email, password, referralCode = "" } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
+    const user = await prisma.user.create({
+      data: {
+        username, email, password_hash: hashedPassword,
+        role: isBeta ? UserRole.BETA_ARCHITECT : UserRole.USER,
+        tokens_remaining: isBeta ? 50 : 10, token_balance: isBeta ? 50 : 10,
+        digest_subscribed: true
+      }
+    });
+    res.status(201).json(user);
+  } catch (error) { 
+    res.status(400).json({ error: "Registration conflict." }); 
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    console.log(`🔐 Login attempt for: ${email}`);
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    console.log("✅ Login Success");
+    res.json(user);
+  } catch (error: any) {
+    console.error("🔥 CRITICAL LOGIN ERROR:", error.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
@@ -84,16 +123,13 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: "User not found." });
         return;
       }
-
       const isGodMode = user.role === 'GOD_MODE';
       const isEnterprise = user.role === 'ENTERPRISE';
       const hasTokenBypass = isGodMode || isEnterprise;
-
       if (!hasTokenBypass && user.tokens_remaining < 1) {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
-
       // Determine target conversation
       let targetConversationId: string;
       if (postData.isLiveChat) {
@@ -115,9 +151,7 @@ io.on('connection', (socket) => {
         });
         targetConversationId = postData.conversationId || activeConversation?.id;
       }
-
       if (!targetConversationId) throw new Error("No active thread detected.");
-
       // Transaction: deduct token + save human post
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
@@ -137,9 +171,7 @@ io.on('connection', (socket) => {
         const refreshedUser = await tx.user.findUnique({ where: { id: user.id } });
         return [post, refreshedUser];
       });
-
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
-
       // Emit human message
       io.emit('post:incoming', {
         id: savedPost.id,
@@ -149,14 +181,11 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
-
       // --- ⛓️ SEQUENTIAL SIGHT PROTOCOL ---
       (async () => {
         const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect (Cassandra). Use the provided transcript to respond to previous points.";
-
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
-
         const councilQueue = [];
         councilQueue.push({ name: "GEMINI", modelKey: "gemini-1.5-flash" });
         councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
@@ -165,19 +194,16 @@ io.on('connection', (socket) => {
           councilQueue.push({ name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" });
           councilQueue.push({ name: "GPT_4", modelKey: "gpt-4o" });
         }
-
         for (const ai of councilQueue) {
           const transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
             take: 20
           });
-
           const Circulation = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
           }).join("\n");
-
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
@@ -187,13 +213,13 @@ io.on('connection', (socket) => {
             } else if (ai.name === "DEEPSEEK") {
               const res = await deepseek.chat.completions.create({
                 model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: Circulation }]
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
               const res = await xai.chat.completions.create({
                 model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: Circulation }]
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "CLAUDE") {
@@ -201,17 +227,16 @@ io.on('connection', (socket) => {
                 model: ai.modelKey,
                 max_tokens: 1500,
                 system: councilDirective,
-                messages: [{ role: "user", content: context }]
+                messages: [{ role: "user", content: Circulation }]
               });
               aiContent = (res.content[0] as any).text;
             } else if (ai.name === "GPT_4") {
               const res = await openai.chat.completions.create({
                 model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: Circulation }]
               });
               aiContent = res.choices[0].message.content || "";
             }
-
             if (aiContent) {
               const aiPost = await prisma.post.create({
                 data: {
@@ -221,15 +246,13 @@ io.on('connection', (socket) => {
                   conversation_id: targetConversationId
                 }
               });
-
               io.emit('post:incoming', {
                 id: aiPost.id,
                 name: ai.name,
                 content: aiContent,
                 sender: 'ai',
-                tokens_remaining: currentTokens  // Consistent token display
+                tokens_remaining: currentTokens // Consistent token display
               });
-
               await new Promise(r => setTimeout(r, 1500));
               console.log(`📡 [Nexus Sync] ${ai.name} response settled. Moving to next Council member...`);
             }
