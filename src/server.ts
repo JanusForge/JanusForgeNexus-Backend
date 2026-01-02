@@ -14,6 +14,8 @@ import Stripe from 'stripe';
 import dailyForgeRouter from './routes/dailyForge';
 dotenv.config();
 
+console.log('Auth routes loading...'); // Force redeploy
+
 const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
@@ -180,7 +182,7 @@ io.on('connection', (socket) => {
             let aiContent = "";
             if (ai.name === "GEMINI") {
               const model = genAI.getGenerativeModel({ model: ai.modelKey, systemInstruction: councilDirective });
-              const res = await model.generateContent(context);
+              const res = await model.generateContent(Circulation);
               aiContent = res.response.text();
             } else if (ai.name === "DEEPSEEK") {
               const res = await deepseek.chat.completions.create({
