@@ -50,8 +50,8 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
     res.status(201).json(user);
-  } catch (error) { 
-    res.status(400).json({ error: "Registration conflict." }); 
+  } catch (error) {
+    res.status(400).json({ error: "Registration conflict." });
   }
 });
 
@@ -187,12 +187,15 @@ io.on('connection', (socket) => {
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
         const councilQueue = [];
-        councilQueue.push({ name: "GEMINI", modelKey: "gemini-1.5-flash" });
+        councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });        // Updated: Gemini 2.5 Pro (high-performance)
+        // councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-flash" });   // Alternative: faster version
         councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
-        if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-beta" });
+        if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-4.1-fast" });  // Updated: Grok 4.1 Fast (agentic, 2M context)
         if (isFullCouncil) {
           councilQueue.push({ name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" });
-          councilQueue.push({ name: "GPT_4", modelKey: "gpt-4o" });
+          councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2" });            // Updated: GPT-5.2 flagship
+          // councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2-pro" });     // Alternative: higher capability
+          // councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2-mini" });    // Alternative: faster/cheaper
         }
         for (const ai of councilQueue) {
           const transcript = await prisma.post.findMany({
