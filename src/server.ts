@@ -12,6 +12,7 @@ import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
 import dailyForgeRouter from './routes/dailyForge';
+import conversationRouter from './routes/conversations';
 
 dotenv.config();
 console.log('Auth routes loading...'); // Force redeploy
@@ -79,6 +80,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
+app.use('/api/conversations', conversationRouter);
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latest = await prisma.dailyForge.findFirst({
