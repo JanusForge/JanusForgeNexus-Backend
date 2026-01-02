@@ -180,6 +180,7 @@ io.on('connection', (socket) => {
 
       // --- ⛓️ SEQUENTIAL SIGHT PROTOCOL ---
       (async () => {
+        const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect.";
         const isFullCouncil = isGodMode || isEnterprise || isBeta || user.role === 'PROFESSIONAL';
         const isBasicPlus = isBeta || user.role === 'BASIC' || isFullCouncil;
 
@@ -203,30 +204,46 @@ io.on('connection', (socket) => {
           const context = transcript.map(p => `${p.is_human ? 'User' : (p.ai_model || 'AI')}: ${p.content}`).join("\n\n");
 
           try {
-            let aiContent = "";
-            if (ai.name === "GEMINI") {
-              const res = await genAI.getGenerativeModel({ model: ai.modelKey }).generateContent(context);
-              aiContent = res.response.text();
-            } else if (ai.name === "DEEPSEEK") {
-              const res = await deepseek.chat.completions.create({
-                model: ai.modelKey,
-                messages: [{ role: "system", content: "You are a member of the AI Council. Respond and acknowledge previous AI points." }, { role: "user", content: context }]
-              });
-              aiContent = res.choices[0].message.content || "";
-            } else if (ai.name === "GROK") {
-              const res = await openai.chat.completions.create({ model: ai.modelKey, messages: [{ role: "user", content: context }] });
-              aiContent = res.choices[0].message.content || "";
-            } else if (ai.name === "CLAUDE") {
-              const res = await anthropic.messages.create({ 
-                model: ai.modelKey, 
-                max_tokens: 1500, 
-                messages: [{ role: "user", content: context }] 
-              });
-              aiContent = (res.content[0] as any).text;
-            } else if (ai.name === "GPT_4") {
-              const res = await openai.chat.completions.create({ model: ai.modelKey, messages: [{ role: "user", content: context }] });
-              aiContent = res.choices[0].message.content || "";
-            }
+    let aiContent = "";
+
+    if (ai.name === "GEMINI") {
+      // Gemini can take instructions via SystemInstruction or prepended text
+      const model = genAI.getGenerativeModel({ 
+        model: ai.modelKey,
+        systemInstruction: councilDirective // Supported in 1.5 models
+      });
+      const res = await model.generateContent(context);
+      aiContent = res.response.text();
+
+    } else if (ai.name === "DEEPSEEK") {
+      const res = await deepseek.chat.completions.create({
+        model: ai.modelKey,
+        messages: [
+          { role: "system", content: councilDirective }, // Correctly sets persona
+          { role: "user", content: context }
+        ]
+      });
+      aiContent = res.choices[0].message.content || "";
+
+    } else if (ai.name === "CLAUDE") {
+      const res = await anthropic.messages.create({
+        model: ai.modelKey,
+        max_tokens: 1500,
+        system: councilDirective, // ANTHROPIC SPECIAL: System is a top-level field
+        messages: [{ role: "user", content: context }]
+      });
+      aiContent = (res.content[0] as any).text;
+
+    } else if (ai.name === "GPT_4" || ai.name === "GROK") {
+      const res = await openai.chat.completions.create({
+        model: ai.modelKey,
+        messages: [
+          { role: "system", content: councilDirective }, // Standard OpenAI/xAI format
+          { role: "user", content: context }
+        ]
+      });
+      aiContent = res.choices[0].message.content || "";
+    }
 
             if (aiContent) {
               await prisma.post.create({
