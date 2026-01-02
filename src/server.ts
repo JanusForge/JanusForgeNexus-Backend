@@ -59,12 +59,36 @@ app.post('/api/auth/login', async (req, res) => {
 
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
+
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
-    const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    res.json({ topic: latest?.winningTopic, scoutQuote: latest?.openingThoughts, councilQuote: latest?.councilVotes });
-  } catch (error) { res.status(500).json({ error: "Sync Failure" }); }
+    // Adding a timeout to the query itself to prevent hanging
+    const latest = await prisma.dailyForge.findFirst({ 
+      orderBy: { date: 'desc' },
+      take: 1
+    });
+
+    if (!latest) {
+      return res.json({
+        topic: "Initializing Synthesis...",
+        scoutQuote: "Scout is currently patrolling...",
+        councilQuote: "Waiting for Council to convene."
+      });
+    }
+
+    res.json({ 
+      topic: latest.winningTopic || "Synchronizing...", 
+      scoutQuote: latest.openingThoughts || "Analyzing...", 
+      councilQuote: latest.councilVotes || "Gathering votes...",
+      nextReset: latest.date
+    });
+  } catch (error) {
+    // This will help you see the EXACT error in Render Logs
+    console.error("CRITICAL: Forge Status Sync Failure", error);
+    res.status(500).json({ error: "Nexus Sync Error" });
+  }
 });
+
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
