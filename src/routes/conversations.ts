@@ -12,7 +12,7 @@ import {
 const router = Router();
 const prisma = new PrismaClient();
 
-// === NEW ENDPOINT: Personal User Conversation History ===
+// === Personal User Conversation History ===
 router.get('/user', async (req: Request, res: Response) => {
   const userId = req.query.userId as string;
   if (!userId) {
@@ -23,8 +23,8 @@ router.get('/user', async (req: Request, res: Response) => {
     const conversations = await prisma.conversation.findMany({
       where: {
         OR: [
-          { posts: { some: { user_id: userId } } }, // User's personal conversations
-          { title: "Live Nexus Chat" }              // Always include the main live chat
+          { posts: { some: { user_id: userId } } },
+          { title: "Live Nexus Chat" }
         ]
       },
       orderBy: { created_at: 'desc' },
@@ -32,7 +32,6 @@ router.get('/user', async (req: Request, res: Response) => {
         id: true,
         title: true,
         created_at: true,
-        note: true, // Include note for persistence
         posts: {
           orderBy: { created_at: 'desc' },
           take: 1,
@@ -45,8 +44,7 @@ router.get('/user', async (req: Request, res: Response) => {
       id: conv.id,
       title: conv.title || "Untitled Synthesis",
       preview: conv.posts[0]?.content?.slice(0, 80) + "..." || "No messages yet",
-      timestamp: conv.posts[0]?.created_at || conv.created_at,
-      note: conv.note || undefined
+      timestamp: conv.posts[0]?.created_at || conv.created_at
     }));
 
     res.json(formatted);
@@ -56,23 +54,16 @@ router.get('/user', async (req: Request, res: Response) => {
   }
 });
 
-// === NEW ENDPOINT: Update conversation title and note ===
+// === Update conversation title (PATCH) ===
 router.patch('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { title, note } = req.body;
+  const { title } = req.body;
 
   try {
     const updated = await prisma.conversation.update({
       where: { id },
-      data: {
-        ...(title !== undefined && { title }),
-        ...(note !== undefined && { note })
-      },
-      select: {
-        id: true,
-        title: true,
-        note: true
-      }
+      data: { title },
+      select: { id: true, title: true }
     });
     res.json(updated);
   } catch (error) {
