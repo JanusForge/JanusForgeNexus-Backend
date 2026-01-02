@@ -32,6 +32,7 @@ router.get('/user', async (req: Request, res: Response) => {
         id: true,
         title: true,
         created_at: true,
+        note: true, // Include note for persistence
         posts: {
           orderBy: { created_at: 'desc' },
           take: 1,
@@ -44,13 +45,39 @@ router.get('/user', async (req: Request, res: Response) => {
       id: conv.id,
       title: conv.title || "Untitled Synthesis",
       preview: conv.posts[0]?.content?.slice(0, 80) + "..." || "No messages yet",
-      timestamp: conv.posts[0]?.created_at || conv.created_at
+      timestamp: conv.posts[0]?.created_at || conv.created_at,
+      note: conv.note || undefined
     }));
 
     res.json(formatted);
   } catch (error) {
     console.error("Conversation list error:", error);
     res.status(500).json({ error: "Failed to load conversations" });
+  }
+});
+
+// === NEW ENDPOINT: Update conversation title and note ===
+router.patch('/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { title, note } = req.body;
+
+  try {
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: {
+        ...(title !== undefined && { title }),
+        ...(note !== undefined && { note })
+      },
+      select: {
+        id: true,
+        title: true,
+        note: true
+      }
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error("Conversation update error:", error);
+    res.status(500).json({ error: "Failed to update conversation" });
   }
 });
 
