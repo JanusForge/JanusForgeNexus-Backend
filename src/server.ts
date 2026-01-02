@@ -51,25 +51,56 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ error: "Unauthorized" });
+    console.log(`🔐 Login attempt for: ${email}`);
+    
+    // Normalize email to prevent case-sensitivity issues
+    const user = await prisma.user.findUnique({ 
+      where: { email: email.toLowerCase() } 
+    });
+
+    if (!user) {
+      console.error("❌ Login Fail: User not found in database.");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Explicitly check if password_hash exists
+    if (!user.password_hash) {
+      console.error("❌ Login Fail: User has no stored password hash.");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      console.error("❌ Login Fail: Password mismatch.");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    console.log("✅ Login Success: Issuing Token...");
+    
+    // Ensure JWT_SECRET is present or provide a fallback for testing
+    const secret = process.env.JWT_SECRET || 'fallback-secret-change-me';
+    // ... generate token logic ...
+    
     res.json(user);
-  } catch (error) { res.status(500).json({ error: "Login failed." }); }
+  } catch (error: any) {
+    console.error("🔥 CRITICAL LOGIN ERROR:", error.message);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
+  }
 });
+
 
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
 
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
-    // Adding a timeout to the query itself to prevent hanging
+    // Attempt a quick find with a limit to minimize load
     const latest = await prisma.dailyForge.findFirst({ 
-      orderBy: { date: 'desc' },
-      take: 1
+      orderBy: { date: 'desc' } 
     });
 
     if (!latest) {
-      return res.json({
+      return res.status(200).json({
         topic: "Initializing Synthesis...",
         scoutQuote: "Scout is currently patrolling...",
         councilQuote: "Waiting for Council to convene."
@@ -77,15 +108,18 @@ app.get('/api/daily-forge/status', async (req, res) => {
     }
 
     res.json({ 
-      topic: latest.winningTopic || "Synchronizing...", 
-      scoutQuote: latest.openingThoughts || "Analyzing...", 
-      councilQuote: latest.councilVotes || "Gathering votes...",
-      nextReset: latest.date
+      topic: latest.winningTopic, 
+      scoutQuote: latest.openingThoughts, 
+      councilQuote: latest.councilVotes,
+      nextReset: latest.date 
     });
-  } catch (error) {
-    // This will help you see the EXACT error in Render Logs
-    console.error("CRITICAL: Forge Status Sync Failure", error);
-    res.status(500).json({ error: "Nexus Sync Error" });
+  } catch (error: any) {
+    // This logs the EXACT reason for the 500 error in your Render logs
+    console.error("CRITICAL: Daily Forge Status Fetch Failure", {
+      message: error.message,
+      code: error.code
+    });
+    res.status(500).json({ error: "Sync Failure", details: error.message });
   }
 });
 

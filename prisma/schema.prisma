@@ -12,33 +12,33 @@ model Purchase {
   userId          String
   amount          Float
   tokens          Int
-  packageName      String
+  packageName     String
   stripeSessionId String   @unique
   createdAt       DateTime @default(now())
   user            User     @relation(fields: [userId], references: [id])
 }
 
 model User {
-  id                String             @id @default(uuid())
-  email             String             @unique
-  username          String             @unique
-  password_hash     String             @map("password_hash")
-  role              UserRole           @default(USER)
-  tier              String             @default("FREE")
-  token_balance     Int                @default(0) @map("token_balance")
-  tokens_used       Int                @default(0) @map("tokens_used")
-  tokens_remaining  Int                @default(0) @map("tokens_remaining")
-  refresh_token     String?            @map("refresh_token")
-  created_at        DateTime           @default(now()) @map("created_at")
-  updated_at        DateTime           @updatedAt @map("updated_at")
-  purchases         Purchase[]
-  ai_responses      AIResponse[]
-  debate_votes      DebateVote[]
-  posts             Post[]
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  username           String             @unique
+  password_hash      String             @map("password_hash")
+  tier               String             @default("FREE")
+  token_balance      Int                @default(0) @map("token_balance")
+  tokens_used        Int                @default(0) @map("tokens_used")
+  tokens_remaining   Int                @default(0) @map("tokens_remaining")
+  refresh_token      String?            @map("refresh_token")
+  created_at         DateTime           @default(now()) @map("created_at")
+  updated_at         DateTime           @updatedAt @map("updated_at")
+  role               UserRole           @default(USER)
+  digest_subscribed  Boolean            @default(true) @map("digest_subscribed")
+  reset_expires      DateTime?
+  reset_token        String?            @unique
+  purchases          Purchase[]
+  ai_responses       AIResponse[]
+  debate_votes       DebateVote[]
+  posts              Post[]
   token_transactions TokenTransaction[]
-  digest_subscribed  Boolean           @default(true) @map("digest_subscribed")
-  reset_token       String?            @unique
-  reset_expires     DateTime?
 
   @@map("users")
 }
@@ -47,7 +47,7 @@ model Conversation {
   id              String          @id @default(uuid())
   title           String?
   is_daily_forge  Boolean         @default(false) @map("is_daily_forge")
-  daily_topic      String?         @map("daily_topic")
+  daily_topic     String?         @map("daily_topic")
   forge_date      DateTime?       @map("forge_date")
   council_members AIParticipant[] @map("council_members")
   created_at      DateTime        @default(now()) @map("created_at")
