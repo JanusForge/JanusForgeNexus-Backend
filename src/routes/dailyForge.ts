@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+\import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
@@ -70,7 +70,6 @@ router.post('/interject', async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Insufficient Authority or Tokens." });
     }
 
-    // Deduct token if not GOD_MODE
     if (user.role !== 'GOD_MODE') {
       await prisma.user.update({
         where: { id: userId },
@@ -78,45 +77,47 @@ router.post('/interject', async (req: Request, res: Response) => {
       });
     }
 
-    // Get current forge
     const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     if (!currentForge) {
       return res.status(404).json({ error: "No active Daily Forge" });
     }
 
-    // Build initial context
     let context = `Topic: ${currentForge.winningTopic}\n\nUser interjection: ${content}`;
 
     const councilResponses = [];
-    const councilQueue = ["GEMINI", "DEEPSEEK", "GROK"];
+    const councilQueue = [
+      { name: "GEMINI", model: "gemini-1.5-flash" }, // Higher quota
+      { name: "DEEPSEEK", model: "deepseek-chat" },
+      { name: "GROK", model: "grok-beta" }
+    ];
 
-    for (const modelName of councilQueue) {
+    for (const ai of councilQueue) {
       let aiContent = "";
       try {
-        if (modelName === "GEMINI") {
-          const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+        if (ai.name === "GEMINI") {
+          const model = genAI.getGenerativeModel({ model: ai.model });
           const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge public debate.");
           aiContent = res.response.text();
-        } else if (modelName === "DEEPSEEK") {
+        } else if (ai.name === "DEEPSEEK") {
           const res = await deepseek.chat.completions.create({
-            model: "deepseek-chat",
+            model: ai.model,
             messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
           });
-          aiContent = res.choices[0].message.content || "No response from DEEPSEEK";
-        } else if (modelName === "GROK") {
+          aiContent = res.choices[0].message.content || "[No response]";
+        } else if (ai.name === "GROK") {
           const res = await xai.chat.completions.create({
-            model: "grok-4.1-fast",
+            model: ai.model,
             messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
           });
-          aiContent = res.choices[0].message.content || "No response from GROK";
+          aiContent = res.choices[0].message.content || "[No response]";
         }
-      } catch (modelErr) {
-        console.error(`Daily Forge ${modelName} error:`, modelErr);
-        aiContent = `[${modelName} temporarily unavailable]`;
+      } catch (err) {
+        console.error(`Daily Forge ${ai.name} error:`, err);
+        aiContent = `[${ai.name} unavailable]`;
       }
 
-      councilResponses.push({ model: modelName, content: aiContent });
-      context += `\n\n${modelName}: ${aiContent}`;
+      councilResponses.push({ model: ai.name, content: aiContent });
+      context += `\n\n${ai.name}: ${aiContent}`;
     }
 
     res.json({
