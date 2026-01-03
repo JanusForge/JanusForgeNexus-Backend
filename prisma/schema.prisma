@@ -131,13 +131,14 @@ model TierConfiguration {
 }
 
 model DailyForge {
-  id              String   @id @default(uuid())
-  date            DateTime @default(now())
+  id              String    @id @default(uuid())
+  date            DateTime  @default(now())
   scoutedTopics   String
   winningTopic    String
   councilVotes    String
   openingThoughts String?
-  phase           String   @default("INITIALIZED")
+  phase           String    @default("INITIALIZED")
+  nextReset       DateTime? // ← NEW: When the next topic activates (UTC midnight)
 }
 
 enum UserTier {
