@@ -236,36 +236,42 @@ io.on('connection', (socket) => {
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
-              const model = genAI.getGenerativeModel({ model: ai.modelKey });
-              const res = await model.generateContent(context);
-              aiContent = res.response.text();
+              const geminiModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
+              aiContent = "[GEMINI unavailable]";
+              for (const modelName of geminiModels) {
+                try {
+                  const model = genAI.getGenerativeModel({ model: modelName });
+                  const res = await model.generateContent(context);
+                  aiContent = res.response.text();
+                  console.log(`GEMINI success with ${modelName}`);
+                  break;
+                } catch (err) {
+                  console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
+                }
+              }
             } else if (ai.name === "DEEPSEEK") {
               const res = await deepseek.chat.completions.create({
-                model: ai.modelKey,
+                model: "deepseek-chat",
                 messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
-  const modelOptions = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"]; // Try newest first
-  let aiContent = "[GROK unavailable]";
-
-  for (const modelName of modelOptions) {
-    try {
-      const res = await xai.chat.completions.create({
-        model: modelName,
-        messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-      });
-      aiContent = res.choices[0].message.content || "[No response]";
-      console.log(`GROK success with model: ${modelName}`);
-      break; // Success — stop trying
-    } catch (err) {
-      console.warn(`GROK failed with ${modelName}:`, err.message || err);
-      // Continue to next model
-    }
-  }
-
-  aiContent = aiContent;
-} else if (ai.name === "CLAUDE") {
+              const grokModels = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
+              aiContent = "[GROK unavailable]";
+              for (const modelName of grokModels) {
+                try {
+                  const res = await xai.chat.completions.create({
+                    model: modelName,
+                    messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                  });
+                  aiContent = res.choices[0].message.content || "";
+                  console.log(`GROK success with ${modelName}`);
+                  break;
+                } catch (err) {
+                  console.warn(`GROK failed with ${modelName}:`, err.message || err);
+                }
+              }
+            } else if (ai.name === "CLAUDE") {
               const res = await anthropic.messages.create({
                 model: ai.modelKey,
                 max_tokens: 1500,
