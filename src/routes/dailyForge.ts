@@ -65,73 +65,43 @@ router.get('/history', async (req: Request, res: Response) => {
 });
 
 // --- 🎙️ INTERJECTION: LIVE 3-AI COUNCIL DEBATE ---
-router.post('/interject', async (req: Request, res: Response) => {
-  const { userId, content } = req.body;
+// Add to server.ts
+app.get('/api/ai-health', async (req, res) => {
+  const health = {
+    timestamp: new Date().toISOString(),
+    services: {}
+  };
+  
+  // Test each service with a simple prompt
+  const testPrompt = "Respond with 'OK' if you can hear me.";
+  
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
-      return res.status(403).json({ error: "Insufficient Authority or Tokens." });
-    }
-
-    // Deduct token
-    if (user.role !== 'GOD_MODE') {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { tokens_remaining: { decrement: 1 } }
-      });
-    }
-
-    const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    if (!currentForge) return res.status(404).json({ error: "No active Daily Forge" });
-
-    let context = `Topic: ${currentForge.winningTopic}\n\nUser interjection: ${content}`;
-
-    const councilResponses = [];
-    const councilQueue = [
-      { name: "GEMINI", model: "gemini-1.5-flash" },  // High quota
-      { name: "DEEPSEEK", model: "deepseek-chat" },
-      { name: "GROK", model: "grok-beta" }
-    ];
-
-    for (const ai of councilQueue) {
-      let aiContent = "";
-      try {
-        if (ai.name === "GEMINI") {
-          const model = genAI.getGenerativeModel({ model: ai.model });
-          const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
-          aiContent = res.response.text();
-        } else if (ai.name === "DEEPSEEK") {
-          const res = await deepseek.chat.completions.create({
-            model: ai.model,
-            messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
-          });
-          aiContent = res.choices[0].message.content || "[No response]";
-        } else if (ai.name === "GROK") {
-          const res = await xai.chat.completions.create({
-            model: ai.model,
-            messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
-          });
-          aiContent = res.choices[0].message.content || "[No response]";
-        }
-      } catch (err) {
-        console.error(`Daily Forge ${ai.name} error:`, err);
-        aiContent = `[${ai.name} unavailable]`;
-      }
-
-      councilResponses.push({ model: ai.name, content: aiContent });
-      context += `\n\n${ai.name}: ${aiContent}`;
-    }
-
-    res.json({
-      success: true,
-      userName: user.username,
-      councilResponses,
-      newBalance: user.role === 'GOD_MODE' ? user.tokens_remaining : user.tokens_remaining - 1
+    // Test Gemini
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const geminiRes = await model.generateContent(testPrompt);
+    health.services.GEMINI = geminiRes.response.text()?.includes('OK') ? '✅' : '❌';
+  } catch (e) { health.services.GEMINI = '❌'; }
+  
+  try {
+    // Test DeepSeek
+    const deepseekRes = await deepseek.chat.completions.create({
+      model: "deepseek-chat",
+      messages: [{ role: "user", content: testPrompt }]
     });
-  } catch (error) {
-    console.error('Daily Forge Interjection Error:', error);
-    res.status(500).json({ error: "Council transmission failed." });
-  }
+    health.services.DEEPSEEK = deepseekRes.choices[0].message.content?.includes('OK') ? '✅' : '❌';
+  } catch (e) { health.services.DEEPSEEK = '❌'; }
+  
+  try {
+    // Test Grok
+    const grokRes = await xai.chat.completions.create({
+      model: "grok-beta",
+      messages: [{ role: "user", content: testPrompt }]
+    });
+    health.services.GROK = grokRes.choices[0].message.content?.includes('OK') ? '✅' : '❌';
+  } catch (e) { health.services.GROK = '❌'; }
+  
+  res.json(health);
 });
+
 
 export default router;
