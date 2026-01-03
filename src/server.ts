@@ -88,12 +88,11 @@ app.get('/api/daily-forge/status', async (req, res) => {
     const latest = await prisma.dailyForge.findFirst({
       orderBy: { date: 'desc' }
     });
-    
     if (!latest) {
       return res.status(200).json({
-        topic: "Initializing Neural Synthesis...",
-        scoutQuote: "AI Scout is patrolling the datasphere...",
-        councilQuote: "Council assembling for deliberation.",
+        topic: "Initializing Synthesis...",
+        scoutQuote: "Scout is currently patrolling...",
+        councilQuote: "Waiting for Council to convene.",
         nextReset: new Date(Date.UTC(
           new Date().getUTCFullYear(),
           new Date().getUTCMonth(),
@@ -102,32 +101,11 @@ app.get('/api/daily-forge/status', async (req, res) => {
         )).toISOString()
       });
     }
-
-    // Parse the JSON strings properly
-    let scoutQuote = "Scouting intelligence...";
-    let councilQuote = "Council deliberation in progress...";
-    
-    try {
-      const openingThoughts = JSON.parse(latest.openingThoughts || "[]");
-      if (Array.isArray(openingThoughts) && openingThoughts.length > 0) {
-        // Get first council response
-        const firstCouncil = openingThoughts.find(t => !t.isUser);
-        scoutQuote = firstCouncil?.content?.substring(0, 150) + "..." || scoutQuote;
-      }
-    } catch (e) { /* ignore */ }
-    
-    try {
-      const councilVotes = JSON.parse(latest.councilVotes || "{}");
-      if (typeof councilVotes === 'object' && Object.keys(councilVotes).length > 0) {
-        councilQuote = Object.values(councilVotes)[0] || councilQuote;
-      }
-    } catch (e) { /* ignore */ }
-
     res.json({
       topic: latest.winningTopic,
-      scoutQuote,
-      councilQuote,
-      nextReset: latest.nextReset || new Date(Date.UTC(
+      scoutQuote: latest.openingThoughts,
+      councilQuote: latest.councilVotes,
+      nextReset: new Date(Date.UTC(
         new Date().getUTCFullYear(),
         new Date().getUTCMonth(),
         new Date().getUTCDate() + 1,
@@ -135,14 +113,13 @@ app.get('/api/daily-forge/status', async (req, res) => {
       )).toISOString()
     });
   } catch (error: any) {
-    console.error("Daily Forge Status Error:", error);
-    res.status(500).json({ 
-      error: "Synaptic connection unstable", 
-      details: error.message 
+    console.error("CRITICAL: Daily Forge Status Fetch Failure", {
+      message: error.message,
+      code: error.code
     });
+    res.status(500).json({ error: "Sync Failure", details: error.message });
   }
 });
-
 
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
