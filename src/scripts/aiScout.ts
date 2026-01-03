@@ -16,7 +16,7 @@ const xai = new OpenAI({
 async function scoutNewTopic() {
   const prompt = "Propose 3 provocative civilization-scale debate topics for The Daily Forge (AI ethics, society, knowledge, power). Return ONLY JSON array.";
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
     const res = await model.generateContent(prompt);
     const text = res.response.text();
     const match = text.match(/\[[\s\S]*\]/);

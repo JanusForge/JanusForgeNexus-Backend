@@ -203,7 +203,7 @@ io.on('connection', (socket) => {
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
         const councilQueue = [];
-        councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });
+        councilQueue.push({ name: "GEMINI", modelKey: "gemini-3-flash-preview" });
         councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
         if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-4.1-fast" });
         if (isFullCouncil) {
