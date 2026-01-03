@@ -47,27 +47,23 @@ async function runCouncilDebate(topic: string) {
           messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
         });
         content = res.choices[0].message.content || "";
-      }else if (ai.name === "GROK") {
-  const modelOptions = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"]; // Try newest first
-  let aiContent = "[GROK unavailable]";
-
-  for (const modelName of modelOptions) {
-    try {
-      const res = await xai.chat.completions.create({
-        model: modelName,
-        messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-      });
-      aiContent = res.choices[0].message.content || "[No response]";
-      console.log(`GROK success with model: ${modelName}`);
-      break; // Success — stop trying
-    } catch (err) {
-      console.warn(`GROK failed with ${modelName}:`, err.message || err);
-      // Continue to next model
-    }
-  }
-
-  aiContent = aiContent; 
-
+      } else if (name === "GROK") {
+        const modelOptions = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
+        content = "[GROK unavailable]";
+        for (const modelName of modelOptions) {
+          try {
+            const res = await xai.chat.completions.create({
+              model: modelName,
+              messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
+            });
+            content = res.choices[0].message.content || "[No response]";
+            console.log(`GROK success with model: ${modelName}`);
+            break;
+          } catch (err) {
+            console.warn(`GROK failed with ${modelName}:`, err.message || err);
+          }
+        }
+      }
     } catch (err) {
       console.error(`${name} error:`, err);
       content = `[${name} unavailable]`;
@@ -86,12 +82,12 @@ async function patrolTheForge() {
   try {
     const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     const today = new Date();
-    today.setUTCHours(0,0,0,0);
+    today.setUTCHours(0, 0, 0, 0);
 
-    // if (latest && new Date(latest.date).toDateString() === today.toDateString()) {
-      // console.log("Today's Forge exists. Standing down.");
-      // return;
-    // }
+    if (latest && new Date(latest.date).toDateString() === today.toDateString()) {
+      console.log("Today's Forge exists. Standing down.");
+      return;
+    }
 
     const topics = await scoutNewTopic();
     const winningTopic = topics[0];
