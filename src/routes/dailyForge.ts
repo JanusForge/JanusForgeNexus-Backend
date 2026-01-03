@@ -1,4 +1,4 @@
-\import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
@@ -6,9 +6,12 @@ import OpenAI from 'openai';
 const router = Router();
 const prisma = new PrismaClient();
 
-// Import clients from server context
+// Clients (must be defined here)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+const deepseek = new OpenAI({ 
+  apiKey: process.env.DEEPSEEK_API_KEY, 
+  baseURL: "https://api.deepseek.com" 
+});
 const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
@@ -70,6 +73,7 @@ router.post('/interject', async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Insufficient Authority or Tokens." });
     }
 
+    // Deduct token
     if (user.role !== 'GOD_MODE') {
       await prisma.user.update({
         where: { id: userId },
@@ -78,15 +82,13 @@ router.post('/interject', async (req: Request, res: Response) => {
     }
 
     const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    if (!currentForge) {
-      return res.status(404).json({ error: "No active Daily Forge" });
-    }
+    if (!currentForge) return res.status(404).json({ error: "No active Daily Forge" });
 
     let context = `Topic: ${currentForge.winningTopic}\n\nUser interjection: ${content}`;
 
     const councilResponses = [];
     const councilQueue = [
-      { name: "GEMINI", model: "gemini-1.5-flash" }, // Higher quota
+      { name: "GEMINI", model: "gemini-1.5-flash" },  // High quota
       { name: "DEEPSEEK", model: "deepseek-chat" },
       { name: "GROK", model: "grok-beta" }
     ];
@@ -96,7 +98,7 @@ router.post('/interject', async (req: Request, res: Response) => {
       try {
         if (ai.name === "GEMINI") {
           const model = genAI.getGenerativeModel({ model: ai.model });
-          const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge public debate.");
+          const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
           aiContent = res.response.text();
         } else if (ai.name === "DEEPSEEK") {
           const res = await deepseek.chat.completions.create({
