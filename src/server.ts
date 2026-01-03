@@ -78,56 +78,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// --- 🛰️ DAILY FORGE STATUS ---
-app.use('/api/daily-forge', dailyForgeRouter);
-app.use('/api/conversations', conversationRouter);
-app.get('/api/daily-forge/status', async (req, res) => {
-  try {
-    const latest = await prisma.dailyForge.findFirst({
-      orderBy: { date: 'desc' }
-    });
-
-    const nextReset = new Date(Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth(),
-      new Date().getUTCDate() + 1,
-      0, 0, 0
-    )).toISOString();
-
-    if (!latest) {
-      return res.json({
-        topic: "Initializing Synthesis...",
-        scoutQuote: "Scout is currently patrolling...",
-        councilQuote: "Waiting for Council to convene.",
-        nextReset
-      });
-    }
-
-    res.json({
-      topic: latest.winningTopic,
-      scoutQuote: latest.openingThoughts,
-      councilQuote: latest.councilVotes,
-      nextReset
-    });
-  } catch (error: any) {
-    console.error("CRITICAL: Daily Forge Status Fetch Failure", error);
-    const fallbackReset = new Date(Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth(),
-      new Date().getUTCDate() + 1,
-      0, 0, 0
-    )).toISOString();
-
-    res.json({
-      topic: "Synthesis in progress...",
-      scoutQuote: "Scouting live intelligence...",
-      councilQuote: "Analyzing global synthesis...",
-      nextReset: fallbackReset
-    });
-  }
-});
-
-app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
