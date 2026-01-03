@@ -83,44 +83,39 @@ router.post('/interject', async (req: Request, res: Response) => {
       return res.status(404).json({ error: "No active Daily Forge" });
     }
 
-    // Build transcript: scout + previous interjections + new user directive
-    let transcript = [
-      { is_human: false, ai_model: "SCOUT", content: currentForge.openingThoughts || "Topic selection complete." }
-    ];
-
-    // Add new user interjection
-    transcript.push({ is_human: true, content });
+    // Build initial context from scout
+    let context = `Topic: ${currentForge.winningTopic}\n\nScout opening: ${currentForge.openingThoughts || "No scout thoughts"}\n\nUser interjection: ${content}`;
 
     const councilResponses = [];
     const councilQueue = ["GEMINI", "DEEPSEEK", "GROK"];
 
     for (const modelName of councilQueue) {
-      const context = transcript.map(p => {
-        const name = p.is_human ? 'Architect' : (p.ai_model || 'Council');
-        return `${name}: ${p.content}`;
-      }).join("\n");
-
       let aiContent = "";
-      if (modelName === "GEMINI") {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
-        const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge debate.");
-        aiContent = res.response.text();
-      } else if (modelName === "DEEPSEEK") {
-        const res = await deepseek.chat.completions.create({
-          model: "deepseek-chat",
-          messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
-        });
-        aiContent = res.choices[0].message.content || "";
-      } else if (modelName === "GROK") {
-        const res = await xai.chat.completions.create({
-          model: "grok-4.1-fast",
-          messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
-        });
-        aiContent = res.choices[0].message.content || "";
+      try {
+        if (modelName === "GEMINI") {
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+          const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge debate.");
+          aiContent = res.response.text();
+        } else if (modelName === "DEEPSEEK") {
+          const res = await deepseek.chat.completions.create({
+            model: "deepseek-chat",
+            messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
+          });
+          aiContent = res.choices[0].message.content || "No response";
+        } else if (modelName === "GROK") {
+          const res = await xai.chat.completions.create({
+            model: "grok-4.1-fast",
+            messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
+          });
+          aiContent = res.choices[0].message.content || "No response";
+        }
+      } catch (modelErr) {
+        console.error(`Daily Forge ${modelName} error:`, modelErr);
+        aiContent = `[${modelName} temporarily unavailable]`;
       }
 
       councilResponses.push({ model: modelName, content: aiContent });
-      transcript.push({ is_human: false, ai_model: modelName, content: aiContent });
+      context += `\n\n${modelName}: ${aiContent}`;
     }
 
     res.json({
@@ -130,11 +125,10 @@ router.post('/interject', async (req: Request, res: Response) => {
       newBalance: user.role === 'GOD_MODE' ? user.tokens_remaining : user.tokens_remaining - 1
     });
   } catch (error) {
-    console.error('Interjection Error:', error);
+    console.error('Daily Forge Interjection Error:', error);
     res.status(500).json({ error: "Council transmission failed." });
   }
 });
-
 
 
 export default router;
