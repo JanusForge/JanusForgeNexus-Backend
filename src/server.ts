@@ -81,6 +81,8 @@ app.post('/api/auth/login', async (req, res) => {
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
 app.use('/api/conversations', conversationRouter);
+
+
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latest = await prisma.dailyForge.findFirst({
@@ -90,14 +92,25 @@ app.get('/api/daily-forge/status', async (req, res) => {
       return res.status(200).json({
         topic: "Initializing Synthesis...",
         scoutQuote: "Scout is currently patrolling...",
-        councilQuote: "Waiting for Council to convene."
+        councilQuote: "Waiting for Council to convene.",
+        nextReset: new Date(Date.UTC(
+          new Date().getUTCFullYear(),
+          new Date().getUTCMonth(),
+          new Date().getUTCDate() + 1,
+          0, 0, 0
+        )).toISOString()
       });
     }
     res.json({
       topic: latest.winningTopic,
       scoutQuote: latest.openingThoughts,
       councilQuote: latest.councilVotes,
-      nextReset: latest.date
+      nextReset: new Date(Date.UTC(
+        new Date().getUTCFullYear(),
+        new Date().getUTCMonth(),
+        new Date().getUTCDate() + 1,
+        0, 0, 0
+      )).toISOString()
     });
   } catch (error: any) {
     console.error("CRITICAL: Daily Forge Status Fetch Failure", {
@@ -107,6 +120,7 @@ app.get('/api/daily-forge/status', async (req, res) => {
     res.status(500).json({ error: "Sync Failure", details: error.message });
   }
 });
+
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
