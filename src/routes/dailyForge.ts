@@ -1,14 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { Anthropic } from '@anthropic-ai/sdk';
-import crypto from 'crypto';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from 'openai';
 
 const router = Router();
 const prisma = new PrismaClient();
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Import clients from server context
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+const xai = new OpenAI({
+  apiKey: process.env.GROK_API_KEY,
+  baseURL: 'https://api.x.ai/v1'
+});
 
 // --- 🛰️ HELPER: DEFENSIVE PARSER ---
-// Preserves your logic for handling flat strings vs objects
 const safeParse = (data: any, fallback: any) => {
   try {
     return typeof data === 'string' ? JSON.parse(data) : (data || fallback);
@@ -17,15 +23,13 @@ const safeParse = (data: any, fallback: any) => {
   }
 };
 
-// --- 🏠 GET CURRENT FORGE (PERSERVED & ENHANCED) ---
+// --- 🏠 GET CURRENT FORGE ---
 router.get('/', async (req: Request, res: Response) => {
   try {
     const forge = await prisma.dailyForge.findFirst({
       orderBy: { date: 'desc' },
     });
-
     if (!forge) return res.status(404).json({ error: 'No active Forge found' });
-
     res.json({
       ...forge,
       scoutedTopics: safeParse(forge.scoutedTopics, []),
@@ -38,29 +42,26 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// --- 🏛️ ARCHIVE FETCH: GET /api/daily-forge/history ---
+// --- 🏛️ ARCHIVE FETCH ---
 router.get('/history', async (req: Request, res: Response) => {
   try {
     const history = await prisma.dailyForge.findMany({
       where: { phase: 'COUNCIL_DEBATE' },
       orderBy: { date: 'desc' },
-      skip: 1 // Skip the current active topic
+      skip: 1
     });
-    
-    // Apply safe parsing to history items too
     const parsedHistory = history.map(h => ({
       ...h,
       scoutedTopics: safeParse(h.scoutedTopics, []),
       councilVotes: safeParse(h.councilVotes, {})
     }));
-
     res.json(parsedHistory);
   } catch (error) {
     res.status(500).json({ error: "Failed to retrieve archives." });
   }
 });
 
-// --- 🎙️ INTERJECTION: POST /api/daily-forge/interject ---
+// --- 🎙️ INTERJECTION: LIVE 3-AI COUNCIL DEBATE ---
 router.post('/interject', async (req: Request, res: Response) => {
   const { userId, content } = req.body;
   try {
@@ -83,8 +84,8 @@ router.post('/interject', async (req: Request, res: Response) => {
       return res.status(404).json({ error: "No active Daily Forge" });
     }
 
-    // Build initial context from scout
-    let context = `Topic: ${currentForge.winningTopic}\n\nScout opening: ${currentForge.openingThoughts || "No scout thoughts"}\n\nUser interjection: ${content}`;
+    // Build initial context
+    let context = `Topic: ${currentForge.winningTopic}\n\nUser interjection: ${content}`;
 
     const councilResponses = [];
     const councilQueue = ["GEMINI", "DEEPSEEK", "GROK"];
@@ -94,20 +95,20 @@ router.post('/interject', async (req: Request, res: Response) => {
       try {
         if (modelName === "GEMINI") {
           const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
-          const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge debate.");
+          const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge public debate.");
           aiContent = res.response.text();
         } else if (modelName === "DEEPSEEK") {
           const res = await deepseek.chat.completions.create({
             model: "deepseek-chat",
             messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
           });
-          aiContent = res.choices[0].message.content || "No response";
+          aiContent = res.choices[0].message.content || "No response from DEEPSEEK";
         } else if (modelName === "GROK") {
           const res = await xai.chat.completions.create({
             model: "grok-4.1-fast",
             messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
           });
-          aiContent = res.choices[0].message.content || "No response";
+          aiContent = res.choices[0].message.content || "No response from GROK";
         }
       } catch (modelErr) {
         console.error(`Daily Forge ${modelName} error:`, modelErr);
@@ -129,6 +130,5 @@ router.post('/interject', async (req: Request, res: Response) => {
     res.status(500).json({ error: "Council transmission failed." });
   }
 });
-
 
 export default router;
