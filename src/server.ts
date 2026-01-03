@@ -11,8 +11,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
-import dailyForgeRouter from './routes/dailyForge';
-import conversationRouter from './routes/conversations';
+import conversationRouter from './routes/conversations';  // ← Keep this
 
 dotenv.config();
 console.log('Auth routes loading...');
@@ -78,6 +77,10 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// --- ROUTES ---
+app.use('/api/conversations', conversationRouter);  // ← THIS IS THE KEY LINE
+
+app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
