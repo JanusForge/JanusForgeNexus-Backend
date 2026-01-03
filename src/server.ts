@@ -27,6 +27,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
@@ -203,7 +204,7 @@ io.on('connection', (socket) => {
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
         const councilQueue = [];
-        councilQueue.push({ name: "GEMINI", modelKey: "gemini-3-flash-preview" });
+        councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });
         councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
         if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-4.1-fast" });
         if (isFullCouncil) {
@@ -234,7 +235,7 @@ io.on('connection', (socket) => {
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
               const res = await xai.chat.completions.create({
-                model: ai.modelKey,
+                model: grok-4.1-fast,
                 messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
               });
               aiContent = res.choices[0].message.content || "";
