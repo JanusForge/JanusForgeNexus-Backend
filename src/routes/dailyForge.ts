@@ -60,7 +60,6 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 });
 
-
 // --- 🎙️ INTERJECTION: POST /api/daily-forge/interject ---
 router.post('/interject', async (req: Request, res: Response) => {
   const { userId, content } = req.body;
@@ -78,12 +77,19 @@ router.post('/interject', async (req: Request, res: Response) => {
       });
     }
 
-    // Get current forge and full thread (simulate conversation posts)
+    // Get current forge
     const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    const transcript = [
-      { is_human: false, ai_model: "SCOUT", content: currentForge?.openingThoughts || "" },
-      { is_human: true, content: content }
+    if (!currentForge) {
+      return res.status(404).json({ error: "No active Daily Forge" });
+    }
+
+    // Build transcript: scout + previous interjections + new user directive
+    let transcript = [
+      { is_human: false, ai_model: "SCOUT", content: currentForge.openingThoughts || "Topic selection complete." }
     ];
+
+    // Add new user interjection
+    transcript.push({ is_human: true, content });
 
     const councilResponses = [];
     const councilQueue = ["GEMINI", "DEEPSEEK", "GROK"];
@@ -97,18 +103,18 @@ router.post('/interject', async (req: Request, res: Response) => {
       let aiContent = "";
       if (modelName === "GEMINI") {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
-        const res = await model.generateContent(context + "\nRespond as GEMINI in the Daily Forge debate.");
+        const res = await model.generateContent(context + "\n\nRespond as GEMINI in the Daily Forge debate.");
         aiContent = res.response.text();
       } else if (modelName === "DEEPSEEK") {
         const res = await deepseek.chat.completions.create({
           model: "deepseek-chat",
-          messages: [{ role: "user", content: context + "\nRespond as DEEPSEEK." }]
+          messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
         });
         aiContent = res.choices[0].message.content || "";
       } else if (modelName === "GROK") {
         const res = await xai.chat.completions.create({
           model: "grok-4.1-fast",
-          messages: [{ role: "user", content: context + "\nRespond as GROK." }]
+          messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
         });
         aiContent = res.choices[0].message.content || "";
       }
@@ -128,6 +134,7 @@ router.post('/interject', async (req: Request, res: Response) => {
     res.status(500).json({ error: "Council transmission failed." });
   }
 });
+
 
 
 export default router;
