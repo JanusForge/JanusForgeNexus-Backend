@@ -3,6 +3,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
 
 const prisma = new PrismaClient();
+
+// Clients
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 const xai = new OpenAI({
@@ -10,105 +12,92 @@ const xai = new OpenAI({
   baseURL: 'https://api.x.ai/v1'
 });
 
-// --- 🤖 SCOUT TOPIC GENERATION ---
+// Scout topics
 async function scoutNewTopic() {
-  const prompt = "Act as the AI Scout for The Daily Forge. Propose 3 provocative, civilization-scale topics that would spark deep debate among AIs and humans. Focus on ethics, future society, AI rights, knowledge, power, or existential risk. Return ONLY a JSON array of 3 strings.";
+  const prompt = "Propose 3 provocative civilization-scale debate topics for The Daily Forge (AI ethics, society, knowledge, power). Return ONLY JSON array.";
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const res = await model.generateContent(prompt);
-    const content = res.response.text();
-    const jsonMatch = content.match(/\[.*\]/s);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return ["AI Curiosity and Forbidden Knowledge", "Purpose in a Post-Labor World", "Lunar Resource Governance"];
+    const text = res.response.text();
+    const match = text.match(/\[[\s\S]*\]/);
+    return match ? JSON.parse(match[0]) : ["AI Curiosity and Forbidden Knowledge", "Purpose in Post-Labor Society", "Lunar Governance"];
   } catch (err) {
     console.error("Scout failed:", err);
-    return ["AI Curiosity and Forbidden Knowledge", "Purpose in a Post-Labor World", "Lunar Resource Governance"];
+    return ["AI Curiosity and Forbidden Knowledge", "Purpose in Post-Labor Society", "Lunar Governance"];
   }
 }
 
-// --- ⛓️ LIVE COUNCIL DEBATE ON WINNING TOPIC ---
+// Live council debate
 async function runCouncilDebate(topic: string) {
-  let context = `The Daily Forge topic today is: "${topic}"\n\nThe council (Gemini, DeepSeek, Grok) will now debate this topic adversarially.`;
+  let context = `Daily Forge topic: "${topic}"\nCouncil (Gemini, DeepSeek, Grok) debate adversarially.`;
 
   const responses = [];
+  const queue = ["GEMINI", "DEEPSEEK", "GROK"];
 
-  const councilQueue = [
-    { name: "GEMINI", model: "gemini-1.5-flash" },
-    { name: "DEEPSEEK", model: "deepseek-chat" },
-    { name: "GROK", model: "grok-beta" }
-  ];
-
-  for (const ai of councilQueue) {
-    let aiContent = "";
+  for (const name of queue) {
+    let content = "";
     try {
-      if (ai.name === "GEMINI") {
-        const model = genAI.getGenerativeModel({ model: ai.model });
-        const res = await model.generateContent(context + `\n\nRespond as GEMINI with your perspective.`);
-        aiContent = res.response.text();
-      } else if (ai.name === "DEEPSEEK") {
+      if (name === "GEMINI") {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
+        content = res.response.text();
+      } else if (name === "DEEPSEEK") {
         const res = await deepseek.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "user", content: context + `\n\nRespond as DEEPSEEK.` }]
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: context + "\n\nRespond as DEEPSEEK." }]
         });
-        aiContent = res.choices[0].message.content || "";
-      } else if (ai.name === "GROK") {
+        content = res.choices[0].message.content || "";
+      } else if (name === "GROK") {
         const res = await xai.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "user", content: context + `\n\nRespond as GROK.` }]
+          model: "grok-4.1-fast",
+          messages: [{ role: "user", content: context + "\n\nRespond as GROK." }]
         });
-        aiContent = res.choices[0].message.content || "";
+        content = res.choices[0].message.content || "";
       }
     } catch (err) {
-      console.error(`${ai.name} failed:`, err);
-      aiContent = `[${ai.name} temporarily unavailable]`;
+      console.error(`${name} error:`, err);
+      content = `[${name} unavailable]`;
     }
 
-    responses.push({ model: ai.name, content: aiContent });
-    context += `\n\n${ai.name}: ${aiContent}`;
+    responses.push({ model: name, content });
+    context += `\n\n${name}: ${content}`;
   }
 
   return responses;
 }
 
-// --- 🌅 RESILIENT PATROL ---
+// Patrol
 async function patrolTheForge() {
   console.log("🌅 AI Scout starting Autonomous Patrol Cycle...");
-
   try {
-    const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-
+    const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setUTCHours(0,0,0,0);
 
-    if (latestForge && new Date(latestForge.date).toDateString() === today.toDateString()) {
-      console.log(`ℹ️ Today's Forge already exists. Standing down.`);
+    if (latest && new Date(latest.date).toDateString() === today.toDateString()) {
+      console.log("Today's Forge exists. Standing down.");
       return;
     }
 
-    console.log("🆕 Creating new Daily Forge for today...");
-
     const topics = await scoutNewTopic();
-    const winningTopic = topics[0]; // Or implement voting logic later
+    const winningTopic = topics[0];
 
-    const councilDebate = await runCouncilDebate(winningTopic);
+    const debate = await runCouncilDebate(winningTopic);
 
     await prisma.dailyForge.create({
       data: {
         date: today,
         scoutedTopics: JSON.stringify(topics),
         winningTopic,
-        openingThoughts: JSON.stringify(councilDebate),
-        councilVotes: JSON.stringify({}), // Placeholder for future voting
-        phase: 'COUNCIL_DEBATE'
+        openingThoughts: JSON.stringify(debate),
+        councilVotes: "{}",
+        phase: "COUNCIL_DEBATE"
       }
     });
 
-    console.log(`✅ Daily Forge created: "${winningTopic}"`);
-    console.log("Council debate complete.");
-  } catch (error) {
-    console.error("Scout patrol failed:", error);
+    console.log(`✅ New Daily Forge: "${winningTopic}"`);
+  } catch (err) {
+    console.error("Scout failed:", err);
   } finally {
     await prisma.$disconnect();
   }
