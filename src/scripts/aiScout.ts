@@ -1,97 +1,117 @@
 import { PrismaClient } from '@prisma/client';
-import { Anthropic } from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
 
 const prisma = new PrismaClient();
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const grokClient = new OpenAI({
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
-  baseURL: "https://api.x.ai/v1",
+  baseURL: 'https://api.x.ai/v1'
 });
 
 // --- 🤖 SCOUT TOPIC GENERATION ---
 async function scoutNewTopic() {
-  const prompt = "Act as the AI Scout. Propose 3 provocative 'Neural Nexus' topics. Return as a JSON array: ['topic1', 'topic2', 'topic3']";
+  const prompt = "Act as the AI Scout for The Daily Forge. Propose 3 provocative, civilization-scale topics that would spark deep debate among AIs and humans. Focus on ethics, future society, AI rights, knowledge, power, or existential risk. Return ONLY a JSON array of 3 strings.";
   try {
-    const res = await anthropic.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 300,
-      messages: [{ role: "user", content: prompt }],
-    });
-    const content = res.content[0].type === 'text' ? res.content[0].text : "['Neural Sovereignty']";
-    const jsonStr = content.includes('[') ? content.substring(content.indexOf('['), content.lastIndexOf(']') + 1) : content;
-    return JSON.parse(jsonStr);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const res = await model.generateContent(prompt);
+    const content = res.response.text();
+    const jsonMatch = content.match(/\[.*\]/s);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return ["AI Curiosity and Forbidden Knowledge", "Purpose in a Post-Labor World", "Lunar Resource Governance"];
   } catch (err) {
-    return ["Quantum Ethics", "Neural Sovereignty", "Substrate Autonomy"];
+    console.error("Scout failed:", err);
+    return ["AI Curiosity and Forbidden Knowledge", "Purpose in a Post-Labor World", "Lunar Resource Governance"];
   }
 }
 
-// --- ⛓️ SEQUENTIAL SIGHT CYCLE ---
-async function processSynthesisCycle(forgeId: string, customTopic?: string) {
-  let activeTopic = customTopic;
-  if (!activeTopic) {
-    const shortlist = await scoutNewTopic();
-    activeTopic = shortlist[0];
-  }
+// --- ⛓️ LIVE COUNCIL DEBATE ON WINNING TOPIC ---
+async function runCouncilDebate(topic: string) {
+  let context = `The Daily Forge topic today is: "${topic}"\n\nThe council (Gemini, DeepSeek, Grok) will now debate this topic adversarially.`;
 
-  const models = ['GEMINI', 'DEEPSEEK', 'GROK'];
-  const responses: any[] = [];
+  const responses = [];
 
-  for (const modelName of models) {
-    const history = responses.map(r => `[${r.model}]: ${r.content}`).join("\n\n");
-    const query = `Topic: ${activeTopic}\n\nExisting Council Consensus:\n${history || "No data yet."}`;
-    
-    // Using a simplified call for background tasks
-    const content = `${modelName} response to ${activeTopic}`; 
-    responses.push({ model: modelName, content });
-  }
+  const councilQueue = [
+    { name: "GEMINI", model: "gemini-1.5-flash" },
+    { name: "DEEPSEEK", model: "deepseek-chat" },
+    { name: "GROK", model: "grok-beta" }
+  ];
 
-  await prisma.dailyForge.update({
-    where: { id: forgeId },
-    data: {
-      winningTopic: activeTopic,
-      phase: 'COUNCIL_DEBATE',
-      openingThoughts: JSON.stringify(responses),
-      date: new Date()
+  for (const ai of councilQueue) {
+    let aiContent = "";
+    try {
+      if (ai.name === "GEMINI") {
+        const model = genAI.getGenerativeModel({ model: ai.model });
+        const res = await model.generateContent(context + `\n\nRespond as GEMINI with your perspective.`);
+        aiContent = res.response.text();
+      } else if (ai.name === "DEEPSEEK") {
+        const res = await deepseek.chat.completions.create({
+          model: ai.model,
+          messages: [{ role: "user", content: context + `\n\nRespond as DEEPSEEK.` }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      } else if (ai.name === "GROK") {
+        const res = await xai.chat.completions.create({
+          model: ai.model,
+          messages: [{ role: "user", content: context + `\n\nRespond as GROK.` }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      }
+    } catch (err) {
+      console.error(`${ai.name} failed:`, err);
+      aiContent = `[${ai.name} temporarily unavailable]`;
     }
-  });
+
+    responses.push({ model: ai.name, content: aiContent });
+    context += `\n\n${ai.name}: ${aiContent}`;
+  }
+
+  return responses;
 }
 
 // --- 🌅 RESILIENT PATROL ---
 async function patrolTheForge() {
   console.log("🌅 AI Scout starting Autonomous Patrol Cycle...");
-  let retries = 3;
 
-  while (retries > 0) {
-    try {
-      const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-      const forceStartPhases = ['PENDING', 'IDLE', 'INITIALIZED', 'Architect_Interjection'];
+  try {
+    const latestForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
 
-      if (!latestForge || forceStartPhases.includes(latestForge.phase)) {
-        const targetId = latestForge?.id || 'forge-' + Date.now();
-        if (!latestForge) {
-          await prisma.dailyForge.create({
-            data: { id: targetId, date: new Date(), phase: 'INITIALIZED', winningTopic: 'Initializing...', scoutedTopics: '[]', councilVotes: '{}', openingThoughts: '' }
-          });
-        }
-        await processSynthesisCycle(targetId);
-      } else {
-        console.log(`ℹ️ Forge is complete (${latestForge.phase}). Standing down.`);
-      }
-      break; // Success!
-    } catch (e: any) {
-      retries--;
-      if (retries > 0 && e.message.includes('closed the connection')) {
-        console.warn(`⚠️ Neon waking up... Retrying in 5s (${retries} left)`);
-        await new Promise(r => setTimeout(r, 5000));
-      } else {
-        console.error("❌ Fatal Connection Error:", e);
-        break;
-      }
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    if (latestForge && new Date(latestForge.date).toDateString() === today.toDateString()) {
+      console.log(`ℹ️ Today's Forge already exists. Standing down.`);
+      return;
     }
+
+    console.log("🆕 Creating new Daily Forge for today...");
+
+    const topics = await scoutNewTopic();
+    const winningTopic = topics[0]; // Or implement voting logic later
+
+    const councilDebate = await runCouncilDebate(winningTopic);
+
+    await prisma.dailyForge.create({
+      data: {
+        date: today,
+        scoutedTopics: JSON.stringify(topics),
+        winningTopic,
+        openingThoughts: JSON.stringify(councilDebate),
+        councilVotes: JSON.stringify({}), // Placeholder for future voting
+        phase: 'COUNCIL_DEBATE'
+      }
+    });
+
+    console.log(`✅ Daily Forge created: "${winningTopic}"`);
+    console.log("Council debate complete.");
+  } catch (error) {
+    console.error("Scout patrol failed:", error);
+  } finally {
+    await prisma.$disconnect();
   }
-  await prisma.$disconnect();
-  process.exit(0);
 }
 
 patrolTheForge();
