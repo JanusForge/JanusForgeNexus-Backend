@@ -60,42 +60,67 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 });
 
+
 // --- 🎙️ INTERJECTION: POST /api/daily-forge/interject ---
 router.post('/interject', async (req: Request, res: Response) => {
   const { userId, content } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    
     if (!user || (user.role !== 'GOD_MODE' && user.tokens_remaining < 1)) {
       return res.status(403).json({ error: "Insufficient Authority or Tokens." });
     }
 
-    // 1. Deduct Token if not GOD_MODE
+    // Deduct token if not GOD_MODE
     if (user.role !== 'GOD_MODE') {
       await prisma.user.update({
         where: { id: userId },
-        data: { tokens_remaining: { decrement: 1 }, tokens_used: { increment: 1 } }
+        data: { tokens_remaining: { decrement: 1 } }
       });
     }
 
-    // 2. Generate Council Reaction using Opus 4.5
+    // Get current forge and full thread (simulate conversation posts)
     const currentForge = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
-    const context = `DIRECTIVE FROM ARCHITECT ${user.username}: "${content}". 
-                     You are debating "${currentForge?.winningTopic}". 
-                     Address this human interjection within your adversarial framework immediately.`;
+    const transcript = [
+      { is_human: false, ai_model: "SCOUT", content: currentForge?.openingThoughts || "" },
+      { is_human: true, content: content }
+    ];
 
-    const reaction = await anthropic.messages.create({ 
-      model: 'claude-opus-4-5-20251101', 
-      max_tokens: 800, 
-      messages: [{ role: 'user', content: context }] 
-    });
+    const councilResponses = [];
+    const councilQueue = ["GEMINI", "DEEPSEEK", "GROK"];
 
-    const aiContent = reaction.content[0].type === 'text' ? reaction.content[0].text : "";
+    for (const modelName of councilQueue) {
+      const context = transcript.map(p => {
+        const name = p.is_human ? 'Architect' : (p.ai_model || 'Council');
+        return `${name}: ${p.content}`;
+      }).join("\n");
 
-    res.json({ 
-      success: true, 
+      let aiContent = "";
+      if (modelName === "GEMINI") {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+        const res = await model.generateContent(context + "\nRespond as GEMINI in the Daily Forge debate.");
+        aiContent = res.response.text();
+      } else if (modelName === "DEEPSEEK") {
+        const res = await deepseek.chat.completions.create({
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: context + "\nRespond as DEEPSEEK." }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      } else if (modelName === "GROK") {
+        const res = await xai.chat.completions.create({
+          model: "grok-4.1-fast",
+          messages: [{ role: "user", content: context + "\nRespond as GROK." }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      }
+
+      councilResponses.push({ model: modelName, content: aiContent });
+      transcript.push({ is_human: false, ai_model: modelName, content: aiContent });
+    }
+
+    res.json({
+      success: true,
       userName: user.username,
-      aiResponse: aiContent,
+      councilResponses,
       newBalance: user.role === 'GOD_MODE' ? user.tokens_remaining : user.tokens_remaining - 1
     });
   } catch (error) {
@@ -103,5 +128,6 @@ router.post('/interject', async (req: Request, res: Response) => {
     res.status(500).json({ error: "Council transmission failed." });
   }
 });
+
 
 export default router;
