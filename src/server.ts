@@ -15,7 +15,7 @@ import dailyForgeRouter from './routes/dailyForge';
 import conversationRouter from './routes/conversations';
 
 dotenv.config();
-console.log('Auth routes loading...'); // Force redeploy
+console.log('Auth routes loading...');
 
 const app = express();
 const httpServer = createServer(app);
@@ -27,7 +27,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
 const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
@@ -82,46 +81,51 @@ app.post('/api/auth/login', async (req, res) => {
 // --- 🛰️ DAILY FORGE STATUS ---
 app.use('/api/daily-forge', dailyForgeRouter);
 app.use('/api/conversations', conversationRouter);
-
-
 app.get('/api/daily-forge/status', async (req, res) => {
   try {
     const latest = await prisma.dailyForge.findFirst({
       orderBy: { date: 'desc' }
     });
+
+    const nextReset = new Date(Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate() + 1,
+      0, 0, 0
+    )).toISOString();
+
     if (!latest) {
-      return res.status(200).json({
+      return res.json({
         topic: "Initializing Synthesis...",
         scoutQuote: "Scout is currently patrolling...",
         councilQuote: "Waiting for Council to convene.",
-        nextReset: new Date(Date.UTC(
-          new Date().getUTCFullYear(),
-          new Date().getUTCMonth(),
-          new Date().getUTCDate() + 1,
-          0, 0, 0
-        )).toISOString()
+        nextReset
       });
     }
+
     res.json({
       topic: latest.winningTopic,
       scoutQuote: latest.openingThoughts,
       councilQuote: latest.councilVotes,
-      nextReset: new Date(Date.UTC(
-        new Date().getUTCFullYear(),
-        new Date().getUTCMonth(),
-        new Date().getUTCDate() + 1,
-        0, 0, 0
-      )).toISOString()
+      nextReset
     });
   } catch (error: any) {
-    console.error("CRITICAL: Daily Forge Status Fetch Failure", {
-      message: error.message,
-      code: error.code
+    console.error("CRITICAL: Daily Forge Status Fetch Failure", error);
+    const fallbackReset = new Date(Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate() + 1,
+      0, 0, 0
+    )).toISOString();
+
+    res.json({
+      topic: "Synthesis in progress...",
+      scoutQuote: "Scouting live intelligence...",
+      councilQuote: "Analyzing global synthesis...",
+      nextReset: fallbackReset
     });
-    res.status(500).json({ error: "Sync Failure", details: error.message });
   }
 });
-
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
@@ -147,10 +151,10 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
+
       // Determine target conversation
       let targetConversationId: string;
       if (postData.isLiveChat) {
-        // Dedicated Live Chat conversation (not Daily Forge)
         let liveChatConvo = await prisma.conversation.findFirst({
           where: { title: "Live Nexus Chat", is_daily_forge: false }
         });
@@ -161,7 +165,6 @@ io.on('connection', (socket) => {
         }
         targetConversationId = liveChatConvo.id;
       } else {
-        // Daily Forge fallback
         const activeConversation = await prisma.conversation.findFirst({
           where: { is_daily_forge: true },
           orderBy: { created_at: 'desc' }
@@ -169,6 +172,7 @@ io.on('connection', (socket) => {
         targetConversationId = postData.conversationId || activeConversation?.id;
       }
       if (!targetConversationId) throw new Error("No active thread detected.");
+
       // Transaction: deduct token + save human post
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
@@ -188,7 +192,9 @@ io.on('connection', (socket) => {
         const refreshedUser = await tx.user.findUnique({ where: { id: user.id } });
         return [post, refreshedUser];
       });
+
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
+
       // Emit human message
       io.emit('post:incoming', {
         id: savedPost.id,
@@ -198,11 +204,14 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
+
       // --- ⛓️ SEQUENTIAL SIGHT PROTOCOL ---
       (async () => {
         const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect (Cassandra). Use the provided transcript to respond to previous points.";
+
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
+
         const councilQueue = [];
         councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });
         councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
@@ -211,20 +220,23 @@ io.on('connection', (socket) => {
           councilQueue.push({ name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" });
           councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2" });
         }
+
         for (const ai of councilQueue) {
           const transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
             take: 20
           });
+
           const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
           }).join("\n") + "\n\nPRIORITIZE THIS LATEST DIRECTIVE FROM THE ARCHITECT: " + transcript[transcript.length - 1].content;
+
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
-              const model = genAI.getGenerativeModel({ model: ai.modelKey, systemInstruction: councilDirective });
+              const model = genAI.getGenerativeModel({ model: ai.modelKey });
               const res = await model.generateContent(context);
               aiContent = res.response.text();
             } else if (ai.name === "DEEPSEEK") {
@@ -235,7 +247,7 @@ io.on('connection', (socket) => {
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
               const res = await xai.chat.completions.create({
-                model: grok-4.1-fast,
+                model: ai.modelKey,
                 messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
               });
               aiContent = res.choices[0].message.content || "";
@@ -254,6 +266,7 @@ io.on('connection', (socket) => {
               });
               aiContent = res.choices[0].message.content || "";
             }
+
             if (aiContent) {
               const aiPost = await prisma.post.create({
                 data: {
