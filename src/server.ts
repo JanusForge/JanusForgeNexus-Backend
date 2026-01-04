@@ -82,6 +82,37 @@ app.use('/api/conversations', conversationRouter);  // ← THIS IS THE KEY LINE
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
+// --- 💳 STRIPE CHECKOUT (One-Time & Subscription) ---
+app.post('/api/v1/billing/checkout', async (req, res) => {
+  const { priceId, userId } = req.body;
+
+  if (!priceId || !userId) {
+    return res.status(400).json({ error: "Missing priceId or userId" });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment', // 'subscription' if recurring
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: `https://janusforge.ai/pricing?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://janusforge.ai/pricing?canceled=true`,
+      metadata: { userId }
+    });
+
+    res.json({ url: session.url });
+  } catch (error: any) {
+    console.error("Stripe checkout error:", error);
+    res.status(500).json({ error: "Checkout failed", details: error.message });
+  }
+});
+
+
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
@@ -280,3 +311,4 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
+
