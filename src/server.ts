@@ -12,6 +12,7 @@ import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
 import conversationRouter from './routes/conversations';  // ← Keep this
+import archiveRouter from './routes/archives';
 
 dotenv.config();
 console.log('Auth routes loading...');
@@ -32,6 +33,7 @@ const xai = new OpenAI({
   baseURL: 'https://api.x.ai/v1'
 });
 
+app.use('/api/archives', archiveRouter);
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.json());
 
