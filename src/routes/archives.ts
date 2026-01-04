@@ -1,11 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import cors from 'cors';
 
 const router = Router();
+
+// Allow frontend origin
+router.use(cors({
+  origin: ['https://janusforge.ai', 'https://www.janusforge.ai'],
+  credentials: true
+}));
+
 const prisma = new PrismaClient();
 
-// GET all archives (for archive page list + search)
-router.get('/history', async (req: Response, res: Response) => {
+// GET all archives
+router.get('/history', async (req: Request, res: Response) => {
   try {
     const archives = await prisma.dailyForge.findMany({
       orderBy: { date: 'desc' },
@@ -23,7 +31,7 @@ router.get('/history', async (req: Response, res: Response) => {
   }
 });
 
-// GET single archive by ID (for detail view)
+// GET single archive
 router.get('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -46,7 +54,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST manual archive entry (GodMode only)
+// POST manual entry
 router.post('/manual', async (req: Request, res: Response) => {
   const { userId, winningTopic, openingThoughts } = req.body;
 
