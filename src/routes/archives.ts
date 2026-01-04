@@ -46,4 +46,39 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+// POST manual archive entry (GodMode only)
+router.post('/manual', async (req: Request, res: Response) => {
+  const { userId, winningTopic, openingThoughts } = req.body;
+
+  if (!userId || !winningTopic || !openingThoughts) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'GOD_MODE') {
+      return res.status(403).json({ error: "GodMode required" });
+    }
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const entry = await prisma.dailyForge.create({
+      data: {
+        date: today,
+        winningTopic,
+        openingThoughts: typeof openingThoughts === 'string' ? openingThoughts : JSON.stringify(openingThoughts),
+        scoutedTopics: "[]",
+        councilVotes: "{}",
+        phase: "MANUAL_ARCHIVE"
+      }
+    });
+
+    res.json({ success: true, entry });
+  } catch (error: any) {
+    console.error("Manual archive error:", error);
+    res.status(500).json({ error: "Failed to save archive entry" });
+  }
+});
+
 export default router;
