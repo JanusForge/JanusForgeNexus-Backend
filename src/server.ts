@@ -112,6 +112,41 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
   }
 });
 
+// --- 🏛️ ADMIN: Manual Archive Entry ---
+app.post('/api/daily-forge/manual', async (req, res) => {
+  const { userId, winningTopic, openingThoughts } = req.body;
+
+  if (!userId || !winningTopic || !openingThoughts) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'GOD_MODE') {
+      return res.status(403).json({ error: "GodMode required" });
+    }
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const newEntry = await prisma.dailyForge.create({
+      data: {
+        date: today,
+        scoutedTopics: "[]",
+        winningTopic,
+        openingThoughts: typeof openingThoughts === 'string' ? openingThoughts : JSON.stringify(openingThoughts),
+        councilVotes: "{}",
+        phase: "MANUAL_ARCHIVE"
+      }
+    });
+
+    res.json({ success: true, entry: newEntry });
+  } catch (error: any) {
+    console.error("Manual archive error:", error);
+    res.status(500).json({ error: "Failed to save archive entry" });
+  }
+});
+
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
