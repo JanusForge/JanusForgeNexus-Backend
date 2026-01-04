@@ -252,7 +252,7 @@ io.on('connection', (socket) => {
           const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
-          }).join("\n") + "\n\nPRIORITIZE THIS LATEST DIRECTIVE FROM THE ARCHITECT: " + transcript[transcript.length - 1].content;
+          }).join("\n") + "\n\nDiscuss what the Architect said from your perspective and knowledge: " + transcript[transcript.length - 1].content;
 
           try {
             let aiContent = "";
