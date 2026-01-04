@@ -5,13 +5,13 @@ import cors from 'cors';
 const router = Router();
 const prisma = new PrismaClient();
 
-// Allow frontend origins
+// Enable CORS for frontend
 router.use(cors({
   origin: ['https://janusforge.ai', 'https://www.janusforge.ai'],
   credentials: true
 }));
 
-// GET all archives (for archive page list + search)
+// GET all archives
 router.get('/history', async (req: Request, res: Response) => {
   try {
     const archives = await prisma.dailyForge.findMany({
@@ -30,7 +30,7 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 });
 
-// GET single archive by ID (for detail view)
+// GET single archive by ID
 router.get('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
