@@ -146,7 +146,16 @@ app.post('/api/daily-forge/manual', async (req, res) => {
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
-  cors: { origin: true, credentials: true },
+  cors: {
+    origin: [
+      "https://janusforge.ai",
+      "https://www.janusforge.ai",
+      "http://localhost:3000",
+      "http://localhost:3001"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true
+  },
   pingTimeout: 60000,
   connectionStateRecovery: {}
 });
