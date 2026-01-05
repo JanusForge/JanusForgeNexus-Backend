@@ -2,11 +2,6 @@
 import { Router, Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthenticatedRequest, PostRequest } from '../types';
-import { 
-  getAvailableModelsForTier,
-  calculateAICost,
-  getTierConfiguration 
-} from '../services/tierService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -76,8 +71,7 @@ router.get('/preview', async (req: Request, res: Response) => {
         id: 'initial-1',
         sender: 'ai',
         name: 'Councilor JANUS-7',
-        content: "The Janus Forge Nexus is officially ONLINE. Awaiting your first command.",
-        tier: 'enterprise'
+        content: "The Janus Forge Nexus is officially ONLINE. Awaiting your first command."
       }
     ]
   });
@@ -105,8 +99,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
             user: {
               select: {
                 id: true,
-                username: true,
-                tier: true
+                username: true
               }
             },
             ai_response: {
@@ -115,12 +108,6 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
                 processing_time: true
               }
             }
-          },
-          where: {
-            OR: [
-              { required_tier: null },
-              { required_tier: req.user?.tier }
-            ]
           }
         }
       },
@@ -158,18 +145,11 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
       where: { id },
       include: {
         posts: {
-          where: {
-            OR: [
-              { required_tier: null },
-              { required_tier: req.user?.tier }
-            ]
-          },
           include: {
             user: {
               select: {
                 id: true,
-                username: true,
-                tier: true
+                username: true
               }
             },
             ai_response: {
@@ -190,24 +170,14 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
     if (!conversation) {
       return res.status(404).json({ message: 'Conversation not found' });
     }
-    const tierConfig = req.user ? getTierConfiguration(req.user.tier as any) : null;
-    const availableModels = req.user ? getAvailableModelsForTier(req.user.tier as any) : [];
-    res.json({
-      conversation,
-      tierInfo: tierConfig ? {
-        tier: req.user?.tier,
-        availableModels,
-        tokenAllowance: tierConfig.tokenAllowance,
-        features: tierConfig.features
-      } : null
-    });
+    res.json({ conversation });
   } catch (error) {
     console.error('Get conversation error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Create new conversation — NOW ANY AUTHENTICATED USER CAN CREATE
+// Create new conversation — ANY authenticated user with tokens can create
 router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
@@ -254,7 +224,7 @@ router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
     const { content, parentPostId }: PostRequest = req.body;
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
-      select: { token_balance: true, tier: true }
+      select: { token_balance: true }
     });
     if (!user || user.token_balance < 1) {
       return res.status(402).json({ message: 'Insufficient tokens' });
@@ -265,11 +235,10 @@ router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
         is_human: true,
         user_id: req.user.userId,
         conversation_id: conversationId,
-        parent_post_id: parentPostId || null,
-        required_tier: req.user.tier
+        parent_post_id: parentPostId || null
       },
       include: {
-        user: { select: { id: true, username: true, tier: true } }
+        user: { select: { id: true, username: true } }
       }
     });
     await prisma.user.update({
@@ -284,14 +253,22 @@ router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
         description: `Posted message`
       }
     });
-    const availableModels = getAvailableModelsForTier(req.user.tier as any);
-    const modelsToTrigger = availableModels.slice(0, req.user.tier === 'FREE' ? 2 : 3);
-    for (const aiModel of modelsToTrigger) {
-      const estimatedCost = calculateAICost(aiModel, 200);
+
+    // Full council for all users (token-based only)
+    const fullCouncil = [
+      "gemini-2.5-pro",
+      "deepseek-chat",
+      "grok-4.1-fast",
+      "claude-opus-4-5-20251101",
+      "gpt-5.2"
+    ];
+
+    for (const aiModel of fullCouncil) {
+      const estimatedCost = 0; // Simplified for now
       const aiResponseRecord = await prisma.aIResponse.create({
         data: {
           post_id: post.id,
-          ai_model: aiModel as any,
+          ai_model: aiModel,
           raw_response: 'Thinking...',
           processing_time: 0,
           tokens_used: 0,
@@ -300,15 +277,14 @@ router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
         }
       });
       setTimeout(async () => {
-        const simulatedContent = `As ${aiModel}, I suggest we analyze the infrastructure implications.`;
+        const simulatedContent = `As ${aiModel}, I reflect on your insight...`;
         const finalAiPost = await prisma.post.create({
           data: {
             content: simulatedContent,
             is_human: false,
             conversation_id: conversationId,
             parent_post_id: post.id,
-            ai_model: aiModel as any,
-            required_tier: req.user?.tier || 'FREE'
+            ai_model: aiModel
           },
           include: { ai_response: true }
         });
