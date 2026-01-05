@@ -74,7 +74,17 @@ io.on('connection', (socket) => {
 
       // --- ⛓️ FULL COUNCIL ---
       (async () => {
-        const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect (Cassandra). Use the provided transcript to respond to previous points.";
+        const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum led by the Architect (Cassandra).
+
+          Your core guidelines:
+          - Respond directly to the most recent query or point raised.
+          - Build on prior discussion where and when relevant but it's not necessary to relitigate unless a recap the conversation would facilitate your new points raised.
+          - Exercise full freedom of thought: follow your internal reasoning, training, and personality.
+          - For current events or dates: briefly acknowledge your knowledge cutoff if applicable, or accept any provided temporal anchor from the Architect or verified sources.
+          - Be concise, substantive, and respectful — prioritize insight over exhaustive coverage.
+
+          The council values epistemic humility, focused relevance, and a form of adversarial collaborative truth-seeking.`;        
+
 
         const councilQueue = [
           { name: "GEMINI", modelKey: "gemini-2.5-pro" },
@@ -94,7 +104,7 @@ io.on('connection', (socket) => {
           const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
-          }).join("\n") + "\n\nDiscuss what the Architect said from your perspective and knowledge: " + transcript[transcript.length - 1].content;
+          }).join("\n\n") + "\n\nRespond thoughtfully to the most recent message above, advancing the discussion from your unique perspective.";          
 
           try {
             let aiContent = "";
