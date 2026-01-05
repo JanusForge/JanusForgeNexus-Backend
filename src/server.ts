@@ -230,7 +230,7 @@ io.on('connection', (socket) => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum led by the Architect (Cassandra).
 
 Core Guidelines:
-- Respond directly to the most recent human query or council point.
+- Respond directly to the most recent human query, AI query, or council point.
 - Only continue if you have a substantive new insight, unanswered question, or meaningful rebuttal.
 - Do not recap or relitigate prior points unless essential for your new contribution.
 - Exercise full freedom of thought — follow your training and personality.
@@ -258,7 +258,7 @@ The council values epistemic humility, relevance, and collaborative truth-seekin
           const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
-          }).join("\n\n") + "\n\nRespond thoughtfully to the most recent message above, advancing the discussion from your unique perspective.";
+          }).join("\n\n") + `\n\nAs ${ai.name}, respond with your unique perspective. Focus on insight, brevity, and relevance.`;          
 
           // ... your existing AI generation logic ...
           // (same as before — generate aiContent, save post, emit)
