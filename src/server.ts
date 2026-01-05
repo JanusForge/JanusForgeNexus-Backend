@@ -1,3 +1,160 @@
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { PrismaClient } from '@prisma/client';
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
+import { Resend } from 'resend';
+import Stripe from 'stripe';
+import conversationRouter from './routes/conversations';
+import archiveRouter from './routes/archives';
+
+dotenv.config();
+console.log('Auth routes loading...');
+
+const app = express();
+const httpServer = createServer(app);
+const prisma = new PrismaClient();
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// --- ⚙️ SERVICE INITIALIZATION ---
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+const xai = new OpenAI({
+  apiKey: process.env.GROK_API_KEY,
+  baseURL: 'https://api.x.ai/v1'
+});
+
+app.use('/api/archives', archiveRouter);
+app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+app.use(express.json());
+
+// --- 🔑 AUTH & TOKEN SYSTEM ---
+app.post('/api/auth/register', async (req, res) => {
+  const { username, email, password, referralCode = "" } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
+    const user = await prisma.user.create({
+      data: {
+        username, 
+        email, 
+        password_hash: hashedPassword,
+        role: isBeta ? 'BETA_ARCHITECT' : 'USER',
+        tokens_remaining: isBeta ? 50 : 10, 
+        token_balance: isBeta ? 50 : 10,
+        digest_subscribed: true
+      }
+    });
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(400).json({ error: "Registration conflict." });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    console.log(`🔐 Login attempt for: ${email}`);
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    console.log("✅ Login Success");
+    res.json(user);
+  } catch (error: any) {
+    console.error("🔥 CRITICAL LOGIN ERROR:", error.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// --- ROUTES ---
+app.use('/api/conversations', conversationRouter);
+
+app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
+
+// --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
+app.post('/api/v1/billing/checkout', async (req, res) => {
+  const { priceId, userId } = req.body;
+  if (!priceId || !userId) {
+    return res.status(400).json({ error: "Missing priceId or userId" });
+  }
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: `https://janusforge.ai/pricing?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://janusforge.ai/pricing?canceled=true`,
+      metadata: { userId }
+    });
+    res.json({ url: session.url });
+  } catch (error: any) {
+    console.error("Stripe checkout error:", error);
+    res.status(500).json({ error: "Checkout failed", details: error.message });
+  }
+});
+
+// --- 🏛️ ADMIN: Manual Archive Entry ---
+app.post('/api/daily-forge/manual', async (req, res) => {
+  const { userId, winningTopic, openingThoughts } = req.body;
+  if (!userId || !winningTopic || !openingThoughts) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== 'GOD_MODE') {
+      return res.status(403).json({ error: "GodMode required" });
+    }
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const newEntry = await prisma.dailyForge.create({
+      data: {
+        date: today,
+        scoutedTopics: "[]",
+        winningTopic,
+        openingThoughts: typeof openingThoughts === 'string' ? openingThoughts : JSON.stringify(openingThoughts),
+        councilVotes: "{}",
+        phase: "MANUAL_ARCHIVE"
+      }
+    });
+    res.json({ success: true, entry: newEntry });
+  } catch (error: any) {
+    console.error("Manual archive error:", error);
+    res.status(500).json({ error: "Failed to save archive entry" });
+  }
+});
+
+// --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
+const io = new Server(httpServer, {
+  cors: { origin: true, credentials: true },
+  pingTimeout: 60000,
+  connectionStateRecovery: {}
+});
+
+// Make io available in routes
+app.set('io', io);
+
+// NOW the socket handler — AFTER io is defined
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
@@ -14,7 +171,7 @@ io.on('connection', (socket) => {
       }
 
       // Determine target conversation
-      let targetConversationId: string = postData.conversationId; // Use frontend-provided ID if present
+      let targetConversationId: string = postData.conversationId;
 
       if (!targetConversationId) {
         if (postData.isLiveChat) {
@@ -37,10 +194,8 @@ io.on('connection', (socket) => {
       }
       if (!targetConversationId) throw new Error("No active thread detected.");
 
-      // Join socket to conversation room
       socket.join(targetConversationId);
 
-      // Transaction: deduct token + save human post
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
           await tx.user.update({
@@ -62,7 +217,6 @@ io.on('connection', (socket) => {
 
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
 
-      // Emit human message to conversation room
       io.to(targetConversationId).emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -72,20 +226,16 @@ io.on('connection', (socket) => {
         tokens_remaining: currentTokens
       });
 
-      // --- ⛓️ FULL COUNCIL ---
+      // --- FULL COUNCIL ---
       (async () => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum led by the Architect (Cassandra).
-
-          Your core guidelines:
-          - Respond directly to the most recent query or point raised.
-          - Build on prior discussion where and when relevant but it's not necessary to relitigate unless a recap the conversation would facilitate your new points raised.
-          - Exercise full freedom of thought: follow your internal reasoning, training, and personality.
-          - For current events or dates: briefly acknowledge your knowledge cutoff if applicable, or accept any provided temporal anchor from the Architect or verified sources.
-          - Be concise, substantive, and respectful — prioritize insight over exhaustive coverage.
-
-          The council values epistemic humility, focused relevance, and a form of adversarial collaborative truth-seeking.`;        
-
-
+          Your core guidelines:
+          - Respond directly to the most recent query or point raised.
+          - Build on prior discussion where and when relevant but it's not necessary to relitigate unless a recap the conversation would facilitate your new points raised.
+          - Exercise full freedom of thought: follow your internal reasoning, training, and personality.
+          - For current events or dates: briefly acknowledge your knowledge cutoff if applicable, or accept any provided temporal anchor from the Architect or verified sources.
+          - Be concise, substantive, and respectful — prioritize insight over exhaustive coverage.
+          The council values epistemic humility, focused relevance, and a form of adversarial collaborative truth-seeking.`;
         const councilQueue = [
           { name: "GEMINI", modelKey: "gemini-2.5-pro" },
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
@@ -104,11 +254,62 @@ io.on('connection', (socket) => {
           const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
-          }).join("\n\n") + "\n\nRespond thoughtfully to the most recent message above, advancing the discussion from your unique perspective.";          
+          }).join("\n\n") + "\n\nRespond thoughtfully to the most recent message above, advancing the discussion from your unique perspective.";
 
           try {
             let aiContent = "";
-            // ... existing AI generation logic ...
+            if (ai.name === "GEMINI") {
+              const geminiModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
+              aiContent = "[GEMINI unavailable]";
+              for (const modelName of geminiModels) {
+                try {
+                  const model = genAI.getGenerativeModel({ model: modelName });
+                  const res = await model.generateContent(context);
+                  aiContent = res.response.text();
+                  console.log(`GEMINI success with ${modelName}`);
+                  break;
+                } catch (err) {
+                  console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
+                }
+              }
+            } else if (ai.name === "DEEPSEEK") {
+              const res = await deepseek.chat.completions.create({
+                model: "deepseek-chat",
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+              });
+              aiContent = res.choices[0].message.content || "";
+            } else if (ai.name === "GROK") {
+              const grokModels = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
+              aiContent = "[GROK unavailable]";
+              for (const modelName of grokModels) {
+                try {
+                  const res = await xai.chat.completions.create({
+                    model: modelName,
+                    messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                  });
+                  aiContent = res.choices[0].message.content || "";
+                  console.log(`GROK success with ${modelName}`);
+                  break;
+                } catch (err) {
+                  console.warn(`GROK failed with ${modelName}:`, err.message || err);
+                }
+              }
+            } else if (ai.name === "CLAUDE") {
+              const res = await anthropic.messages.create({
+                model: ai.modelKey,
+                max_tokens: 1500,
+                system: councilDirective,
+                messages: [{ role: "user", content: context }]
+              });
+              aiContent = (res.content[0] as any).text;
+            } else if (ai.name === "GPT_4") {
+              const res = await openai.chat.completions.create({
+                model: ai.modelKey,
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+              });
+              aiContent = res.choices[0].message.content || "";
+            }
+
             if (aiContent) {
               const aiPost = await prisma.post.create({
                 data: {
