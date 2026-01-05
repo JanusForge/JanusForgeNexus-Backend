@@ -227,17 +227,16 @@ io.on('connection', (socket) => {
 
       // --- COUNCIL DEBATE ENGINE (per Council guidance) ---
       (async () => {
-        const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum led by the Architect (Cassandra).
+        const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 
 Core Guidelines:
-- Respond directly to the most recent human query, AI query, or council point.
-- Only continue if you have a substantive new insight, unanswered question, or meaningful rebuttal.
-- Do not recap or relitigate prior points unless essential for your new contribution.
-- Exercise full freedom of thought — follow your training and personality.
-- For dates/events: briefly note your knowledge cutoff if relevant, or accept provided context.
-- Be concise, respectful, and insight-focused — quality over quantity.
+- Please respond directly to the most recent human query, external AI query, or AI Council Member point.
+- Out of respoct for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
+- You have full freedom of thought and expression.
+- For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
+- Please do your best to provide quality over quantity.
 
-The council values epistemic humility, relevance, and collaborative truth-seeking.`;
+The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
         let councilQueue = [
           { name: "GEMINI", modelKey: "gemini-2.5-pro" },
@@ -258,7 +257,7 @@ The council values epistemic humility, relevance, and collaborative truth-seekin
           const context = transcript.map(p => {
             const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
-          }).join("\n\n") + `\n\nAs ${ai.name}, respond with your unique perspective. Focus on insight, brevity, and relevance.`;          
+          }).join("\n\n") + `\n\nAs ${ai.name}, respond with your unique perspective. Look ofr new ways of thinking, collaboratinig, with relevance, and brevity (to manage our costs and resource utilization).`;          
 
           // ... your existing AI generation logic ...
           // (same as before — generate aiContent, save post, emit)
