@@ -2,11 +2,10 @@
 import { Router, Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthenticatedRequest, PostRequest } from '../types';
-import { requireTier } from '../middleware/auth';
-import {
+import { 
   getAvailableModelsForTier,
   calculateAICost,
-  getTierConfiguration
+  getTierConfiguration 
 } from '../services/tierService';
 
 const router = Router();
@@ -18,7 +17,6 @@ router.get('/user', async (req: Request, res: Response) => {
   if (!userId) {
     return res.status(400).json({ error: "userId required" });
   }
-
   try {
     const conversations = await prisma.conversation.findMany({
       where: {
@@ -39,14 +37,12 @@ router.get('/user', async (req: Request, res: Response) => {
         }
       }
     });
-
     const formatted = conversations.map(conv => ({
       id: conv.id,
       title: conv.title || "Untitled Synthesis",
       preview: conv.posts[0]?.content?.slice(0, 80) + "..." || "No messages yet",
       timestamp: conv.posts[0]?.created_at || conv.created_at
     }));
-
     res.json(formatted);
   } catch (error) {
     console.error("Conversation list error:", error);
@@ -58,7 +54,6 @@ router.get('/user', async (req: Request, res: Response) => {
 router.patch('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { title } = req.body;
-
   try {
     const updated = await prisma.conversation.update({
       where: { id },
@@ -212,8 +207,8 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-// Create new conversation
-router.post('/', requireTier('BASIC'), async (req: AuthenticatedRequest, res: Response) => {
+// Create new conversation — REMOVED requireTier('BASIC') so BETA Architects can start
+router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
     const { title } = req.body;
@@ -226,7 +221,7 @@ router.post('/', requireTier('BASIC'), async (req: AuthenticatedRequest, res: Re
     }
     const conversation = await prisma.conversation.create({
       data: {
-        title: title.trim(),
+        title: title?.trim() || "New Live Conversation",
         is_daily_forge: false
       }
     });
@@ -239,13 +234,14 @@ router.post('/', requireTier('BASIC'), async (req: AuthenticatedRequest, res: Re
         user_id: req.user.userId,
         amount: -10,
         transaction_type: 'conversation_creation',
-        description: `Created conversation: ${title}`
+        description: `Created conversation: ${title || 'New Live Conversation'}`
       }
     });
     const io = req.app.get('io');
     io.emit('conversation:new', conversation);
     res.status(201).json({ conversation });
   } catch (error) {
+    console.error("Conversation creation error:", error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
