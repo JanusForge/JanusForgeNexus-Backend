@@ -148,6 +148,9 @@ const io = new Server(httpServer, {
   connectionStateRecovery: {}
 });
 
+// Make io available in routes
+app.set('io', io);
+
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
@@ -223,17 +226,14 @@ io.on('connection', (socket) => {
       // --- ⛓️ SEQUENTIAL SIGHT PROTOCOL ---
       (async () => {
         const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect (Cassandra). Use the provided transcript to respond to previous points.";
-        const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
-        const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
 
-        const councilQueue = [];
-        councilQueue.push({ name: "GEMINI", modelKey: "gemini-2.5-pro" });
-        councilQueue.push({ name: "DEEPSEEK", modelKey: "deepseek-chat" });
-        if (isBasicPlus) councilQueue.push({ name: "GROK", modelKey: "grok-4.1-fast" });
-        if (isFullCouncil) {
-          councilQueue.push({ name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" });
-          councilQueue.push({ name: "GPT_4", modelKey: "gpt-5.2" });
-        }
+        const councilQueue = [
+          { name: "GEMINI", modelKey: "gemini-2.5-pro" },
+          { name: "DEEPSEEK", modelKey: "deepseek-chat" },
+          { name: "GROK", modelKey: "grok-4.1-fast" },
+          { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
+          { name: "GPT_4", modelKey: "gpt-5.2" }
+        ];
 
         for (const ai of councilQueue) {
           const transcript = await prisma.post.findMany({
@@ -311,7 +311,6 @@ io.on('connection', (socket) => {
                 }
               });
 
-              // Emit AI response to conversation room only
               io.to(targetConversationId).emit('post:incoming', {
                 id: aiPost.id,
                 name: ai.name,
