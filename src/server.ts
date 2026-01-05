@@ -1,4 +1,4 @@
-import express from 'express';
+phase 1import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
@@ -145,6 +145,16 @@ app.post('/api/daily-forge/manual', async (req, res) => {
 });
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
+app.use(cors({
+  origin: [
+    "https://janusforge.ai",
+    "https://www.janusforge.ai",
+    "http://localhost:3000",
+    "http://localhost:3001"
+  ],
+  credentials: true
+}));
+
 const io = new Server(httpServer, {
   cors: {
     origin: [
@@ -262,44 +272,106 @@ The council values epistemic humility, relevance, and respectful adversarial col
         });
 
         // Phase 1: Initial full round
-        for (const ai of councilQueue) {
-          const context = transcript.map(p => {
-            const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
-            return `${name}: ${p.content}`;
-          }).join("\n\n") + `\n\nAs ${ai.name}, respond with your unique perspective. Look ofr new ways of thinking, collaboratinig, with relevance, and brevity (to manage our costs and resource utilization).`;          
+  for (const ai of councilQueue) {
+    const context = transcript.map(p => {
+      const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
+      return `${name}: ${p.content}`;
+    }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
 
-          // ... your existing AI generation logic ...
-          // (same as before — generate aiContent, save post, emit)
-
-          if (aiContent && aiContent.trim()) {
-            const aiPost = await prisma.post.create({
-              data: {
-                content: aiContent,
-                is_human: false,
-                ai_model: ai.name as any,
-                conversation_id: targetConversationId
-              }
-            });
-
-            io.to(targetConversationId).emit('post:incoming', {
-              id: aiPost.id,
-              name: ai.name,
-              content: aiContent,
-              sender: 'ai',
-              tokens_remaining: currentTokens
-            });
-
-            await new Promise(r => setTimeout(r, 1500));
-            console.log(`📡 [Nexus Sync] ${ai.name} response settled.`);
+    try {
+      let aiContent = "";
+      if (ai.name === "GEMINI") {
+        const geminiModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
+        aiContent = "[GEMINI unavailable]";
+        for (const modelName of geminiModels) {
+          try {
+            const model = genAI.getGenerativeModel({ model: modelName });
+            const res = await model.generateContent(context);
+            aiContent = res.response.text();
+            console.log(`GEMINI success with ${modelName}`);
+            break;
+          } catch (err) {
+            console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
           }
-
-          // Refresh transcript
-          transcript = await prisma.post.findMany({
-            where: { conversation_id: targetConversationId },
-            orderBy: { created_at: 'asc' },
-            take: 30
-          });
         }
+      } else if (ai.name === "DEEPSEEK") {
+        const res = await deepseek.chat.completions.create({
+          model: "deepseek-chat",
+          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      } else if (ai.name === "GROK") {
+        const grokModels = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
+        aiContent = "[GROK unavailable]";
+        for (const modelName of grokModels) {
+          try {
+            const res = await xai.chat.completions.create({
+              model: modelName,
+              messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+            });
+            aiContent = res.choices[0].message.content || "";
+            console.log(`GROK success with ${modelName}`);
+            break;
+          } catch (err) {
+            console.warn(`GROK failed with ${modelName}:`, err.message || err);
+          }
+        }
+      } else if (ai.name === "CLAUDE") {
+        const res = await anthropic.messages.create({
+          model: ai.modelKey,
+          max_tokens: 1500,
+          system: councilDirective,
+          messages: [{ role: "user", content: context }]
+        });
+        aiContent = (res.content[0] as any).text;
+      } else if (ai.name === "GPT_4") {
+        const res = await openai.chat.completions.create({
+          model: ai.modelKey,
+          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      }
+
+      if (aiContent && aiContent.trim()) {  // ← Moved inside try
+        const aiPost = await prisma.post.create({
+          data: {
+            content: aiContent,
+            is_human: false,
+            ai_model: ai.name as any,
+            conversation_id: targetConversationId
+          }
+        });
+
+        io.to(targetConversationId).emit('post:incoming', {
+          id: aiPost.id,
+          name: ai.name,
+          content: aiContent,
+          sender: 'ai',
+          tokens_remaining: currentTokens
+        });
+
+        await new Promise(r => setTimeout(r, 1500));
+        console.log(`📡 [Nexus Sync] ${ai.name} response settled.`);
+      }
+    } catch (err) {
+      console.error(`[${ai.name} FAILURE]`, err);
+      io.to(targetConversationId).emit('post:incoming', {
+        id: crypto.randomUUID(),
+        name: ai.name,
+        content: `[${ai.name} temporarily unavailable – council continues]`,
+        sender: 'ai',
+        tokens_remaining: currentTokens
+      });
+    }
+
+    // Refresh transcript
+    transcript = await prisma.post.findMany({
+      where: { conversation_id: targetConversationId },
+      orderBy: { created_at: 'asc' },
+      take: 30
+    });
+  }       
+
 
         // Phase 2: Intelligent follow-ups (max 2 rounds)
         let followUpRounds = 0;
