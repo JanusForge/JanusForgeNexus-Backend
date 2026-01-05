@@ -259,7 +259,7 @@ io.on('connection', (socket) => {
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
-              const geminiModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
+              const geminiModels = ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
               aiContent = "[GEMINI unavailable]";
               for (const modelName of geminiModels) {
                 try {
