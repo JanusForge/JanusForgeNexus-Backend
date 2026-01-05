@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
@@ -37,7 +37,7 @@ app.use('/api/archives', archiveRouter);
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.json());
 
-// --- 🔑 AUTH & TIERED LEDGER ---
+// --- 🔑 AUTH & TOKEN SYSTEM ---
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
   try {
@@ -45,9 +45,12 @@ app.post('/api/auth/register', async (req, res) => {
     const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
     const user = await prisma.user.create({
       data: {
-        username, email, password_hash: hashedPassword,
-        role: isBeta ? UserRole.BETA_ARCHITECT : UserRole.USER,
-        tokens_remaining: isBeta ? 50 : 10, token_balance: isBeta ? 50 : 10,
+        username, 
+        email, 
+        password_hash: hashedPassword,
+        role: isBeta ? 'BETA_ARCHITECT' : 'USER', // Keep role for BETA & GOD_MODE
+        tokens_remaining: isBeta ? 50 : 10, 
+        token_balance: isBeta ? 50 : 10,
         digest_subscribed: true
       }
     });
@@ -84,7 +87,7 @@ app.use('/api/conversations', conversationRouter);
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
-// --- 💳 STRIPE CHECKOUT (One-Time & Subscription) ---
+// --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
 app.post('/api/v1/billing/checkout', async (req, res) => {
   const { priceId, userId } = req.body;
   if (!priceId || !userId) {
@@ -160,8 +163,7 @@ io.on('connection', (socket) => {
         return;
       }
       const isGodMode = user.role === 'GOD_MODE';
-      const isEnterprise = user.role === 'ENTERPRISE';
-      const hasTokenBypass = isGodMode || isEnterprise;
+      const hasTokenBypass = isGodMode;
       if (!hasTokenBypass && user.tokens_remaining < 1) {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
@@ -223,7 +225,7 @@ io.on('connection', (socket) => {
         tokens_remaining: currentTokens
       });
 
-      // --- ⛓️ SEQUENTIAL SIGHT PROTOCOL ---
+      // --- ⛓️ FULL COUNCIL FOR ALL USERS ---
       (async () => {
         const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect (Cassandra). Use the provided transcript to respond to previous points.";
 
