@@ -207,7 +207,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-// Create new conversation — REMOVED requireTier('BASIC') so BETA Architects can start
+// Create new conversation — NOW ANY AUTHENTICATED USER CAN CREATE
 router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
