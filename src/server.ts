@@ -48,7 +48,7 @@ app.post('/api/auth/register', async (req, res) => {
         username, 
         email, 
         password_hash: hashedPassword,
-        role: isBeta ? 'BETA_ARCHITECT' : 'USER', // Keep role for BETA & GOD_MODE
+        role: isBeta ? 'BETA_ARCHITECT' : 'USER',
         tokens_remaining: isBeta ? 50 : 10, 
         token_balance: isBeta ? 50 : 10,
         digest_subscribed: true
