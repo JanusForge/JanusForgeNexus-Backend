@@ -1,7 +1,7 @@
 // src/routes/conversations.ts
 import { Router, Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { AuthenticatedRequest, PostRequest } from '../types';
+import { AuthenticatedRequest } from '../types';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -178,37 +178,47 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 // Create new conversation — ANY authenticated user with tokens can create
-router.post('/', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
+  const { title, userId } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ message: 'User ID required' });
+  }
+
   try {
-    if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
-    const { title } = req.body;
     const user = await prisma.user.findUnique({
-      where: { id: req.user.userId },
+      where: { id: userId },
       select: { token_balance: true }
     });
+
     if (!user || user.token_balance < 10) {
       return res.status(402).json({ message: 'Insufficient tokens' });
     }
+
     const conversation = await prisma.conversation.create({
       data: {
         title: title?.trim() || "New Live Conversation",
         is_daily_forge: false
       }
     });
+
     await prisma.user.update({
-      where: { id: req.user.userId },
+      where: { id: userId },
       data: { token_balance: { decrement: 10 } }
     });
+
     await prisma.tokenTransaction.create({
       data: {
-        user_id: req.user.userId,
+        user_id: userId,
         amount: -10,
         transaction_type: 'conversation_creation',
         description: `Created conversation: ${title || 'New Live Conversation'}`
       }
     });
+
     const io = req.app.get('io');
     io.emit('conversation:new', conversation);
+
     res.status(201).json({ conversation });
   } catch (error) {
     console.error("Conversation creation error:", error);
@@ -217,85 +227,80 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 // Create new post in conversation
-router.post('/:id/posts', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/posts', async (req: Request, res: Response) => {
+  const { id: conversationId } = req.params;
+  const { content, userId } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ message: 'User ID required' });
+  }
+
   try {
-    if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
-    const { id: conversationId } = req.params;
-    const { content, parentPostId }: PostRequest = req.body;
     const user = await prisma.user.findUnique({
-      where: { id: req.user.userId },
+      where: { id: userId },
       select: { token_balance: true }
     });
+
     if (!user || user.token_balance < 1) {
       return res.status(402).json({ message: 'Insufficient tokens' });
     }
+
     const post = await prisma.post.create({
       data: {
         content: content.trim(),
         is_human: true,
-        user_id: req.user.userId,
-        conversation_id: conversationId,
-        parent_post_id: parentPostId || null
+        user_id: userId,
+        conversation_id: conversationId
       },
       include: {
         user: { select: { id: true, username: true } }
       }
     });
+
     await prisma.user.update({
-      where: { id: req.user.userId },
+      where: { id: userId },
       data: { token_balance: { decrement: 1 } }
     });
+
     await prisma.tokenTransaction.create({
       data: {
-        user_id: req.user.userId,
+        user_id: userId,
         amount: -1,
         transaction_type: 'post_creation',
-        description: `Posted message`
+        description: 'Posted message'
       }
     });
 
-    // Full council for all users (token-based only)
+    // Full council for all users
     const fullCouncil = [
-      "gemini-2.5-pro",
-      "deepseek-chat",
-      "grok-4.1-fast",
-      "claude-opus-4-5-20251101",
-      "gpt-5.2"
+      "GEMINI",
+      "DEEPSEEK",
+      "GROK",
+      "CLAUDE",
+      "GPT_4"
     ];
 
-    for (const aiModel of fullCouncil) {
-      const estimatedCost = 0; // Simplified for now
-      const aiResponseRecord = await prisma.aIResponse.create({
+    for (const aiName of fullCouncil) {
+      const aiPost = await prisma.post.create({
         data: {
-          post_id: post.id,
-          ai_model: aiModel,
-          raw_response: 'Thinking...',
-          processing_time: 0,
-          tokens_used: 0,
-          cost_cents: estimatedCost,
-          user_id: req.user.userId
+          content: `[${aiName} responding...]`,
+          is_human: false,
+          ai_model: aiName,
+          conversation_id: conversationId,
+          parent_post_id: post.id
         }
       });
-      setTimeout(async () => {
-        const simulatedContent = `As ${aiModel}, I reflect on your insight...`;
-        const finalAiPost = await prisma.post.create({
-          data: {
-            content: simulatedContent,
-            is_human: false,
-            conversation_id: conversationId,
-            parent_post_id: post.id,
-            ai_model: aiModel
-          },
-          include: { ai_response: true }
-        });
-        await prisma.aIResponse.update({
-          where: { id: aiResponseRecord.id },
-          data: { raw_response: simulatedContent, processing_time: 1500 }
-        });
-        const io = req.app.get('io');
-        io.to(`conversation:${conversationId}`).emit('ai:response', { post: finalAiPost });
-      }, 2000);
+
+      const io = req.app.get('io');
+      io.to(`conversation:${conversationId}`).emit('post:incoming', {
+        id: aiPost.id,
+        name: aiName,
+        content: `[${aiName} responding...]`,
+        sender: 'ai',
+        tokens_remaining: user.token_balance - 1
+      });
     }
+
     res.status(201).json({ post });
   } catch (error) {
     console.error(error);
