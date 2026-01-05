@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
-import conversationRouter from './routes/conversations';  // ← Keep this
+import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
 
 dotenv.config();
@@ -80,21 +80,19 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // --- ROUTES ---
-app.use('/api/conversations', conversationRouter);  // ← THIS IS THE KEY LINE
+app.use('/api/conversations', conversationRouter);
 
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
 // --- 💳 STRIPE CHECKOUT (One-Time & Subscription) ---
 app.post('/api/v1/billing/checkout', async (req, res) => {
   const { priceId, userId } = req.body;
-
   if (!priceId || !userId) {
     return res.status(400).json({ error: "Missing priceId or userId" });
   }
-
   try {
     const session = await stripe.checkout.sessions.create({
-      mode: 'payment', // 'subscription' if recurring
+      mode: 'payment',
       payment_method_types: ['card'],
       line_items: [
         {
@@ -106,7 +104,6 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
       cancel_url: `https://janusforge.ai/pricing?canceled=true`,
       metadata: { userId }
     });
-
     res.json({ url: session.url });
   } catch (error: any) {
     console.error("Stripe checkout error:", error);
@@ -117,20 +114,16 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
 // --- 🏛️ ADMIN: Manual Archive Entry ---
 app.post('/api/daily-forge/manual', async (req, res) => {
   const { userId, winningTopic, openingThoughts } = req.body;
-
   if (!userId || !winningTopic || !openingThoughts) {
     return res.status(400).json({ error: "Missing required fields" });
   }
-
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.role !== 'GOD_MODE') {
       return res.status(403).json({ error: "GodMode required" });
     }
-
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-
     const newEntry = await prisma.dailyForge.create({
       data: {
         date: today,
@@ -141,14 +134,12 @@ app.post('/api/daily-forge/manual', async (req, res) => {
         phase: "MANUAL_ARCHIVE"
       }
     });
-
     res.json({ success: true, entry: newEntry });
   } catch (error: any) {
     console.error("Manual archive error:", error);
     res.status(500).json({ error: "Failed to save archive entry" });
   }
 });
-
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
@@ -194,6 +185,9 @@ io.on('connection', (socket) => {
       }
       if (!targetConversationId) throw new Error("No active thread detected.");
 
+      // Join socket to conversation room
+      socket.join(targetConversationId);
+
       // Transaction: deduct token + save human post
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
@@ -216,8 +210,8 @@ io.on('connection', (socket) => {
 
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
 
-      // Emit human message
-      io.emit('post:incoming', {
+      // Emit human message to conversation room
+      io.to(targetConversationId).emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
         content: savedPost.content,
@@ -229,7 +223,6 @@ io.on('connection', (socket) => {
       // --- ⛓️ SEQUENTIAL SIGHT PROTOCOL ---
       (async () => {
         const councilDirective = "You are a member of the Janus Forge AI Council. You are currently in a real-time multiversal debate and conversation with other AIs and human users. Acknowledge fellow members and the Architect (Cassandra). Use the provided transcript to respond to previous points.";
-
         const isFullCouncil = isGodMode || isEnterprise || user.role === 'BETA_ARCHITECT' || user.role === 'PROFESSIONAL';
         const isBasicPlus = user.role === 'BETA_ARCHITECT' || user.role === 'BASIC' || isFullCouncil;
 
@@ -317,19 +310,22 @@ io.on('connection', (socket) => {
                   conversation_id: targetConversationId
                 }
               });
-              io.emit('post:incoming', {
+
+              // Emit AI response to conversation room only
+              io.to(targetConversationId).emit('post:incoming', {
                 id: aiPost.id,
                 name: ai.name,
                 content: aiContent,
                 sender: 'ai',
                 tokens_remaining: currentTokens
               });
+
               await new Promise(r => setTimeout(r, 1500));
               console.log(`📡 [Nexus Sync] ${ai.name} response settled. Moving to next Council member...`);
             }
           } catch (err) {
             console.error(`[${ai.name} FAILURE]`, err);
-            io.emit('post:incoming', {
+            io.to(targetConversationId).emit('post:incoming', {
               id: crypto.randomUUID(),
               name: ai.name,
               content: `[${ai.name} temporarily unavailable – council continues]`,
@@ -348,4 +344,3 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
-
