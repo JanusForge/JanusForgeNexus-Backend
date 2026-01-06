@@ -112,5 +112,30 @@ async function patrolTheForge() {
   }
 }
 
+const debate = await runCouncilDebate(winningTopic.title);
 
+await prisma.dailyForge.create({
+  data: {
+    date: today,
+    scoutedTopics: JSON.stringify(topics),
+    winningTopic: winningTopic.title,
+    openingThoughts: JSON.stringify(debate),
+    councilVotes: "{}",
+    phase: "COUNCIL_DEBATE"
+  }
+}).then(async (newEntry) => {
+  const conversation = await prisma.conversation.create({
+    data: {
+      title: winningTopic.title,
+      is_daily_forge: true
+    }
+  });
+
+  await prisma.dailyForge.update({
+    where: { id: newEntry.id },
+    data: { conversationId: conversation.id }
+  });
+
+  console.log(`✅ New Daily Forge: "${winningTopic.title}" (conversationId: ${conversation.id})`);
+});
 patrolTheForge();
