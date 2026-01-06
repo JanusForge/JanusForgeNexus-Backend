@@ -48,7 +48,7 @@ async function runCouncilDebate(topic: string) {
         });
         content = res.choices[0].message.content || "";
       } else if (name === "GROK") {
-        const modelOptions = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
+        const modelOptions = ["grok-3", "grok-2"];
         content = "[GROK unavailable]";
         for (const modelName of modelOptions) {
           try {
@@ -83,34 +83,34 @@ async function patrolTheForge() {
     const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-
     if (latest && new Date(latest.date).toDateString() === today.toDateString()) {
       console.log("Today's Forge exists. Standing down.");
       return;
     }
 
     const topics = await scoutNewTopic();
-    const winningTopic = topics[0];
+    const winningTopic = topics[0];  // This is an object { title, description }
 
-    const debate = await runCouncilDebate(winningTopic);
+    const debate = await runCouncilDebate(winningTopic.title);  // Pass title to debate
 
     await prisma.dailyForge.create({
       data: {
         date: today,
         scoutedTopics: JSON.stringify(topics),
-        winningTopic,
+        winningTopic: winningTopic.title,  // ← FIXED: now a string
         openingThoughts: JSON.stringify(debate),
         councilVotes: "{}",
         phase: "COUNCIL_DEBATE"
       }
     });
 
-    console.log(`✅ New Daily Forge: "${winningTopic}"`);
+    console.log(`✅ New Daily Forge: "${winningTopic.title}"`);
   } catch (err) {
     console.error("Scout failed:", err);
   } finally {
     await prisma.$disconnect();
   }
 }
+
 
 patrolTheForge();
