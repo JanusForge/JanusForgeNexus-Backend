@@ -30,10 +30,8 @@ async function scoutNewTopic() {
 // Live council debate
 async function runCouncilDebate(topic: string) {
   let context = `Daily Forge topic: "${topic}"\nCouncil (Gemini, DeepSeek, Grok) debate adversarially.`;
-
   const responses = [];
   const queue = ["GEMINI", "DEEPSEEK", "GROK"];
-
   for (const name of queue) {
     let content = "";
     try {
@@ -68,21 +66,18 @@ async function runCouncilDebate(topic: string) {
       console.error(`${name} error:`, err);
       content = `[${name} unavailable]`;
     }
-
     responses.push({ model: name, content });
     context += `\n\n${name}: ${content}`;
   }
-
   return responses;
 }
 
 // Patrol
-
 async function patrolTheForge() {
   console.log("🌅 AI Scout starting Autonomous Patrol Cycle...");
   try {
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);  // ← Move here — top of function
+    today.setUTCHours(0, 0, 0, 0);
 
     const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     if (latest && new Date(latest.date).toDateString() === today.toDateString()) {
@@ -118,6 +113,18 @@ async function patrolTheForge() {
       data: { conversationId: conversation.id }
     });
 
+    // SAVE INITIAL DEBATE AS POSTS
+    for (const resp of debate) {
+      await prisma.post.create({
+        data: {
+          content: resp.content,
+          is_human: false,
+          ai_model: resp.model,
+          conversation_id: conversation.id
+        }
+      });
+    }
+
     console.log(`✅ New Daily Forge: "${winningTopicObj.title}" (conversationId: ${conversation.id})`);
   } catch (err) {
     console.error("Scout failed:", err);
@@ -125,6 +132,5 @@ async function patrolTheForge() {
     await prisma.$disconnect();
   }
 }
-
 
 patrolTheForge();
