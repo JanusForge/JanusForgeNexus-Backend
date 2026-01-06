@@ -13,6 +13,9 @@ import { Resend } from 'resend';
 import Stripe from 'stripe';
 import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
+import dailyForgeRouter from './routes/dailyForge';
+
+app.use('/api/daily-forge', dailyForgeRouter);
 
 dotenv.config();
 console.log('Auth routes loading...');
