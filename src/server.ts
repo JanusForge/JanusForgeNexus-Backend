@@ -285,8 +285,8 @@ The council values epistemic humility, relevance, and respectful adversarial col
         aiContent = "[GEMINI unavailable]";
         for (const modelName of geminiModels) {
           try {
-            const model = genAI.getGenerativeModel({ model: modelName });
-            const res = await model.generateContent(context);
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+            const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
             aiContent = res.response.text();
             console.log(`GEMINI success with ${modelName}`);
             break;
