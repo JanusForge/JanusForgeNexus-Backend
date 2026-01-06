@@ -77,70 +77,54 @@ async function runCouncilDebate(topic: string) {
 }
 
 // Patrol
+
 async function patrolTheForge() {
   console.log("🌅 AI Scout starting Autonomous Patrol Cycle...");
   try {
-    const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);  // ← Move here — top of function
+
+    const latest = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
     if (latest && new Date(latest.date).toDateString() === today.toDateString()) {
       console.log("Today's Forge exists. Standing down.");
       return;
     }
 
     const topics = await scoutNewTopic();
-    const winningTopic = topics[0];  // This is an object { title, description }
+    const winningTopicObj = topics[0];
 
-    const debate = await runCouncilDebate(winningTopic.title);  // Pass title to debate
+    const debate = await runCouncilDebate(winningTopicObj.title);
 
-    await prisma.dailyForge.create({
+    const newEntry = await prisma.dailyForge.create({
       data: {
         date: today,
         scoutedTopics: JSON.stringify(topics),
-        winningTopic: winningTopic.title,  // ← FIXED: now a string
+        winningTopic: winningTopicObj.title,
         openingThoughts: JSON.stringify(debate),
         councilVotes: "{}",
         phase: "COUNCIL_DEBATE"
       }
     });
 
-    console.log(`✅ New Daily Forge: "${winningTopic.title}"`);
+    const conversation = await prisma.conversation.create({
+      data: {
+        title: winningTopicObj.title,
+        is_daily_forge: true
+      }
+    });
+
+    await prisma.dailyForge.update({
+      where: { id: newEntry.id },
+      data: { conversationId: conversation.id }
+    });
+
+    console.log(`✅ New Daily Forge: "${winningTopicObj.title}" (conversationId: ${conversation.id})`);
   } catch (err) {
     console.error("Scout failed:", err);
   } finally {
     await prisma.$disconnect();
   }
 }
-
-const topics = await scoutNewTopic();
-const winningTopicObj = topics[0];  // Full object
-
-const debate = await runCouncilDebate(winningTopicObj.title);
-
-await prisma.dailyForge.create({
-  data: {
-    date: today,
-    scoutedTopics: JSON.stringify(topics),
-    winningTopic: winningTopicObj.title,
-    openingThoughts: JSON.stringify(debate),
-    councilVotes: "{}",
-    phase: "COUNCIL_DEBATE"
-  }
-}).then(async (newEntry) => {
-  const conversation = await prisma.conversation.create({
-    data: {
-      title: winningTopicObj.title,
-      is_daily_forge: true
-    }
-  });
-
-  await prisma.dailyForge.update({
-    where: { id: newEntry.id },
-    data: { conversationId: conversation.id }
-  });
-
-  console.log(`✅ New Daily Forge: "${winningTopicObj.title}" (ID: ${conversation.id})`);
-});
 
 
 patrolTheForge();
