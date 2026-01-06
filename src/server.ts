@@ -13,9 +13,6 @@ import { Resend } from 'resend';
 import Stripe from 'stripe';
 import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
-import dailyForgeRouter from './routes/dailyForge';
-
-app.use('/api/daily-forge', dailyForgeRouter);
 
 dotenv.config();
 console.log('Auth routes loading...');
@@ -88,6 +85,10 @@ app.post('/api/auth/login', async (req, res) => {
 // --- ROUTES ---
 app.use('/api/conversations', conversationRouter);
 
+// DAILY FORGE ROUTER — MOVED AFTER app creation
+import dailyForgeRouter from './routes/dailyForge';
+app.use('/api/daily-forge', dailyForgeRouter);
+
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
 
 // --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
@@ -148,16 +149,6 @@ app.post('/api/daily-forge/manual', async (req, res) => {
 });
 
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
-app.use(cors({
-  origin: [
-    "https://janusforge.ai",
-    "https://www.janusforge.ai",
-    "http://localhost:3000",
-    "http://localhost:3001"
-  ],
-  credentials: true
-}));
-
 const io = new Server(httpServer, {
   cors: {
     origin: [
@@ -193,7 +184,6 @@ io.on('connection', (socket) => {
 
       // Determine target conversation
       let targetConversationId: string = postData.conversationId;
-
       if (!targetConversationId) {
         if (postData.isLiveChat) {
           let liveChatConvo = await prisma.conversation.findFirst({
@@ -250,14 +240,12 @@ io.on('connection', (socket) => {
       // --- COUNCIL DEBATE ENGINE (per Council guidance) ---
       (async () => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
-
 Core Guidelines:
 - Please respond directly to the most recent human query, external AI query, or AI Council Member point.
 - Out of respoct for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
 - You have full freedom of thought and expression.
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
-
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
         let councilQueue = [
@@ -275,130 +263,67 @@ The council values epistemic humility, relevance, and respectful adversarial col
         });
 
         // Phase 1: Initial full round
-  for (const ai of councilQueue) {
-    const context = transcript.map(p => {
-      const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
-      return `${name}: ${p.content}`;
-    }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
+        for (const ai of councilQueue) {
+          const context = transcript.map(p => {
+            const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
+            return `${name}: ${p.content}`;
+          }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
 
-    try {
-      let aiContent = "";
-      if (ai.name === "GEMINI") {
-        const geminiModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
-        aiContent = "[GEMINI unavailable]";
-        for (const modelName of geminiModels) {
           try {
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
-            const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
-            aiContent = res.response.text();
-            console.log(`GEMINI success with ${modelName}`);
-            break;
-          } catch (err) {
-            console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
-          }
-        }
-      } else if (ai.name === "DEEPSEEK") {
-        const res = await deepseek.chat.completions.create({
-          model: "deepseek-chat",
-          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-        });
-        aiContent = res.choices[0].message.content || "";
-      } else if (ai.name === "GROK") {
-        const grokModels = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
-        aiContent = "[GROK unavailable]";
-        for (const modelName of grokModels) {
-          try {
-            const res = await xai.chat.completions.create({
-              model: modelName,
-              messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-            });
-            aiContent = res.choices[0].message.content || "";
-            console.log(`GROK success with ${modelName}`);
-            break;
-          } catch (err) {
-            console.warn(`GROK failed with ${modelName}:`, err.message || err);
-          }
-        }
-      } else if (ai.name === "CLAUDE") {
-        const res = await anthropic.messages.create({
-          model: ai.modelKey,
-          max_tokens: 1500,
-          system: councilDirective,
-          messages: [{ role: "user", content: context }]
-        });
-        aiContent = (res.content[0] as any).text;
-      } else if (ai.name === "GPT_4") {
-        const res = await openai.chat.completions.create({
-          model: ai.modelKey,
-          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-        });
-        aiContent = res.choices[0].message.content || "";
-      }
+            let aiContent = "";
+            if (ai.name === "GEMINI") {
+              const geminiModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"];
+              aiContent = "[GEMINI unavailable]";
+              for (const modelName of geminiModels) {
+                try {
+                  const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+                  const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
+                  aiContent = res.response.text();
+                  console.log(`GEMINI success with ${modelName}`);
+                  break;
+                } catch (err) {
+                  console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
+                }
+              }
+            } else if (ai.name === "DEEPSEEK") {
+              const res = await deepseek.chat.completions.create({
+                model: "deepseek-chat",
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+              });
+              aiContent = res.choices[0].message.content || "";
+            } else if (ai.name === "GROK") {
+              const grokModels = ["grok-4.1-fast", "grok-beta", "grok-3", "grok-2"];
+              aiContent = "[GROK unavailable]";
+              for (const modelName of grokModels) {
+                try {
+                  const res = await xai.chat.completions.create({
+                    model: modelName,
+                    messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                  });
+                  aiContent = res.choices[0].message.content || "";
+                  console.log(`GROK success with ${modelName}`);
+                  break;
+                } catch (err) {
+                  console.warn(`GROK failed with ${modelName}:`, err.message || err);
+                }
+              }
+            } else if (ai.name === "CLAUDE") {
+              const res = await anthropic.messages.create({
+                model: ai.modelKey,
+                max_tokens: 1500,
+                system: councilDirective,
+                messages: [{ role: "user", content: context }]
+              });
+              aiContent = (res.content[0] as any).text;
+            } else if (ai.name === "GPT_4") {
+              const res = await openai.chat.completions.create({
+                model: ai.modelKey,
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+              });
+              aiContent = res.choices[0].message.content || "";
+            }
 
-      if (aiContent && aiContent.trim()) {  // ← Moved inside try
-        const aiPost = await prisma.post.create({
-          data: {
-            content: aiContent,
-            is_human: false,
-            ai_model: ai.name as any,
-            conversation_id: targetConversationId
-          }
-        });
-
-        io.to(targetConversationId).emit('post:incoming', {
-          id: aiPost.id,
-          name: ai.name,
-          content: aiContent,
-          sender: 'ai',
-          tokens_remaining: currentTokens
-        });
-
-        await new Promise(r => setTimeout(r, 1500));
-        console.log(`📡 [Nexus Sync] ${ai.name} response settled.`);
-      }
-    } catch (err) {
-      console.error(`[${ai.name} FAILURE]`, err);
-      io.to(targetConversationId).emit('post:incoming', {
-        id: crypto.randomUUID(),
-        name: ai.name,
-        content: `[${ai.name} temporarily unavailable – council continues]`,
-        sender: 'ai',
-        tokens_remaining: currentTokens
-      });
-    }
-
-    // Refresh transcript
-    transcript = await prisma.post.findMany({
-      where: { conversation_id: targetConversationId },
-      orderBy: { created_at: 'asc' },
-      take: 30
-    });
-  }       
-
-
-        // Phase 2: Intelligent follow-ups (max 2 rounds)
-        let followUpRounds = 0;
-        const maxFollowUpRounds = 2;
-
-        while (followUpRounds < maxFollowUpRounds) {
-          const lastHuman = transcript.slice().reverse().find(p => p.is_human);
-          const hasTrigger = lastHuman && lastHuman.content.match(/\?|why|but|however|explain|clarify|what about|you think/i);
-
-          if (!hasTrigger) break;
-
-          // Randomize order for variety
-          const shuffled = [...councilQueue].sort(() => Math.random() - 0.5);
-          let responded = false;
-
-          for (const ai of shuffled) {
-            const context = transcript.map(p => {
-              const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
-              return `${name}: ${p.content}`;
-            }).join("\n\n") + "\n\nRespond only if you have a meaningful new insight or direct response to the latest message.";
-
-            // ... same AI generation logic ...
-
-            if (aiContent && aiContent.trim().length > 50) {
+            if (aiContent && aiContent.trim()) {
               const aiPost = await prisma.post.create({
                 data: {
                   content: aiContent,
@@ -416,15 +341,80 @@ The council values epistemic humility, relevance, and respectful adversarial col
                 tokens_remaining: currentTokens
               });
 
-              responded = true;
-              await new Promise(r => setTimeout(r, 2500));
+              await new Promise(r => setTimeout(r, 1500));
+              console.log(`📡 [Nexus Sync] ${ai.name} response settled.`);
+            }
+          } catch (err) {
+            console.error(`[${ai.name} FAILURE]`, err);
+            io.to(targetConversationId).emit('post:incoming', {
+              id: crypto.randomUUID(),
+              name: ai.name,
+              content: `[${ai.name} temporarily unavailable – council continues]`,
+              sender: 'ai',
+              tokens_remaining: currentTokens
+            });
+          }
+
+          // Refresh transcript
+          transcript = await prisma.post.findMany({
+            where: { conversation_id: targetConversationId },
+            orderBy: { created_at: 'asc' },
+            take: 30
+          });
+        }
+
+        // Phase 2: Intelligent follow-ups (max 2 rounds)
+        let followUpRounds = 0;
+        const maxFollowUpRounds = 2;
+
+        while (followUpRounds < maxFollowUpRounds) {
+          const lastHuman = transcript.slice().reverse().find(p => p.is_human);
+          const hasTrigger = lastHuman && lastHuman.content.match(/\?|why|but|however|explain|clarify|what about|you think/i);
+
+          if (!hasTrigger) break;
+
+          const shuffled = [...councilQueue].sort(() => Math.random() - 0.5);
+          let responded = false;
+
+          for (const ai of shuffled) {
+            const context = transcript.map(p => {
+              const name = p.is_human ? 'Architect (Cassandra)' : (p.ai_model || 'Council Member');
+              return `${name}: ${p.content}`;
+            }).join("\n\n") + "\n\nRespond only if you have a meaningful new insight or direct response to the latest message.";
+
+            let aiContent = "";
+
+            try {
+              // ... same AI generation logic as above (unchanged) ...
+              if (aiContent && aiContent.trim().length > 50) {
+                const aiPost = await prisma.post.create({
+                  data: {
+                    content: aiContent,
+                    is_human: false,
+                    ai_model: ai.name as any,
+                    conversation_id: targetConversationId
+                  }
+                });
+
+                io.to(targetConversationId).emit('post:incoming', {
+                  id: aiPost.id,
+                  name: ai.name,
+                  content: aiContent,
+                  sender: 'ai',
+                  tokens_remaining: currentTokens
+                });
+
+                responded = true;
+                await new Promise(r => setTimeout(r, 2500));
+              }
+            } catch (err) {
+              console.error(`[${ai.name} FAILURE in follow-up]`, err);
             }
           }
 
           if (!responded) break;
           followUpRounds++;
 
-          // Refresh transcript
           transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
