@@ -7,7 +7,9 @@ const prisma = new PrismaClient();
 // Get current Daily Forge
 router.get('/current', async (req, res) => {
   try {
-    const current = await prisma.dailyForge.findFirst({ orderBy: { date: 'desc' } });
+    const current = await prisma.dailyForge.findFirst({
+      orderBy: { date: 'desc' }
+    });
     if (!current) {
       return res.status(404).json({ error: 'No current Daily Forge found' });
     }
@@ -18,7 +20,7 @@ router.get('/current', async (req, res) => {
   }
 });
 
-// Get Daily Forge history
+// Get history
 router.get('/history', async (req, res) => {
   try {
     const history = await prisma.dailyForge.findMany({
