@@ -265,7 +265,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
         // Phase 1: Initial full round
         for (const ai of councilQueue) {
           const context = transcript.map(p => {
-            architectconst name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
+            const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
           }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
 
