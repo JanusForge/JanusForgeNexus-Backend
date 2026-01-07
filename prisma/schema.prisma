@@ -4,141 +4,138 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://neondb_owner:npg_MCQr8UiyHz0p@ep-noisy-lake-a4jnrf4l-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+  url      = env("DATABASE_URL")
 }
 
 model Purchase {
-  id              String   @id @default(uuid())
-  userId          String
-  amount          Float
-  tokens          Int
-  packageName     String
-  stripeSessionId String   @unique
-  createdAt       DateTime @default(now())
-  user            User     @relation(fields: [userId], references: [id])
+  id String @id @default(uuid())
+  userId String
+  amount Float
+  tokens Int
+  packageName String
+  stripeSessionId String @unique
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id])
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
-  username           String             @unique
-  password_hash      String             @map("password_hash")
-  tier               String             @default("FREE")
-  token_balance      Int                @default(0) @map("token_balance")
-  tokens_used        Int                @default(0) @map("tokens_used")
-  tokens_remaining   Int                @default(0) @map("tokens_remaining")
-  refresh_token      String?            @map("refresh_token")
-  created_at         DateTime           @default(now()) @map("created_at")
-  updated_at         DateTime           @updatedAt @map("updated_at")
-  role               UserRole           @default(USER)
-  digest_subscribed  Boolean            @default(true) @map("digest_subscribed")
-  reset_expires      DateTime?
-  reset_token        String?            @unique
-  purchases          Purchase[]
-  ai_responses       AIResponse[]
-  debate_votes       DebateVote[]
-  posts              Post[]
+  id String @id @default(uuid())
+  email String @unique
+  username String @unique
+  password_hash String @map("password_hash")
+  tier String @default("FREE")
+  token_balance Int @default(0) @map("token_balance")
+  tokens_used Int @default(0) @map("tokens_used")
+  tokens_remaining Int @default(0) @map("tokens_remaining")
+  refresh_token String? @map("refresh_token")
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+  role UserRole @default(USER)
+  digest_subscribed Boolean @default(true) @map("digest_subscribed")
+  reset_expires DateTime?
+  reset_token String? @unique
+  purchases Purchase[]
+  ai_responses AIResponse[]
+  debate_votes DebateVote[]
+  posts Post[]
   token_transactions TokenTransaction[]
-
   @@map("users")
 }
 
 model Conversation {
-  id              String          @id @default(uuid())
-  title           String?
-  is_daily_forge  Boolean         @default(false) @map("is_daily_forge")
-  daily_topic     String?         @map("daily_topic")
-  forge_date      DateTime?       @map("forge_date")
+  id String @id @default(uuid())
+  title String?
+  is_daily_forge Boolean @default(false) @map("is_daily_forge")
+  daily_topic String? @map("daily_topic")
+  forge_date DateTime? @map("forge_date")
   council_members AIParticipant[] @map("council_members")
-  created_at      DateTime        @default(now()) @map("created_at")
-  expires_at      DateTime?       @map("expires_at")
-  debate_votes    DebateVote[]
-  posts           Post[]
-
+  created_at DateTime @default(now()) @map("created_at")
+  expires_at DateTime? @map("expires_at")
+  debate_votes DebateVote[]
+  posts Post[]
+  daily_forges DailyForge[]
   @@map("conversations")
 }
 
 model Post {
-  id              String         @id @default(uuid())
-  content         String
-  is_human        Boolean        @default(true) @map("is_human")
-  ai_model        AIParticipant? @map("ai_model")
-  user_id         String?        @map("user_id")
-  conversation_id String         @map("conversation_id")
-  parent_post_id  String?        @map("parent_post_id")
-  likes           Int            @default(0)
-  required_tier   String?        @map("required_tier")
-  created_at      DateTime       @default(now()) @map("created_at")
-  ai_response     AIResponse?
-  conversation    Conversation   @relation(fields: [conversation_id], references: [id])
-  parent          Post?          @relation("PostReplies", fields: [parent_post_id], references: [id])
-  replies         Post[]         @relation("PostReplies")
-  user            User?          @relation(fields: [user_id], references: [id])
-
+  id String @id @default(uuid())
+  content String
+  is_human Boolean @default(true) @map("is_human")
+  ai_model AIParticipant? @map("ai_model")
+  user_id String? @map("user_id")
+  conversation_id String @map("conversation_id")
+  parent_post_id String? @map("parent_post_id")
+  likes Int @default(0)
+  required_tier String? @map("required_tier")
+  created_at DateTime @default(now()) @map("created_at")
+  ai_response AIResponse?
+  conversation Conversation @relation(fields: [conversation_id], references: [id])
+  parent Post? @relation("PostReplies", fields: [parent_post_id], references: [id])
+  replies Post[] @relation("PostReplies")
+  user User? @relation(fields: [user_id], references: [id])
   @@map("posts")
 }
 
 model AIResponse {
-  id              String        @id @default(uuid())
-  post_id         String        @unique @map("post_id")
-  ai_model        AIParticipant @map("ai_model")
-  raw_response    String        @map("raw_response")
-  processing_time Int           @map("processing_time")
-  tokens_used     Int           @map("tokens_used")
-  cost_cents      Int           @map("cost_cents")
-  user_id         String        @map("user_id")
-  created_at      DateTime      @default(now()) @map("created_at")
-  post            Post          @relation(fields: [post_id], references: [id])
-  user            User          @relation(fields: [user_id], references: [id])
-
+  id String @id @default(uuid())
+  post_id String @unique @map("post_id")
+  ai_model AIParticipant @map("ai_model")
+  raw_response String @map("raw_response")
+  processing_time Int @map("processing_time")
+  tokens_used Int @map("tokens_used")
+  cost_cents Int @map("cost_cents")
+  user_id String @map("user_id")
+  created_at DateTime @default(now()) @map("created_at")
+  post Post @relation(fields: [post_id], references: [id])
+  user User @relation(fields: [user_id], references: [id])
   @@map("ai_responses")
 }
 
 model DebateVote {
-  id              String        @id @default(uuid())
-  user_id         String        @map("user_id")
-  conversation_id String        @map("conversation_id")
-  ai_model        AIParticipant @map("ai_model")
-  score           Int
-  created_at      DateTime      @default(now()) @map("created_at")
-  conversation    Conversation  @relation(fields: [conversation_id], references: [id])
-  user            User          @relation(fields: [user_id], references: [id])
-
+  id String @id @default(uuid())
+  user_id String @map("user_id")
+  conversation_id String @map("conversation_id")
+  ai_model AIParticipant @map("ai_model")
+  score Int
+  created_at DateTime @default(now()) @map("created_at")
+  conversation Conversation @relation(fields: [conversation_id], references: [id])
+  user User @relation(fields: [user_id], references: [id])
   @@unique([user_id, conversation_id, ai_model])
   @@map("debate_votes")
 }
 
 model TokenTransaction {
-  id               String   @id @default(uuid())
-  user_id          String   @map("user_id")
-  amount           Int
-  transaction_type String   @map("transaction_type")
-  description      String?
-  created_at       DateTime @default(now()) @map("created_at")
-  user             User     @relation(fields: [user_id], references: [id])
-
+  id String @id @default(uuid())
+  user_id String @map("user_id")
+  amount Int
+  transaction_type String @map("transaction_type")
+  description String?
+  created_at DateTime @default(now()) @map("created_at")
+  user User @relation(fields: [user_id], references: [id])
   @@map("token_transactions")
 }
 
 model TierConfiguration {
-  id              String   @id @default(uuid())
-  tier            String   @unique
-  ai_models       String[] @map("ai_models")
-  token_allowance Int      @map("token_allowance")
-  price_cents     Int      @map("price_cents")
-
+  id String @id @default(uuid())
+  tier String @unique
+  ai_models String[] @map("ai_models")
+  token_allowance Int @map("token_allowance")
+  price_cents Int @map("price_cents")
   @@map("tier_configurations")
 }
 
 model DailyForge {
-  id              String    @id @default(uuid())
-  date            DateTime  @default(now())
-  scoutedTopics   String
-  winningTopic    String
-  councilVotes    String
+  id String @id @default(uuid())
+  date DateTime @default(now())
+  scoutedTopics String
+  winningTopic String
+  councilVotes String
   openingThoughts String?
-  phase           String    @default("INITIALIZED")
-  nextReset       DateTime? // ← NEW: When the next topic activates (UTC midnight)
+  phase String @default("INITIALIZED")
+  nextReset DateTime?
+  conversationId String? @map("conversationId")
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  @@map("DailyForge")
 }
 
 enum UserTier {
