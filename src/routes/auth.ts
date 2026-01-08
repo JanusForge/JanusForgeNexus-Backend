@@ -101,7 +101,7 @@ router.post('/register', async (req: Request, res: Response) => {
         username: user.username,
         tier: user.tier,
         token_balance: user.token_balance,
-        tokens_remaining: user.tokens_remaining,
+        tokens_remaining: user.token_balance - user.tokens_used,
         tokens_used: user.tokens_used,
         created_at: user.created_at
       },
@@ -159,7 +159,7 @@ router.post('/login', async (req: Request, res: Response) => {
         username: user.username,
         tier: user.tier,
         token_balance: user.token_balance,
-        tokens_remaining: user.tokens_remaining,
+        tokens_remaining: user.token_balance - user.tokens_used,
         tokens_used: user.tokens_used,
         created_at: user.created_at
       },
