@@ -295,4 +295,156 @@ router.get('/me', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 // Forgot password endpoint
+router.post('/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    
+    console.log('🔐 Forgot password request for:', email);
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      select: { id: true, username: true, email: true }
+    });
+
+    // For security, always return success even if user doesn't exist
+    if (!user) {
+      console.log('⚠️ No user found with email:', email);
+      return res.json({ 
+        message: 'If an account exists with this email, you will receive a reset link',
+        success: true 
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+
+    console.log('🔑 Generated reset token for user:', user.id);
+
+    // Store reset token in database
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken,
+        resetTokenExpiry
+      }
+    });
+
+    // Create reset link
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    console.log('📧 Sending reset email to:', user.email);
+    
+    // Send email using Resend
+    const { data, error } = await resend.emails.send({
+      from: 'Janus Forge Nexus <onboarding@resend.dev>', // Change this to your verified domain
+      to: [user.email],
+      subject: 'Reset Your Password - Janus Forge Nexus',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #000; color: white; padding: 20px; text-align: center;">
+            <h1 style="margin: 0;">Janus Forge Nexus</h1>
+          </div>
+          <div style="padding: 30px; background: #f9f9f9;">
+            <h2>Password Reset Request</h2>
+            <p>Hello <strong>${user.username}</strong>,</p>
+            <p>You requested to reset your password for Janus Forge Nexus.</p>
+            <p>Click the button below to reset your password:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetLink}" style="display: inline-block; padding: 12px 24px; background: #3b82f6; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                Reset Password
+              </a>
+            </div>
+            <p>Or copy and paste this link:</p>
+            <div style="background: #eee; padding: 10px; border-radius: 5px; word-break: break-all;">
+              ${resetLink}
+            </div>
+            <p><strong style="color: #e53e3e;">This link expires in 1 hour.</strong></p>
+            <p>If you didn't request this, please ignore this email.</p>
+          </div>
+        </div>
+      `,
+      text: `Reset your Janus Forge Nexus password: ${resetLink}\n\nThis link expires in 1 hour.`
+    });
+
+    if (error) {
+      console.error('❌ Resend error:', error);
+      return res.status(500).json({ error: 'Failed to send reset email' });
+    }
+
+    console.log('✅ Reset email sent successfully');
+    res.json({ 
+      message: 'Reset email sent successfully',
+      success: true 
+    });
+
+  } catch (error: any) {
+    console.error('❌ Forgot password error:', error);
+    res.status(500).json({ error: 'Failed to process request' });
+  }
+});
+
+// Reset password endpoint
+router.post('/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body;
+
+    console.log('🔐 Reset password request');
+
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check if token is valid
+    const user = await prisma.user.findFirst({
+      where: { resetToken: token },
+      select: { id: true, resetTokenExpiry: true }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+    
+    // Check if token is expired
+    if (new Date() > new Date(user.resetTokenExpiry!)) {
+      return res.status(400).json({ error: 'Reset token has expired' });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Update password and clear reset token
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password_hash: hashedPassword,
+        resetToken: null,
+        resetTokenExpiry: null
+      }
+    });
+
+    console.log('✅ Password reset successful for user:', user.id);
+    res.json({ 
+      message: 'Password reset successful',
+      success: true 
+    });
+
+  } catch (error: any) {
+    console.error('❌ Reset password error:', error);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+
 export default router;

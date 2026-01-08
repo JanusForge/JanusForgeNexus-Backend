@@ -35,11 +35,11 @@ const xai = new OpenAI({
   baseURL: 'https://api.x.ai/v1'
 });
 
-app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
-app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/auth', passwordResetRouter);
 app.use('/api/archives', archiveRouter);
+app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+app.use(express.json());
 
 // --- 🔑 AUTH & TOKEN SYSTEM ---
 app.post('/api/auth/register', async (req, res) => {

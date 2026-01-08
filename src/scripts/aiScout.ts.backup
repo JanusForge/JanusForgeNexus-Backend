@@ -13,12 +13,14 @@ const xai = new OpenAI({
   baseURL: 'https://api.x.ai/v1'
 });
 
+// Scout topics
 async function scoutNewTopic() {
-  const prompt = "Propose 3 provocative civilization-scale debate topics for The Daily Forge (AI ethics, society, knowledge, power). Return ONLY JSON array with each topic having 'title', 'description', and optionally 'provocation' and 'tags' fields.";
+  const prompt = "Propose 3 provocative civilization-scale debate topics for The Daily Forge (AI ethics, society, knowledge, power). Return ONLY JSON array.";
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
     const res = await model.generateContent(prompt);
     const text = res.response.text();
+    // Parse and return topics
     return JSON.parse(text.replace(/```json\n?|\n?```/g, ''));
   } catch (error) {
     console.error('Scout topic generation failed:', error);
@@ -30,6 +32,7 @@ async function patrolTheForge() {
   console.log('🌅 AI Scout starting Autonomous Patrol Cycle...');
   
   try {
+    // Check if today's forge already exists
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -47,6 +50,7 @@ async function patrolTheForge() {
       return;
     }
     
+    // Scout new topics
     console.log('No forge found. Scouting new topics...');
     const topics = await scoutNewTopic();
     
@@ -55,19 +59,20 @@ async function patrolTheForge() {
       return;
     }
     
-    // Create with ALL required fields
+    // Create new daily forge
     const newForge = await prisma.dailyForge.create({
       data: {
         date: today,
         scoutedTopics: JSON.stringify(topics),
-        winningTopic: "",                    // REQUIRED
-        councilVotes: "{}",                  // REQUIRED
+        winningTopic: "",  // Empty initially
+        councilVotes: "{}",  // Empty JSON object
+        openingThoughts: "[]",  // Empty array
         phase: 'TOPIC_SELECTION'
       }
     });
     
     console.log(`✅ New Daily Forge created with ID: ${newForge.id}`);
-    console.log(`📝 Topics: ${topics.length} AI-generated topics`);
+    console.log(`📝 Topics: ${topics.length} generated`);
     
   } catch (error) {
     console.error('Scout failed:', error);
@@ -75,7 +80,7 @@ async function patrolTheForge() {
   }
 }
 
-// Run
+// Execute
 patrolTheForge()
   .then(() => {
     console.log('🏁 Patrol cycle completed');
