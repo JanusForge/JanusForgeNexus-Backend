@@ -5,7 +5,7 @@ console.log('🔧 Shared Prisma Client - Using Neon pooler connection')
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.APP_DATABASE_URL
+      url: process.env.DATABASE_URL
     }
   },
   log: process.env.NODE_ENV === 'development' 
