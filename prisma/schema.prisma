@@ -29,14 +29,14 @@ model User {
   tokens_used        Int                @default(0) @map("tokens_used")
   tokens_remaining   Int                @default(0) @map("tokens_remaining")
   refresh_token      String?            @map("refresh_token")
-  resetToken          String?  // Add this line
-  resetTokenExpiry    DateTime? // Add this line
   created_at         DateTime           @default(now()) @map("created_at")
   updated_at         DateTime           @updatedAt @map("updated_at")
   role               UserRole           @default(USER)
   digest_subscribed  Boolean            @default(true) @map("digest_subscribed")
   reset_expires      DateTime?
   reset_token        String?            @unique
+  resetToken         String?
+  resetTokenExpiry   DateTime?
   purchases          Purchase[]
   ai_responses       AIResponse[]
   debate_votes       DebateVote[]
@@ -124,16 +124,6 @@ model TokenTransaction {
   @@map("token_transactions")
 }
 
-model TierConfiguration {
-  id              String   @id @default(uuid())
-  tier            String   @unique
-  ai_models       String[] @map("ai_models")
-  token_allowance Int      @map("token_allowance")
-  price_cents     Int      @map("price_cents")
-
-  @@map("tier_configurations")
-}
-
 model DailyForge {
   id              String        @id @default(uuid())
   date            DateTime      @default(now())
@@ -149,11 +139,12 @@ model DailyForge {
   @@map("DailyForge")
 }
 
-enum UserTier {
-  FREE
-  BASIC
-  PROFESSIONAL
-  ENTERPRISE
+model tier_configurations {
+  id              String   @id
+  tier            String   @unique
+  ai_models       String[]
+  token_allowance Int
+  price_cents     Int
 }
 
 enum AIParticipant {
@@ -169,4 +160,11 @@ enum UserRole {
   ADMIN
   GOD_MODE
   BETA_ARCHITECT
+}
+
+enum UserTier {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
 }
