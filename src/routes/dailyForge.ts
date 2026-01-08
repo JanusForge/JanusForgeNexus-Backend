@@ -5,14 +5,14 @@ const router = Router();
 
 // DEBUG: Log what URL we're using
 console.log('🔧 dailyForge.ts - Prisma Client Initialization:');
-console.log('   DATABASE_URL exists:', !!process.env.APP_DATABASE_URL);
+console.log('   DATABASE_URL exists:', !!process.env.DATABASE_URL);
 console.log('   Using pooler:', process.env.DATABASE_URL?.includes('-pooler.'));
 
 // FIXED: Create Prisma client WITH pooler configuration
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.APP_DATABASE_URL  // CRITICAL: Use pooler URL
+      url: process.env.DATABASE_URL  // CRITICAL: Use pooler URL
     }
   },
   log: ['info', 'error', 'warn']  // Enable info logs to see connection
