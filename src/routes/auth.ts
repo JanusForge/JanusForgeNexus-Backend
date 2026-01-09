@@ -1,298 +1,183 @@
-import { Router, Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+// src/routes/auth.ts - FULL UPDATED VERSION WITH EMAIL VERIFICATION
+import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { RegisterRequest, LoginRequest, AuthenticatedRequest } from '../types';
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const router = Router();
 const prisma = new PrismaClient();
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Password validation helper
-const validatePassword = (password: string): boolean => {
-  return password.length >= 8;
-};
+// Helper: Send verification email
+async function sendVerificationEmail(email: string, token: string) {
+  const verificationUrl = `https://janusforge.ai/api/auth/verify-email?token=${token}`;
 
-// Generate tokens using single JWT_SECRET
-const generateTokens = (userId: string, email: string, tier: string) => {
-  const jwtSecret = process.env.JWT_SECRET; // Use single secret
+  await resend.emails.send({
+    from: 'Janus Forge <no-reply@janusforge.ai>',
+    to: email,
+    subject: 'Verify Your Janus Forge Account',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; background: #000; color: #fff;">
+        <h2 style="color: #9f7aea;">Welcome to Janus Forge</h2>
+        <p>Thank you for joining the council. Please verify your email to activate your account and begin interjecting in the Daily Forge debates.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${verificationUrl}" style="background-color: #9f7aea; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 18px;">Verify Email Now</a>
+        </div>
+        <p>Or copy and paste this link:<br><small style="color: #888;">${verificationUrl}</small></p>
+        <p>This link expires in 1 hour.</p>
+        <hr style="border-color: #333;">
+        <p style="color: #666; font-size: 12px;">If you didn't register at Janus Forge, please ignore this email.</p>
+      </div>
+    `,
+  });
+}
 
-  if (!jwtSecret) {
-    throw new Error('JWT secret not configured');
+// REGISTER - Creates unverified user + sends verification email
+router.post('/register', async (req, res) => {
+  const { username, email, password, referralCode = "" } = req.body;
+
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: "Missing required fields" });
   }
 
-  const accessToken = jwt.sign(
-    { userId, email, tier },
-    jwtSecret,
-    { expiresIn: (process.env.ACCESS_TOKEN_EXPIRY as any) || '15m' }
-  );
-
-  const refreshToken = jwt.sign(
-    { userId, email, tier },
-    jwtSecret,
-    { expiresIn: (process.env.REFRESH_TOKEN_EXPIRY as any) || '7d' }
-  );
-
-  return { accessToken, refreshToken };
-};
-
-// Register new user
-router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, username, password }: RegisterRequest = req.body;
-
-    if (!email || !username || !password) {
-      return res.status(400).json({ message: 'Email, username, and password are required' });
-    }
-
-    if (!validatePassword(password)) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
-    }
-
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }, { username }]
-      }
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
     });
-
     if (existingUser) {
-      return res.status(409).json({
-        message: 'User already exists',
-        field: existingUser.email === email ? 'email' : 'username'
-      });
+      return res.status(400).json({ error: "Email already registered" });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     const user = await prisma.user.create({
       data: {
-        email,
         username,
+        email: email.toLowerCase(),
         password_hash: hashedPassword,
-        tier: 'FREE',
-        token_balance: 10,        // FREE users get 10 tokens total
-        tokens_remaining: 10,     // They start with 10 available
-        tokens_used: 0            // Haven't used any yet
+        role: isBeta ? 'BETA_ARCHITECT' : 'USER',
+        tokens_remaining: isBeta ? 50 : 10,
+        token_balance: isBeta ? 50 : 10,
+        digest_subscribed: true,
+        emailVerified: false,
+        verificationToken,
+        verificationTokenExpires,
       }
     });
 
-    const { accessToken, refreshToken } = generateTokens(user.id, user.email, user.tier);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refresh_token: refreshToken }
-    });
-
-    res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    await sendVerificationEmail(email, verificationToken);
 
     res.status(201).json({
-      message: 'User registered successfully',
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        tier: user.tier,
-        token_balance: user.token_balance,
-        tokens_remaining: user.token_balance - user.tokens_used,
-        tokens_used: user.tokens_used,
-        created_at: user.created_at
-      },
-      accessToken,
-      expiresIn: 15 * 60
+      message: "Registration successful! Please check your email to verify your account.",
+      user: { id: user.id, username: user.username, email: user.email }
     });
-
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Internal server error during registration' });
+  } catch (error: any) {
+    console.error("Registration error:", error);
+    res.status(500).json({ error: "Registration failed" });
   }
 });
 
-// Login user
-router.post('/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password }: LoginRequest = req.body;
+// VERIFY EMAIL ENDPOINT
+router.get('/verify-email', async (req, res) => {
+  const { token } = req.query;
 
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    const { accessToken, refreshToken } = generateTokens(user.id, user.email, user.tier);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refresh_token: refreshToken }
-    });
-
-    res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    res.json({
-      message: 'Login successful',
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        tier: user.tier,
-        token_balance: user.token_balance,
-        tokens_remaining: user.token_balance - user.tokens_used,
-        tokens_used: user.tokens_used,
-        created_at: user.created_at
-      },
-      accessToken,
-      expiresIn: 15 * 60
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Internal server error during login' });
+  if (!token || typeof token !== 'string') {
+    return res.status(400).send('Invalid verification link');
   }
-});
 
-// Refresh access token
-router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const token = req.cookies.refresh_token;
-
-    if (!token) {
-      return res.status(401).json({ message: 'Refresh token required' });
-    }
-
-    const secret = process.env.JWT_SECRET; // Use single secret
-    if (!secret) {
-      throw new Error('JWT secret not configured');
-    }
-
-    let decoded;
-    try {
-      decoded = jwt.verify(token, secret) as jwt.JwtPayload;
-    } catch (error) {
-      return res.status(403).json({ message: 'Invalid or expired refresh token' });
-    }
-
     const user = await prisma.user.findFirst({
       where: {
-        id: decoded.userId,
-        refresh_token: token
+        verificationToken: token,
+        verificationTokenExpires: { gt: new Date() },
+        emailVerified: false
       }
     });
 
     if (!user) {
-      return res.status(403).json({ message: 'Invalid refresh token' });
+      return res.status(400).send('Invalid or expired verification link');
     }
-
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-      generateTokens(user.id, user.email, user.tier);
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { refresh_token: newRefreshToken }
-    });
-
-    res.cookie('refresh_token', newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    res.json({
-      accessToken: newAccessToken,
-      expiresIn: 15 * 60
-    });
-
-  } catch (error) {
-    console.error('Token refresh error:', error);
-    res.status(500).json({ message: 'Internal server error during token refresh' });
-  }
-});
-
-// Logout user
-router.post('/logout', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const token = req.cookies.refresh_token;
-
-    if (token) {
-      const decoded = jwt.decode(token) as jwt.JwtPayload;
-      if (decoded?.userId) {
-        await prisma.user.update({
-          where: { id: decoded.userId },
-          data: { refresh_token: null }
-        });
+      data: {
+        emailVerified: true,
+        verificationToken: null,
+        verificationTokenExpires: null
       }
-    }
-
-    res.clearCookie('refresh_token', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict'
     });
 
-    res.json({ message: 'Logout successful' });
-
+    // Redirect to frontend success page
+    res.redirect('https://janusforge.ai/login?verified=true');
   } catch (error) {
-    console.error('Logout error:', error);
-    res.status(500).json({ message: 'Internal server error during logout' });
+    console.error("Verification error:", error);
+    res.status(500).send('Verification failed');
   }
 });
 
-// Get current user profile
-router.get('/me', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ message: 'Not authenticated' });
-    }
+// RESEND VERIFICATION (optional but useful)
+router.post('/resend-verification', async (req, res) => {
+  const { email } = req.body;
 
+  try {
     const user = await prisma.user.findUnique({
-      where: { id: req.user.userId },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        tier: true,
-        token_balance: true,
-        tokens_remaining: true,
-        tokens_used: true,
-        created_at: true,
-        updated_at: true
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.emailVerified) return res.status(400).json({ error: "Email already verified" });
+
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const newExpires = new Date(Date.now() + 60 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verificationToken: newToken,
+        verificationTokenExpires: newExpires
       }
     });
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    await sendVerificationEmail(email, newToken);
 
-    res.json({ user });
-
+    res.json({ message: "Verification email resent" });
   } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ error: "Failed to resend" });
   }
 });
 
-// Forgot password endpoint
+// LOGIN - Blocks unverified users
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    if (!user.emailVerified) {
+      return res.status(403).json({ error: "Please verify your email before logging in" });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    res.json(user);
+  } catch (error: any) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
 export default router;

@@ -42,6 +42,9 @@ model User {
   debate_votes       DebateVote[]
   posts              Post[]
   token_transactions TokenTransaction[]
+  emailVerified             Boolean   @default(false)
+  verificationToken         String?   @unique
+  verificationTokenExpires  DateTime?
 
   @@map("users")
 }
