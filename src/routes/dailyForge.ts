@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { scoutNewTopic } from '../scripts/aiScout'; // Direct import from aiScout.ts
-import { runCouncilVote, runInitialDebate, tallyVotes } from '../scripts/aiVoteAndDebate'; // Direct imports from aiVoteAndDebate.ts
+import { scoutNewTopic } from '../scripts/aiScout'; // Direct import - assumes export added
 
 const router = Router();
 // DEBUG: Log what URL we're using
@@ -17,7 +16,6 @@ const prisma = new PrismaClient({
   },
   log: ['info', 'error', 'warn'] // Enable info logs to see connection
 });
-
 // Get current Daily Forge
 router.get('/current', async (req, res) => {
   console.log('📞 GET /api/daily-forge/current');
@@ -38,7 +36,6 @@ router.get('/current', async (req, res) => {
     });
   }
 });
-
 // Get history
 router.get('/history', async (req, res) => {
   console.log('📜 GET /api/daily-forge/history');
@@ -82,8 +79,10 @@ router.post('/force-new-topic', async (req, res) => {
     today.setUTCHours(0, 0, 0, 0);
 
     // Step 1: Scout new topics
+    console.log('Starting scout for forced topic...');
     const topics = await scoutNewTopic();
     if (topics.length === 0) throw new Error('Failed to generate topics');
+    console.log(`Scouted ${topics.length} topics successfully`);
 
     // Create new forge
     const newForge = await prisma.dailyForge.create({
@@ -98,11 +97,11 @@ router.post('/force-new-topic', async (req, res) => {
     console.log(`New forge created: ${newForge.id}`);
 
     // Step 2: Run vote
-    const votes = await runCouncilVote(newForge.id); // Direct import from aiVoteAndDebate.ts
-    const winningTopic = tallyVotes(votes); // Direct import
+    const votes = await runCouncilVote(newForge.id); // Import from aiVoteAndDebate
+    const winningTopic = tallyVotes(votes); // Import
 
     // Step 3: Run initial debate
-    const openingThoughts = await runInitialDebate(winningTopic); // Direct import
+    const openingThoughts = await runInitialDebate(winningTopic); // Import
 
     // Create conversation and update forge
     const conversation = await prisma.conversation.create({
