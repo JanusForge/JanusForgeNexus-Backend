@@ -1,6 +1,6 @@
 // src/routes/conversations.ts
 import { Router, Response, Request } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, AIParticipant } from '@prisma/client';
 import { AuthenticatedRequest } from '../types';
 
 const router = Router();
@@ -180,33 +180,27 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
 // Create new conversation — ANY authenticated user with tokens can create
 router.post('/', async (req: Request, res: Response) => {
   const { title, userId } = req.body;
-
   if (!userId) {
     return res.status(401).json({ message: 'User ID required' });
   }
-
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { token_balance: true }
     });
-
     if (!user || user.token_balance < 10) {
       return res.status(402).json({ message: 'Insufficient tokens' });
     }
-
     const conversation = await prisma.conversation.create({
       data: {
         title: title?.trim() || "New Live Conversation",
         is_daily_forge: false
       }
     });
-
     await prisma.user.update({
       where: { id: userId },
       data: { token_balance: { decrement: 10 } }
     });
-
     await prisma.tokenTransaction.create({
       data: {
         user_id: userId,
@@ -215,10 +209,8 @@ router.post('/', async (req: Request, res: Response) => {
         description: `Created conversation: ${title || 'New Live Conversation'}`
       }
     });
-
     const io = req.app.get('io');
     io.emit('conversation:new', conversation);
-
     res.status(201).json({ conversation });
   } catch (error) {
     console.error("Conversation creation error:", error);
@@ -230,21 +222,17 @@ router.post('/', async (req: Request, res: Response) => {
 router.post('/:id/posts', async (req: Request, res: Response) => {
   const { id: conversationId } = req.params;
   const { content, userId } = req.body;
-
   if (!userId) {
     return res.status(401).json({ message: 'User ID required' });
   }
-
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { token_balance: true }
     });
-
     if (!user || user.token_balance < 1) {
       return res.status(402).json({ message: 'Insufficient tokens' });
     }
-
     const post = await prisma.post.create({
       data: {
         content: content.trim(),
@@ -256,12 +244,10 @@ router.post('/:id/posts', async (req: Request, res: Response) => {
         user: { select: { id: true, username: true } }
       }
     });
-
     await prisma.user.update({
       where: { id: userId },
       data: { token_balance: { decrement: 1 } }
     });
-
     await prisma.tokenTransaction.create({
       data: {
         user_id: userId,
@@ -270,42 +256,37 @@ router.post('/:id/posts', async (req: Request, res: Response) => {
         description: 'Posted message'
       }
     });
-
-    // Full council for all users
+    // Full council for all users - use correct enum values
     const fullCouncil = [
-      "GEMINI",
-      "DEEPSEEK",
-      "GROK",
-      "CLAUDE",
-      "GPT_4"
+      AIParticipant.GEMINI,
+      AIParticipant.DEEPSEEK,
+      AIParticipant.GROK,
+      AIParticipant.CLAUDE,
+      AIParticipant.GPT_4O
     ];
-
-    for (const aiName of fullCouncil) {
+    for (const aiEnum of fullCouncil) {
       const aiPost = await prisma.post.create({
         data: {
-          content: `[${aiName} responding...]`,
+          content: `[${aiEnum} responding...]`,
           is_human: false,
-          ai_model: aiName,
+          ai_model: aiEnum,  // Use enum value directly
           conversation_id: conversationId,
           parent_post_id: post.id
         }
       });
-
       const io = req.app.get('io');
       io.to(`conversation:${conversationId}`).emit('post:incoming', {
         id: aiPost.id,
-        name: aiName,
-        content: `[${aiName} responding...]`,
+        name: aiEnum,
+        content: `[${aiEnum} responding...]`,
         sender: 'ai',
         tokens_remaining: user.token_balance - 1
       });
     }
-
     res.status(201).json({ post });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
-
 export default router;
