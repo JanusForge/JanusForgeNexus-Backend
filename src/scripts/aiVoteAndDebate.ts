@@ -45,121 +45,86 @@ async function callAI(ai: any, prompt: string): Promise<string> {
   }
 }
 
-async function voteAndDebate() {
-  console.log('🗳️🔥 AI Council Voting & Initial Debate Cycle Starting...');
+// NEW EXPORT: Run council vote
+export async function runCouncilVote(forgeId: string): Promise<Record<string, string>> {
+  console.log('🗳️ Running council vote for forge:', forgeId);
+  const current = await prisma.dailyForge.findUnique({ where: { id: forgeId } });
+  if (!current || !current.scoutedTopics) throw new Error('No forge or topics');
 
-  // EST-aware date (copy logic from updated aiScout.ts)
-  const now = new Date();
-  const estOffset = -5 * 60 * 60 * 1000;
-  const estNow = new Date(now.getTime() + estOffset);
-  estNow.setUTCHours(0, 0, 0, 0);
-  const todayUTCStart = new Date(estNow.getTime() - estOffset);
-  const tomorrowUTCStart = new Date(todayUTCStart.getTime() + 24 * 60 * 60 * 1000);
+  const topics = JSON.parse(current.scoutedTopics);
+  if (topics.length === 0) throw new Error('No topics found');
 
-  try {
-    const current = await prisma.dailyForge.findFirst({
-      where: {
-        date: { gte: todayUTCStart, lt: tomorrowUTCStart },
-        phase: 'TOPIC_SELECTION'
-      }
-    });
+  const votePrompt = `Here are today's 3 proposed topics (JSON format):\n${JSON.stringify(topics, null, 2)}\n\nVote for exactly ONE by responding ONLY with its exact "title". Choose the most provocative and civilization-scale worthy of debate.`;
 
-    if (!current || !current.scoutedTopics) {
-      console.log('No forge in TOPIC_SELECTION or no topics. Standing down.');
-      return;
-    }
-
-    const topics = JSON.parse(current.scoutedTopics);
-    if (topics.length === 0) {
-      console.log('No scouted topics found.');
-      return;
-    }
-
-    console.log(`📋 ${topics.length} topics available for voting.`);
-
-    // Voting phase
-    const votePrompt = `Here are today's 3 proposed topics (JSON format):\n${JSON.stringify(topics, null, 2)}\n\nVote for exactly ONE by responding ONLY with its exact "title". Choose the most provocative and civilization-scale worthy of debate.`;
-    
-    const votes: Record<string, string> = {};
-    for (const ai of councilAIs) {
-      const vote = await callAI(ai, votePrompt);
-      votes[ai.name.toLowerCase()] = vote;
-      console.log(`${ai.name} voted: ${vote}`);
-    }
-
-    // Tally winner (most votes; random tiebreak)
-    const voteCounts: Record<string, number> = {};
-    Object.values(votes).forEach(v => {
-      if (topics.some((t: any) => t.title === v)) voteCounts[v] = (voteCounts[v] || 0) + 1;
-    });
-    const winningTitle = Object.keys(voteCounts).sort((a, b) => voteCounts[b] - voteCounts[a] || Math.random() - 0.5)[0];
-
-    if (!winningTitle) {
-      console.log('No clear winner. Standing down.');
-      return;
-    }
-
-    console.log(`🏆 Winning topic: ${winningTitle}`);
-
-    // Create conversation for debate
-    const conversation = await prisma.conversation.create({
-      data: {
-        title: winningTitle,
-        is_daily_forge: true
-      }
-    });
-
-    // Randomize debate order (who starts)
-    const debateOrder = [...councilAIs].sort(() => Math.random() - 0.5);
-    console.log(`🗣️ Debate order: ${debateOrder.map(a => a.name).join(' → ')}`);
-
-    const openingThoughts: Array<{ model: string; content: string }> = [];
-    let transcript = `Topic: ${winningTitle}\n\n`;
-
-    for (let i = 0; i < debateOrder.length; i++) {
-      const ai = debateOrder[i];
-      const isFirst = i === 0;
-      const prompt = isFirst
-        ? `Start a provocative, concise debate (300-500 words max) on: "${winningTitle}". Be substantive, bold, and true to your unique perspective.`
-        : `Respond directly to the previous points in this debate transcript. Keep concise (300-500 words max), add new insight, stay on topic.\n\nTranscript so far:\n${transcript}`;
-
-      const content = await callAI(ai, prompt);
-      if (content && content !== "[Unavailable]") {
-        // Save post to conversation (AI post)
-        await prisma.post.create({
-          data: {
-            content,
-            is_human: false,
-            ai_model: ai.name,
-            conversation_id: conversation.id
-          }
-        });
-
-        openingThoughts.push({ model: ai.name, content });
-        transcript += `${ai.name}: ${content}\n\n`;
-        console.log(`${ai.name} contributed to initial debate.`);
-      }
-    }
-
-    // Update dailyForge
-    await prisma.dailyForge.update({
-      where: { id: current.id },
-      data: {
-        winningTopic: winningTitle,
-        councilVotes: JSON.stringify(votes),
-        openingThoughts: JSON.stringify(openingThoughts),
-        conversationId: conversation.id,
-        phase: 'CONVERSATION'
-      }
-    });
-
-    console.log('✅ Daily Forge advanced: Voting complete, initial 3-post debate generated, interjections now open!');
-  } catch (error) {
-    console.error('Vote & Debate cycle failed:', error);
+  const votes: Record<string, string> = {};
+  for (const ai of councilAIs) {
+    const vote = await callAI(ai, votePrompt);
+    votes[ai.name.toLowerCase()] = vote;
+    console.log(`${ai.name} voted: ${vote}`);
   }
+
+  return votes;
 }
 
-// Run
+// NEW EXPORT: Tally votes to find winner
+export function tallyVotes(votes: Record<string, string>): string {
+  const voteCounts: Record<string, number> = {};
+  Object.values(votes).forEach(v => {
+    voteCounts[v] = (voteCounts[v] || 0) + 1;
+  });
+  const winningTitle = Object.keys(voteCounts).sort((a, b) => voteCounts[b] - voteCounts[a] || Math.random() - 0.5)[0];
+  if (!winningTitle) throw new Error('No clear winner');
+  return winningTitle;
+}
+
+// NEW EXPORT: Run initial 3-post debate
+export async function runInitialDebate(winningTopic: string): Promise<Array<{ model: string; content: string }>> {
+  console.log('🗣️ Running initial debate on:', winningTopic);
+
+  // Create conversation
+  const conversation = await prisma.conversation.create({
+    data: {
+      title: winningTopic,
+      is_daily_forge: true
+    }
+  });
+
+  // Randomize debate order
+  const debateOrder = [...councilAIs].sort(() => Math.random() - 0.5);
+  console.log(`Debate order: ${debateOrder.map(a => a.name).join(' → ')}`);
+
+  const openingThoughts: Array<{ model: string; content: string }> = [];
+  let transcript = `Topic: ${winningTopic}\n\n`;
+
+  for (let i = 0; i < debateOrder.length; i++) {
+    const ai = debateOrder[i];
+    const isFirst = i === 0;
+    const prompt = isFirst
+      ? `Start a provocative, concise debate (300-500 words max) on: "${winningTopic}". Be substantive, bold, and true to your unique perspective.`
+      : `Respond directly to the previous points in this debate transcript. Keep concise (300-500 words max), add new insight, stay on topic.\n\nTranscript so far:\n${transcript}`;
+
+    const content = await callAI(ai, prompt);
+    if (content && content !== "[Unavailable]") {
+      // Save post to conversation
+      await prisma.post.create({
+        data: {
+          content,
+          is_human: false,
+          ai_model: ai.name,
+          conversation_id: conversation.id
+        }
+      });
+
+      openingThoughts.push({ model: ai.name, content });
+      transcript += `${ai.name}: ${content}\n\n`;
+      console.log(`${ai.name} contributed to initial debate.`);
+    }
+  }
+
+  return openingThoughts;
+}
+
+// Run (main cron entrypoint - no change)
 voteAndDebate()
   .then(() => {
     console.log('🏁 Vote & Debate cycle completed');
