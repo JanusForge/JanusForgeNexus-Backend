@@ -20,6 +20,18 @@ dotenv.config();
 console.log('Auth routes loading...');
 
 const app = express();
+
+// FIX: CORS for all Express routes (allows www subdomain)
+app.use(cors({
+  origin: [
+    "https://janusforge.ai",
+    "https://www.janusforge.ai",
+    "http://localhost:3000",
+    "http://localhost:3001"
+  ],
+  credentials: true
+}));
+
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -34,17 +46,6 @@ const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
 });
-
-// FIX: Add CORS middleware for all Express routes (allows www subdomain)
-app.use(cors({
-  origin: [
-    "https://janusforge.ai",
-    "https://www.janusforge.ai",
-    "http://localhost:3000",
-    "http://localhost:3001"
-  ],
-  credentials: true
-}));
 
 app.use(express.json());
 app.use('/api/auth', authRouter);
@@ -165,7 +166,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: [
       "https://janusforge.ai",
-      "https://www.janusforge.ai",  // Added www subdomain
+      "https://www.janusforge.ai",
       "http://localhost:3000",
       "http://localhost:3001"
     ],
