@@ -239,13 +239,13 @@ The council values epistemic humility, relevance, and respectful adversarial col
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
 
-        // Council configuration - Daily Forge: only 3 AIs; Live Showdown: full 5
+        // Council configuration - Daily Forge: only DeepSeek, Grok, Gemini
         let councilQueue = isDailyForge ? [
-          { name: "GEMINI", modelKey: "gemini-3-flash" },
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-4.1" }
+          { name: "GROK", modelKey: "grok-4.1" },
+          { name: "GEMINI", modelKey: "gemini-3-flash-preview" }
         ] : [
-          { name: "GEMINI", modelKey: "gemini-3-flash" },
+          { name: "GEMINI", modelKey: "gemini-3-flash-preview" },
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
           { name: "GROK", modelKey: "grok-4.1" },
           { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
@@ -266,7 +266,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
-              const geminiModels = ["gemini-3-flash", "gemini-3-pro", "gemini-3-flash-preview"];
+              const geminiModels = ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"];
               aiContent = "[GEMINI unavailable]";
               for (const modelName of geminiModels) {
                 try {
@@ -368,18 +368,56 @@ The council values epistemic humility, relevance, and respectful adversarial col
             }).join("\n\n") + "\n\nRespond only if you have a meaningful new insight or direct response to the latest message.";
             let aiContent = "";
             try {
-              // Reuse the same generation logic as Phase 1
               if (ai.name === "GEMINI") {
-                // (same fallback loop as above)
-                // ... for brevity, copy the GEMINI block here in your code
+                const geminiModels = ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"];
+                aiContent = "[GEMINI unavailable]";
+                for (const modelName of geminiModels) {
+                  try {
+                    const model = genAI.getGenerativeModel({ model: modelName });
+                    const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
+                    aiContent = res.response.text();
+                    console.log(`GEMINI success with ${modelName}`);
+                    break;
+                  } catch (err) {
+                    console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
+                  }
+                }
               } else if (ai.name === "DEEPSEEK") {
-                // (same as above)
+                const res = await deepseek.chat.completions.create({
+                  model: "deepseek-chat",
+                  messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                });
+                aiContent = res.choices[0].message.content || "";
               } else if (ai.name === "GROK") {
-                // (same as above)
+                const grokModels = ["grok-4.1", "grok-4", "grok-beta"];
+                aiContent = "[GROK unavailable]";
+                for (const modelName of grokModels) {
+                  try {
+                    const res = await xai.chat.completions.create({
+                      model: modelName,
+                      messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                    });
+                    aiContent = res.choices[0].message.content || "";
+                    console.log(`GROK success with ${modelName}`);
+                    break;
+                  } catch (err) {
+                    console.warn(`GROK failed with ${modelName}:`, err.message || err);
+                  }
+                }
               } else if (ai.name === "CLAUDE") {
-                // (same as above)
+                const res = await anthropic.messages.create({
+                  model: ai.modelKey,
+                  max_tokens: 1500,
+                  system: councilDirective,
+                  messages: [{ role: "user", content: context }]
+                });
+                aiContent = (res.content[0] as any).text;
               } else if (ai.name === "GPT_4O") {
-                // (same as above)
+                const res = await openai.chat.completions.create({
+                  model: ai.modelKey,
+                  messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                });
+                aiContent = res.choices[0].message.content || "";
               }
               if (aiContent && aiContent.trim().length > 50) {
                 const aiPost = await prisma.post.create({
