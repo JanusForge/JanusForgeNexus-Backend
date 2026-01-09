@@ -478,3 +478,10 @@ The council values epistemic humility, relevance, and respectful adversarial col
 });
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
+
+// Keep the process alive (prevents early exit)
+process.on('SIGINT', () => {
+  console.log('Shutting down gracefully...');
+  prisma.$disconnect();
+  process.exit(0);
+});
