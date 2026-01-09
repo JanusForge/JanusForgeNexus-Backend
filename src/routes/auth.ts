@@ -113,7 +113,7 @@ router.get('/verify-email', async (req, res) => {
     });
 
     // Redirect to frontend success page
-    res.redirect('https://janusforge.ai/login?verified=true');
+    res.redirect('https://janusforge.ai/login/verify-success');
   } catch (error) {
     console.error("Verification error:", error);
     res.status(500).send('Verification failed');
