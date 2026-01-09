@@ -103,6 +103,7 @@ app.use('/api/conversations', conversationRouter);
 import dailyForgeRouter from './routes/dailyForge';
 app.use('/api/daily-forge', dailyForgeRouter);
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ status: 'healthy', cors: 'working' }));
 
 // --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
 app.post('/api/v1/billing/checkout', async (req, res) => {
