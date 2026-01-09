@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { scoutNewTopic } from '../scripts/aiScout'; // Direct import - assumes export added
+import { scoutNewTopic } from '../scripts/aiScout'; // Direct import - now exported
 
 const router = Router();
 // DEBUG: Log what URL we're using
@@ -54,7 +54,6 @@ router.get('/history', async (req, res) => {
     });
   }
 });
-
 // NEW: Force new topic + full cycle (GOD_MODE only)
 // Triggers scout → create forge → vote → initial debate → update
 router.post('/force-new-topic', async (req, res) => {
@@ -63,7 +62,6 @@ router.post('/force-new-topic', async (req, res) => {
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
     }
-
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { role: true }
@@ -71,19 +69,15 @@ router.post('/force-new-topic', async (req, res) => {
     if (!user || user.role !== 'GOD_MODE') {
       return res.status(403).json({ error: 'GOD_MODE required' });
     }
-
     console.log('GOD_MODE admin forcing new topic + full cycle...');
-
     // Get today's date (midnight EST in UTC)
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-
     // Step 1: Scout new topics
     console.log('Starting scout for forced topic...');
     const topics = await scoutNewTopic();
     if (topics.length === 0) throw new Error('Failed to generate topics');
     console.log(`Scouted ${topics.length} topics successfully`);
-
     // Create new forge
     const newForge = await prisma.dailyForge.create({
       data: {
@@ -95,14 +89,11 @@ router.post('/force-new-topic', async (req, res) => {
       }
     });
     console.log(`New forge created: ${newForge.id}`);
-
     // Step 2: Run vote
     const votes = await runCouncilVote(newForge.id); // Import from aiVoteAndDebate
     const winningTopic = tallyVotes(votes); // Import
-
     // Step 3: Run initial debate
     const openingThoughts = await runInitialDebate(winningTopic); // Import
-
     // Create conversation and update forge
     const conversation = await prisma.conversation.create({
       data: { title: winningTopic, is_daily_forge: true }
@@ -117,7 +108,6 @@ router.post('/force-new-topic', async (req, res) => {
         phase: 'CONVERSATION'
       }
     });
-
     console.log('Full cycle complete - new forge ready');
     res.json({ success: true, message: 'New topic + full cycle forced', newForge });
   } catch (error) {
@@ -125,5 +115,4 @@ router.post('/force-new-topic', async (req, res) => {
     res.status(500).json({ error: 'Failed to force new topic' });
   }
 });
-
 export default router;

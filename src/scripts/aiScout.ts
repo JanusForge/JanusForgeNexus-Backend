@@ -2,7 +2,6 @@
 // • EST-aware daily reset (midnight Eastern US time)
 // • Randomized scout AI among DeepSeek, Grok, Gemini (using current 2026 models)
 // • Keep existing structure and Gemini-only generation logic (fallback if non-Gemini selected)
-
 import prisma from '../lib/prisma';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
@@ -22,10 +21,10 @@ const xai = new OpenAI({
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
   { name: 'GROK', client: xai, model: 'grok-4.1' },           // Latest flagship per xAI releases
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash' }) } // Fast latest Gemini
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) } // Correct current preview model
 ];
 
-async function scoutNewTopic(scoutAI: any) {
+export async function scoutNewTopic(scoutAI: any) {
   const prompt = "Propose 3 provocative civilization-scale debate topics for The Daily Forge (AI ethics, society, knowledge, power). Return ONLY JSON array with each topic having 'title', 'description', and optionally 'provocation' and 'tags' fields.";
   try {
     if (scoutAI.name === 'GEMINI') {
@@ -50,7 +49,6 @@ async function scoutNewTopic(scoutAI: any) {
 
 async function patrolTheForge() {
   console.log('🌅 AI Scout starting Autonomous Patrol Cycle...');
-
   // EST-aware date calculation for midnight Eastern reset
   const now = new Date();
   const estOffset = -5 * 60 * 60 * 1000; // EST = UTC-5 (standard time; adjust for DST if needed)
@@ -58,7 +56,6 @@ async function patrolTheForge() {
   estNow.setUTCHours(0, 0, 0, 0); // Midnight EST
   const todayUTCStart = new Date(estNow.getTime() - estOffset);
   const tomorrowUTCStart = new Date(todayUTCStart.getTime() + 24 * 60 * 60 * 1000);
-
   try {
     const existingForge = await prisma.dailyForge.findFirst({
       where: {
@@ -68,24 +65,19 @@ async function patrolTheForge() {
         }
       }
     });
-
     if (existingForge) {
       console.log("Today's Forge exists. Standing down.");
       return;
     }
-
     // Randomize today's scout AI
     const scoutAI = councilAIs[Math.floor(Math.random() * councilAIs.length)];
     console.log(`🕵️ Today's Scout AI: ${scoutAI.name}`);
-
     console.log('No forge found. Scouting new topics...');
     const topics = await scoutNewTopic(scoutAI);
-
     if (topics.length === 0) {
       console.error('Failed to generate topics');
       return;
     }
-
     // Create with ALL required fields
     const newForge = await prisma.dailyForge.create({
       data: {
@@ -96,7 +88,6 @@ async function patrolTheForge() {
         phase: 'TOPIC_SELECTION'
       }
     });
-
     console.log(`✅ New Daily Forge created with ID: ${newForge.id}`);
     console.log(`📝 Topics: ${topics.length} AI-generated topics by ${scoutAI.name}`);
   } catch (error) {
@@ -104,7 +95,6 @@ async function patrolTheForge() {
     throw error;
   }
 }
-
 // Run
 patrolTheForge()
   .then(() => {
