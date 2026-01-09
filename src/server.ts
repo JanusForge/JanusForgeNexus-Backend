@@ -485,3 +485,5 @@ process.on('SIGINT', () => {
   prisma.$disconnect();
   process.exit(0);
 });
+
+console.log('Server running and kept alive...');
