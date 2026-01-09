@@ -15,12 +15,15 @@ import Stripe from 'stripe';
 import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
 import passwordResetRouter from './routes/passwordReset';
+
 dotenv.config();
 console.log('Auth routes loading...');
+
 const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
+
 // --- ⚙️ SERVICE INITIALIZATION ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -31,11 +34,23 @@ const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
 });
-app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+
+// FIX: Add CORS middleware for all Express routes (allows www subdomain)
+app.use(cors({
+  origin: [
+    "https://janusforge.ai",
+    "https://www.janusforge.ai",
+    "http://localhost:3000",
+    "http://localhost:3001"
+  ],
+  credentials: true
+}));
+
 app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/auth', passwordResetRouter);
 app.use('/api/archives', archiveRouter);
+
 // --- 🔑 AUTH & TOKEN SYSTEM ---
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
@@ -58,6 +73,7 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(400).json({ error: "Registration conflict." });
   }
 });
+
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -79,12 +95,14 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 // --- ROUTES ---
 app.use('/api/conversations', conversationRouter);
 // DAILY FORGE ROUTER — MOVED AFTER app creation
 import dailyForgeRouter from './routes/dailyForge';
 app.use('/api/daily-forge', dailyForgeRouter);
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
+
 // --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
 app.post('/api/v1/billing/checkout', async (req, res) => {
   const { priceId, userId } = req.body;
@@ -111,6 +129,7 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
     res.status(500).json({ error: "Checkout failed", details: error.message });
   }
 });
+
 // --- 🏛️ ADMIN: Manual Archive Entry ---
 app.post('/api/daily-forge/manual', async (req, res) => {
   const { userId, winningTopic, openingThoughts } = req.body;
@@ -140,12 +159,13 @@ app.post('/api/daily-forge/manual', async (req, res) => {
     res.status(500).json({ error: "Failed to save archive entry" });
   }
 });
+
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: {
     origin: [
       "https://janusforge.ai",
-      "https://www.janusforge.ai",
+      "https://www.janusforge.ai",  // Added www subdomain
       "http://localhost:3000",
       "http://localhost:3001"
     ],
@@ -231,14 +251,12 @@ Core Guidelines:
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
-
         // Determine if this conversation is Daily Forge
         const conversation = await prisma.conversation.findUnique({
           where: { id: targetConversationId },
           select: { is_daily_forge: true }
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
-
         // Council configuration - Daily Forge: only DeepSeek, Grok, Gemini
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
@@ -251,7 +269,6 @@ The council values epistemic humility, relevance, and respectful adversarial col
           { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
           { name: "GPT_4O", modelKey: "gpt-5.2" }
         ];
-
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
