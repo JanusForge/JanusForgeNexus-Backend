@@ -22,7 +22,7 @@ const xai = new OpenAI({
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
   { name: 'GROK', client: xai, model: 'grok-4' },           // Current flagship per xAI API/docs
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-2.5-pro' }) } // High-capability latest stable
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) } // High-capability latest stable
 ];
 
 async function callAI(ai: any, prompt: string): Promise<string> {

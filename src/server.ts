@@ -266,7 +266,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
-              const geminiModels = ["gemini-3-flash", "gemini-3-pro", "gemini-2.5-pro"];
+              const geminiModels = ["gemini-3-flash", "gemini-3-pro", "gemini-3-flash-preview"];
               aiContent = "[GEMINI unavailable]";
               for (const modelName of geminiModels) {
                 try {
