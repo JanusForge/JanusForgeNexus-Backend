@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { scoutNewTopic } from '../scripts/aiScout'; // Direct import - now exported
+import { runCouncilVote, tallyVotes, runInitialDebate } from '../scripts/aiVoteAndDebate'; // FIXED: Add imports for force endpoint
 
 const router = Router();
 // DEBUG: Log what URL we're using
@@ -90,10 +91,10 @@ router.post('/force-new-topic', async (req, res) => {
     });
     console.log(`New forge created: ${newForge.id}`);
     // Step 2: Run vote
-    const votes = await runCouncilVote(newForge.id); // Import from aiVoteAndDebate
-    const winningTopic = tallyVotes(votes); // Import
+    const votes = await runCouncilVote(newForge.id);
+    const winningTopic = tallyVotes(votes);
     // Step 3: Run initial debate
-    const openingThoughts = await runInitialDebate(winningTopic); // Import
+    const openingThoughts = await runInitialDebate(winningTopic);
     // Create conversation and update forge
     const conversation = await prisma.conversation.create({
       data: { title: winningTopic, is_daily_forge: true }
