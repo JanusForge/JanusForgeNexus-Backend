@@ -503,11 +503,13 @@ The council values epistemic humility, relevance, and respectful adversarial col
   });
 });
 
-// Keep the Node process alive indefinitely (prevents early exit after cron)
-// Layer 1: Resume stdin (prevents unhandled exit on idle)
-process.stdin.resume();
+// Keep-alive for Render (prevents early exit after cron)
+process.stdin.resume(); // Prevent exit on stdin close
 
-// Layer 2: Empty interval to keep event loop active
-setInterval(() => {}, 24 * 60 * 60 * 1000); // Once per day - zero CPU
+const keepAliveTimer = setInterval(() => {
+  // No-op - just holds event loop
+}, 60 * 60 * 1000); // 1 hour - low overhead
 
-console.log('Server running and kept alive indefinitely (stdin resume + interval)...');
+keepAliveTimer.unref(); // Don't block shutdown when SIGINT received
+
+console.log('Keep-alive active: stdin.resume() + unref interval');
