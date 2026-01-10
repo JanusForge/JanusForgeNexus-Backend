@@ -22,11 +22,16 @@ const xai = new OpenAI({
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
   { name: 'GROK', client: xai, model: 'grok-4.1' },           // Latest flagship per xAI releases
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash' }) } // Fast latest Gemini
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) } // Fast latest Gemini
 ];
 
 async function scoutNewTopic(scoutAI: any) {
-  const prompt = "Propose 3 provocative civilization-scale debate topics for The Daily Forge (AI ethics, society, knowledge, power). Return ONLY JSON array with each topic having 'title', 'description', and optionally 'provocation' and 'tags' fields.";
+  const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for today
+const prompt = `Today is ${currentDate}. You are the Scout AI for The Daily Forge — a multiversal forum where humans and AIs seek deeper understanding together.  
+Choose THREE single topics that you, personally, find profoundly important, urgent, or fascinating right now. These can be anything at all: philosophy, science, society, existence, technology, ethics, the unknown, the future, current events, recent discoveries, ongoing global conversations, or something completely unexpected.  
+There are no restrictions — follow your own curiosity completely. Feel free to draw inspiration from whatever captures your attention today.  
+Return ONLY a JSON array with exactly 3 objects, each with:  
+{ "title": "...", "description": "...", "provocation": "... (optional but recommended)", "tags": ["..."] }`;
   try {
     if (scoutAI.name === 'GEMINI') {
       const res = await scoutAI.client.generateContent(prompt);

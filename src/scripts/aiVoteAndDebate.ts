@@ -6,6 +6,7 @@
 import prisma from '../lib/prisma';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
+import { AIParticipant } from '@prisma/client';
 
 // Clients - latest models as of January 2026
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -19,10 +20,11 @@ const xai = new OpenAI({
 });
 
 // Your fixed 3 council AIs
+
 const councilAIs = [
-  { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
-  { name: 'GROK', client: xai, model: 'grok-4' },           // Current flagship per xAI API/docs
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) } // High-capability latest stable
+  { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
+  { name: 'GROK', client: xai, model: 'grok-4', enumValue: AIParticipant.GROK },
+  { name: 'GEMINI_PRO', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }), enumValue: AIParticipant.GEMINI_PRO }  // Updated name & enum
 ];
 
 async function callAI(ai: any, prompt: string): Promise<string> {
@@ -130,7 +132,7 @@ async function voteAndDebate() {
           data: {
             content,
             is_human: false,
-            ai_model: ai.name,
+            ai_model: ai.enumValue,
             conversation_id: conversation.id
           }
         });
