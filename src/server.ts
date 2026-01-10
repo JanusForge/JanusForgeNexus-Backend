@@ -173,6 +173,10 @@ io.on('connection', (socket) => {
       }
       // Determine target conversation
       let targetConversationId: string = postData.conversationId;
+      // <--- INSERT THE NEW BLOCK RIGHT HERE
+    if (postData.conversationId && !postData.isLiveChat) {
+      targetConversationId = postData.conversationId;
+    } 
       if (!targetConversationId) {
         if (postData.isLiveChat) {
           let liveChatConvo = await prisma.conversation.findFirst({
