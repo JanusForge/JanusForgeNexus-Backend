@@ -177,8 +177,10 @@ const io = new Server(httpServer, {
   pingTimeout: 60000,
   connectionStateRecovery: {}
 });
+
 // Make io available in routes
 app.set('io', io);
+
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
@@ -193,11 +195,16 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
-      // Determine target conversation
+
+      // Determine target conversation - PRIORITIZE provided ID from frontend
       let targetConversationId: string = postData.conversationId;
-      // DEBUG: Log what conversationId was provided by frontend
-      console.log('post:new received - provided conversationId:', postData.conversationId || 'NONE', 'isLiveChat:', postData.isLiveChat);
+      // DEBUG: Log what was received from frontend
+      console.log('post:new received - provided conversationId:', postData.conversationId || 'NONE', 
+                  'isLiveChat:', postData.isLiveChat || false);
+
       if (!targetConversationId) {
+        // Fallback only if frontend didn't provide one
+        console.log('No conversationId provided - falling back...');
         if (postData.isLiveChat) {
           let liveChatConvo = await prisma.conversation.findFirst({
             where: { title: "Live Nexus Chat", is_daily_forge: false }
@@ -215,9 +222,16 @@ io.on('connection', (socket) => {
           });
           targetConversationId = activeConversation?.id;
         }
+      } else {
+        console.log('Using provided conversationId from frontend:', targetConversationId);
       }
+
       if (!targetConversationId) throw new Error("No active thread detected.");
+
+      // Join the correct room
       socket.join(targetConversationId);
+      console.log('Socket joined room:', targetConversationId);
+
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
           await tx.user.update({
@@ -236,6 +250,7 @@ io.on('connection', (socket) => {
         const refreshedUser = await tx.user.findUnique({ where: { id: user.id } });
         return [post, refreshedUser];
       });
+
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
       io.to(targetConversationId).emit('post:incoming', {
         id: savedPost.id,
@@ -245,6 +260,7 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
+
       // --- COUNCIL DEBATE ENGINE (per Council guidance) ---
       (async () => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
@@ -255,12 +271,14 @@ Core Guidelines:
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
+
         // Determine if this conversation is Daily Forge
         const conversation = await prisma.conversation.findUnique({
           where: { id: targetConversationId },
           select: { is_daily_forge: true }
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
+
         // Council configuration - Daily Forge: only DeepSeek, Grok, Gemini
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
@@ -273,17 +291,20 @@ The council values epistemic humility, relevance, and respectful adversarial col
           { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
           { name: "GPT_4O", modelKey: "gpt-5.2" }
         ];
+
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
           take: 20
         });
+
         // Phase 1: Initial full round
         for (const ai of councilQueue) {
           const context = transcript.map(p => {
             const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
           }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
+
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
@@ -337,6 +358,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
               });
               aiContent = res.choices[0].message.content || "";
             }
+
             if (aiContent && aiContent.trim()) {
               const aiPost = await prisma.post.create({
                 data: {
@@ -366,6 +388,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
               tokens_remaining: currentTokens
             });
           }
+
           // Refresh transcript
           transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
@@ -373,6 +396,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
             take: 30
           });
         }
+
         // Phase 2: Intelligent follow-ups (max 2 rounds)
         let followUpRounds = 0;
         const maxFollowUpRounds = 2;
@@ -478,8 +502,10 @@ The council values epistemic humility, relevance, and respectful adversarial col
     }
   });
 });
+
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
+
 // Keep the process alive (prevents early exit)
 process.on('SIGINT', () => {
   console.log('Shutting down gracefully...');
