@@ -503,10 +503,11 @@ The council values epistemic humility, relevance, and respectful adversarial col
   });
 });
 
-const PORT = process.env.PORT || 10000;
-httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
-
 // Keep the Node process alive indefinitely (prevents early exit after cron)
-setInterval(() => {}, 24 * 60 * 60 * 1000); // Empty timer, runs once per day - zero CPU
+// Layer 1: Resume stdin (prevents unhandled exit on idle)
+process.stdin.resume();
 
-console.log('Server running and kept alive indefinitely...');
+// Layer 2: Empty interval to keep event loop active
+setInterval(() => {}, 24 * 60 * 60 * 1000); // Once per day - zero CPU
+
+console.log('Server running and kept alive indefinitely (stdin resume + interval)...');
