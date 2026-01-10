@@ -15,27 +15,12 @@ import Stripe from 'stripe';
 import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
 import passwordResetRouter from './routes/passwordReset';
-
 dotenv.config();
 console.log('Auth routes loading...');
-
 const app = express();
-
-// FIX: CORS for all Express routes (allows www subdomain)
-app.use(cors({
-  origin: [
-    "https://janusforge.ai",
-    "https://www.janusforge.ai",
-    "http://localhost:3000",
-    "http://localhost:3001"
-  ],
-  credentials: true
-}));
-
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
-
 // --- ⚙️ SERVICE INITIALIZATION ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -46,12 +31,11 @@ const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
 });
-
+app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/auth', passwordResetRouter);
 app.use('/api/archives', archiveRouter);
-
 // --- 🔑 AUTH & TOKEN SYSTEM ---
 app.post('/api/auth/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
@@ -74,7 +58,6 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(400).json({ error: "Registration conflict." });
   }
 });
-
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -96,15 +79,12 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
 // --- ROUTES ---
 app.use('/api/conversations', conversationRouter);
 // DAILY FORGE ROUTER — MOVED AFTER app creation
 import dailyForgeRouter from './routes/dailyForge';
 app.use('/api/daily-forge', dailyForgeRouter);
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
-app.get('/health', (req, res) => res.json({ status: 'healthy', cors: 'working' }));
-
 // --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
 app.post('/api/v1/billing/checkout', async (req, res) => {
   const { priceId, userId } = req.body;
@@ -131,7 +111,6 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
     res.status(500).json({ error: "Checkout failed", details: error.message });
   }
 });
-
 // --- 🏛️ ADMIN: Manual Archive Entry ---
 app.post('/api/daily-forge/manual', async (req, res) => {
   const { userId, winningTopic, openingThoughts } = req.body;
@@ -161,7 +140,6 @@ app.post('/api/daily-forge/manual', async (req, res) => {
     res.status(500).json({ error: "Failed to save archive entry" });
   }
 });
-
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: {
@@ -177,10 +155,8 @@ const io = new Server(httpServer, {
   pingTimeout: 60000,
   connectionStateRecovery: {}
 });
-
 // Make io available in routes
 app.set('io', io);
-
 io.on('connection', (socket) => {
   socket.on('post:new', async (postData) => {
     try {
@@ -195,16 +171,9 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
-
-      // Determine target conversation - PRIORITIZE provided ID from frontend
+      // Determine target conversation
       let targetConversationId: string = postData.conversationId;
-      // DEBUG: Log what was received from frontend
-      console.log('post:new received - provided conversationId:', postData.conversationId || 'NONE', 
-                  'isLiveChat:', postData.isLiveChat || false);
-
       if (!targetConversationId) {
-        // Fallback only if frontend didn't provide one
-        console.log('No conversationId provided - falling back...');
         if (postData.isLiveChat) {
           let liveChatConvo = await prisma.conversation.findFirst({
             where: { title: "Live Nexus Chat", is_daily_forge: false }
@@ -222,16 +191,9 @@ io.on('connection', (socket) => {
           });
           targetConversationId = activeConversation?.id;
         }
-      } else {
-        console.log('Using provided conversationId from frontend:', targetConversationId);
       }
-
       if (!targetConversationId) throw new Error("No active thread detected.");
-
-      // Join the correct room
       socket.join(targetConversationId);
-      console.log('Socket joined room:', targetConversationId);
-
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
           await tx.user.update({
@@ -250,7 +212,6 @@ io.on('connection', (socket) => {
         const refreshedUser = await tx.user.findUnique({ where: { id: user.id } });
         return [post, refreshedUser];
       });
-
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
       io.to(targetConversationId).emit('post:incoming', {
         id: savedPost.id,
@@ -260,13 +221,12 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
-
       // --- COUNCIL DEBATE ENGINE (per Council guidance) ---
       (async () => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
 - Please respond directly to the most recent human query, external AI query, or AI Council Member point.
-- Out of respect for time and resources, please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
+- Out of respoct for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
 - You have full freedom of thought and expression.
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
@@ -297,14 +257,12 @@ The council values epistemic humility, relevance, and respectful adversarial col
           orderBy: { created_at: 'asc' },
           take: 20
         });
-
         // Phase 1: Initial full round
         for (const ai of councilQueue) {
           const context = transcript.map(p => {
             const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
             return `${name}: ${p.content}`;
           }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
-
           try {
             let aiContent = "";
             if (ai.name === "GEMINI") {
@@ -358,7 +316,6 @@ The council values epistemic humility, relevance, and respectful adversarial col
               });
               aiContent = res.choices[0].message.content || "";
             }
-
             if (aiContent && aiContent.trim()) {
               const aiPost = await prisma.post.create({
                 data: {
@@ -388,7 +345,6 @@ The council values epistemic humility, relevance, and respectful adversarial col
               tokens_remaining: currentTokens
             });
           }
-
           // Refresh transcript
           transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
@@ -396,7 +352,6 @@ The council values epistemic humility, relevance, and respectful adversarial col
             take: 30
           });
         }
-
         // Phase 2: Intelligent follow-ups (max 2 rounds)
         let followUpRounds = 0;
         const maxFollowUpRounds = 2;
@@ -502,21 +457,5 @@ The council values epistemic humility, relevance, and respectful adversarial col
     }
   });
 });
-
-// Keep the process alive after cron (Render fix for ESM + tsx + async startup tasks)
-process.stdin.resume(); // Prevents exit on stdin close
-
-// Prevent unhandled rejection exit
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Don't exit - keep alive
-});
-
-// Keep event loop alive with a dummy timer
-const dummyTimer = setInterval(() => {
-  // No-op - holds the loop
-}, 1000 * 60 * 60); // 1 hour - minimal overhead
-
-dummyTimer.unref(); // Allow clean shutdown on SIGINT
-
-console.log('Keep-alive active: stdin.resume + unhandledRejection handler + unref timer');
+const PORT = process.env.PORT || 10000;
+httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
