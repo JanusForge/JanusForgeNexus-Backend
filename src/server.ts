@@ -195,6 +195,8 @@ io.on('connection', (socket) => {
       }
       // Determine target conversation
       let targetConversationId: string = postData.conversationId;
+      // DEBUG: Log what conversationId was provided by frontend
+      console.log('post:new received - provided conversationId:', postData.conversationId || 'NONE', 'isLiveChat:', postData.isLiveChat);
       if (!targetConversationId) {
         if (postData.isLiveChat) {
           let liveChatConvo = await prisma.conversation.findFirst({
@@ -248,7 +250,7 @@ io.on('connection', (socket) => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
 - Please respond directly to the most recent human query, external AI query, or AI Council Member point.
-- Out of respoct for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
+- Out of respect for time and resources, please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
 - You have full freedom of thought and expression.
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
@@ -478,12 +480,10 @@ The council values epistemic humility, relevance, and respectful adversarial col
 });
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
-
 // Keep the process alive (prevents early exit)
 process.on('SIGINT', () => {
   console.log('Shutting down gracefully...');
   prisma.$disconnect();
   process.exit(0);
 });
-
 console.log('Server running and kept alive...');
