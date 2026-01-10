@@ -506,10 +506,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
 
-// Keep the process alive (prevents early exit)
-process.on('SIGINT', () => {
-  console.log('Shutting down gracefully...');
-  prisma.$disconnect();
-  process.exit(0);
-});
-console.log('Server running and kept alive...');
+// Keep the Node process alive indefinitely (prevents early exit after cron)
+setInterval(() => {}, 24 * 60 * 60 * 1000); // Empty timer, runs once per day - zero CPU
+
+console.log('Server running and kept alive indefinitely...');
