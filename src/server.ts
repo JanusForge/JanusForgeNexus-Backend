@@ -503,13 +503,20 @@ The council values epistemic humility, relevance, and respectful adversarial col
   });
 });
 
-// Keep-alive for Render (prevents early exit after cron)
-process.stdin.resume(); // Prevent exit on stdin close
+// Keep the process alive after cron (Render fix for ESM + tsx + async startup tasks)
+process.stdin.resume(); // Prevents exit on stdin close
 
-const keepAliveTimer = setInterval(() => {
-  // No-op - just holds event loop
-}, 60 * 60 * 1000); // 1 hour - low overhead
+// Prevent unhandled rejection exit
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - keep alive
+});
 
-keepAliveTimer.unref(); // Don't block shutdown when SIGINT received
+// Keep event loop alive with a dummy timer
+const dummyTimer = setInterval(() => {
+  // No-op - holds the loop
+}, 1000 * 60 * 60); // 1 hour - minimal overhead
 
-console.log('Keep-alive active: stdin.resume() + unref interval');
+dummyTimer.unref(); // Allow clean shutdown on SIGINT
+
+console.log('Keep-alive active: stdin.resume + unhandledRejection handler + unref timer');
