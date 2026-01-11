@@ -1,5 +1,6 @@
-// src/server.ts - FIXED: explicit .ts import, added Socket.IO 'join' handler, updated GROK model
+// src/server.ts - FIXED: explicit .ts import + GROK model update
 import authRouter from './routes/auth.ts';  // FIXED: explicit .ts extension
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -129,7 +130,7 @@ const io = new Server(httpServer, {
 app.set('io', io);
 
 io.on('connection', (socket) => {
-  // FIXED: Add room join handler (matches frontend emit('join', ...))
+  // Room join handler (matches frontend emit('join', ...))
   socket.on('join', ({ conversationId }) => {
     if (conversationId) {
       socket.join(conversationId);
@@ -220,7 +221,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
         const isDailyForge = conversation?.is_daily_forge ?? false;
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },  // FIXED: valid xAI model
+          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },  // FIXED: your requested model
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" }
         ] : [
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" },
@@ -233,7 +234,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
           take: 20,
-          include: { user: true }  // FIXED: include user relation for username
+          include: { user: true }  // Include user for username
         });
         // Phase 1: Initial full round
         for (const ai of councilQueue) {
@@ -264,21 +265,11 @@ The council values epistemic humility, relevance, and respectful adversarial col
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
-              const grokModels = ["grok-beta", "grok-4", "grok-x"];
-              aiContent = "[GROK unavailable]";
-              for (const modelName of grokModels) {
-                try {
-                  const res = await xai.chat.completions.create({
-                    model: modelName,
-                    messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-                  });
-                  aiContent = res.choices[0].message.content || "";
-                  console.log(`GROK success with ${modelName}`);
-                  break;
-                } catch (err) {
-                  console.warn(`GROK failed with ${modelName}:`, err.message || err);
-                }
-              }
+              const res = await xai.chat.completions.create({
+                model: "grok-4.1-fast-reasoning",  // FIXED: your requested model
+                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+              });
+              aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "CLAUDE") {
               const res = await anthropic.messages.create({
                 model: ai.modelKey,
@@ -328,7 +319,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
             take: 30,
-            include: { user: true }  // FIXED: include user for username
+            include: { user: true }
           });
         }
         // Phase 2: Intelligent follow-ups (max 2 rounds)
@@ -368,21 +359,11 @@ The council values epistemic humility, relevance, and respectful adversarial col
                 });
                 aiContent = res.choices[0].message.content || "";
               } else if (ai.name === "GROK") {
-                const grokModels = ["grok-beta", "grok-4", "grok-x"];
-                aiContent = "[GROK unavailable]";
-                for (const modelName of grokModels) {
-                  try {
-                    const res = await xai.chat.completions.create({
-                      model: modelName,
-                      messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-                    });
-                    aiContent = res.choices[0].message.content || "";
-                    console.log(`GROK success with ${modelName}`);
-                    break;
-                  } catch (err) {
-                    console.warn(`GROK failed with ${modelName}:`, err.message || err);
-                  }
-                }
+                const res = await xai.chat.completions.create({
+                  model: "grok-4.1-fast-reasoning",
+                  messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+                });
+                aiContent = res.choices[0].message.content || "";
               } else if (ai.name === "CLAUDE") {
                 const res = await anthropic.messages.create({
                   model: ai.modelKey,
@@ -427,7 +408,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
             take: 40,
-            include: { user: true }  // FIXED: include user relation
+            include: { user: true }
           });
         }
       })();
