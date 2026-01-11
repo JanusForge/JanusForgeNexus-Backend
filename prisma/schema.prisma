@@ -152,7 +152,7 @@ model tier_configurations {
 
 enum AIParticipant {
   GROK
-  GEMINI_PRO
+  GEMINI
   CLAUDE
   CHATGPT
   DEEPSEEK
