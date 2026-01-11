@@ -1,5 +1,5 @@
 // src/server.ts - FIXED: explicit .ts import + GROK model update
-import authRouter from './routes/auth.ts';  // FIXED: explicit .ts extension
+import authRouter from './src/routes/auth.ts';  // FIXED: explicit .ts extension
 
 import express from 'express';
 import { createServer } from 'http';
