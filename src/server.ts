@@ -1,5 +1,5 @@
 // src/server.ts - FIXED: explicit .ts import + GROK model update
-import authRouter from './routes/auth.ts';  // FIXED: explicit .ts extension
+import authRouter from './routes/auth';  // FIXED: explicit .ts extension
 
 import express from 'express';
 import { createServer } from 'http';
@@ -221,15 +221,15 @@ The council values epistemic humility, relevance, and respectful adversarial col
         const isDailyForge = conversation?.is_daily_forge ?? false;
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },  // FIXED: your requested model
-          { name: "GEMINI", modelKey: "gemini-3-flash-preview" }
+          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
+          { name: "GEMINI", modelKey: "gemini-2.5-pro" }
         ] : [
-          { name: "GEMINI", modelKey: "gemini-3-flash-preview" },
+          { name: "GEMINI", modelKey: "gemini-2.5-pro" },
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-beta" },
+          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
           { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
-          { name: "GPT_4O", modelKey: "gpt-5.2" }
-        ];
+          { name: "ChatGPT", modelKey: "gpt-5.2" }  // ← Changed from GPT_4O
+      ];
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
@@ -278,7 +278,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
                 messages: [{ role: "user", content: context }]
               });
               aiContent = (res.content[0] as any).text;
-            } else if (ai.name === "GPT_4O") {
+            } else if (ai.name === "ChatGPT") {
               const res = await openai.chat.completions.create({
                 model: ai.modelKey,
                 messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
@@ -372,7 +372,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
                   messages: [{ role: "user", content: context }]
                 });
                 aiContent = (res.content[0] as any).text;
-              } else if (ai.name === "GPT_4O") {
+              } else if (ai.name === "ChatGPT") {
                 const res = await openai.chat.completions.create({
                   model: ai.modelKey,
                   messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
