@@ -21,7 +21,7 @@ const xai = new OpenAI({
 // Council AIs for randomization (scout only)
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
-  { name: 'GROK', client: xai, model: 'grok-4.1' },           // Latest flagship per xAI releases
+  { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' },           // Latest flagship per xAI releases
   { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) } // Fast latest Gemini
 ];
 

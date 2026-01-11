@@ -251,7 +251,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
         // Council configuration - Daily Forge: only DeepSeek, Grok, Gemini
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-4.1" },
+          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" }
         ] : [
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" },
