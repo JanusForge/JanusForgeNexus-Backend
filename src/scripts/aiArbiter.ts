@@ -29,7 +29,7 @@ async function processLiveDialogue() {
 
           if (!existingVerdict) {
             console.log(`🎙️ Council Summoned for: ${user.username}`);
-            const responseText = await generateCouncilResponse(pendingMessage.raw_response || "", "gpt4");
+            const responseText = await generateCouncilResponse(pendingMessage.raw_response || "", "CHATGPT");
 
             // 2. Corrected: Using user_id, post_id, and raw_response per your DB
             await prisma.$transaction([
@@ -38,7 +38,7 @@ async function processLiveDialogue() {
                   user_id: user.id,
                   post_id: pendingMessage.post_id,
                   raw_response: responseText,
-                  ai_model: 'GPT4',
+                  ai_model: "CHATGPT",
                   processing_time: 0
                 }
               }),
@@ -61,3 +61,6 @@ async function processLiveDialogue() {
 }
 
 processLiveDialogue();
+
+
+// Keep it clean - CLW

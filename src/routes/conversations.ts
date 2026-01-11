@@ -262,7 +262,7 @@ router.post('/:id/posts', async (req: Request, res: Response) => {
       AIParticipant.DEEPSEEK,
       AIParticipant.GROK,
       AIParticipant.CLAUDE,
-      AIParticipant.GPT_4O
+      AIParticipant.CHATGPT
     ];
     for (const aiEnum of fullCouncil) {
       const aiPost = await prisma.post.create({
@@ -290,3 +290,6 @@ router.post('/:id/posts', async (req: Request, res: Response) => {
   }
 });
 export default router;
+
+
+// Keep it Clean - CLW
