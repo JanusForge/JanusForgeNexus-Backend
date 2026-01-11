@@ -220,15 +220,15 @@ The council values epistemic humility, relevance, and respectful adversarial col
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
         let councilQueue = isDailyForge ? [
-  { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-  { name: "GROK", modelKey: "grok-4" },  // Updated to Grok 4 (current flagship)
-  { name: "GEMINI", modelKey: "gemini-2.5-pro" }  // Kept your preferred Gemini
+  { name: "GEMINI", modelKey: "gemini-3-flash" },
+  { name: "GROK", modelKey: "grok-4-1-fast-reasoning" },
+  { name: "DEEPSEEK", modelKey: "deepseek-chat" }
 ] : [
-  { name: "GEMINI", modelKey: "gemini-2.5-pro" },
+  { name: "GEMINI", modelKey: "gemini-3-flash" },
+  { name: "GROK", modelKey: "grok-4-1-fast-reasoning" },
   { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-  { name: "GROK", modelKey: "grok-4" },  // Updated to Grok 4
-  { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
-  { name: "ChatGPT", modelKey: "gpt-5.2" }
+  { name: "CLAUDE", modelKey: "claude-3-5-sonnet-20241022" },
+  { name: "ChatGPT", modelKey: "gpt-4o" }
 ];
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
