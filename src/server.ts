@@ -158,6 +158,14 @@ const io = new Server(httpServer, {
 // Make io available in routes
 app.set('io', io);
 io.on('connection', (socket) => {
+  // FIXED: Add room join handler for observers
+  socket.on('join', ({ conversationId }) => {
+    if (conversationId) {
+      socket.join(conversationId);
+      console.log(`Socket ${socket.id} joined room ${conversationId}`);
+    }
+  });
+
   socket.on('post:new', async (postData) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: postData.userId } });
@@ -173,10 +181,9 @@ io.on('connection', (socket) => {
       }
       // Determine target conversation
       let targetConversationId: string = postData.conversationId;
-      // <--- INSERT THE NEW BLOCK RIGHT HERE
-    if (postData.conversationId && !postData.isLiveChat) {
-      targetConversationId = postData.conversationId;
-    } 
+      if (postData.conversationId && !postData.isLiveChat) {
+        targetConversationId = postData.conversationId;
+      }
       if (!targetConversationId) {
         if (postData.isLiveChat) {
           let liveChatConvo = await prisma.conversation.findFirst({
@@ -230,19 +237,17 @@ io.on('connection', (socket) => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
 - Please respond directly to the most recent human query, external AI query, or AI Council Member point.
-- Out of respoct for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
+- Out of respect for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
 - You have full freedom of thought and expression.
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
-
         // Determine if this conversation is Daily Forge
         const conversation = await prisma.conversation.findUnique({
           where: { id: targetConversationId },
           select: { is_daily_forge: true }
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
-
         // Council configuration - Daily Forge: only DeepSeek, Grok, Gemini
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
@@ -255,7 +260,6 @@ The council values epistemic humility, relevance, and respectful adversarial col
           { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
           { name: "GPT_4O", modelKey: "gpt-5.2" }
         ];
-
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
@@ -463,4 +467,3 @@ The council values epistemic humility, relevance, and respectful adversarial col
 });
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
-
