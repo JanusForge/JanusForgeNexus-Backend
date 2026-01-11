@@ -1,4 +1,4 @@
-// src/server.ts - FIXED: auth import + added Socket.IO 'join' handler
+// src/server.ts - FIXED: explicit .ts import, added Socket.IO 'join' handler, updated GROK model
 import authRouter from './routes/auth.ts';  // FIXED: explicit .ts extension
 import express from 'express';
 import { createServer } from 'http';
@@ -220,7 +220,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
         const isDailyForge = conversation?.is_daily_forge ?? false;
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-beta" },
+          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },  // FIXED: valid xAI model
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" }
         ] : [
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" },
@@ -232,7 +232,8 @@ The council values epistemic humility, relevance, and respectful adversarial col
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
-          take: 20
+          take: 20,
+          include: { user: true }  // FIXED: include user relation for username
         });
         // Phase 1: Initial full round
         for (const ai of councilQueue) {
@@ -326,7 +327,8 @@ The council values epistemic humility, relevance, and respectful adversarial col
           transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
-            take: 30
+            take: 30,
+            include: { user: true }  // FIXED: include user for username
           });
         }
         // Phase 2: Intelligent follow-ups (max 2 rounds)
@@ -424,7 +426,8 @@ The council values epistemic humility, relevance, and respectful adversarial col
           transcript = await prisma.post.findMany({
             where: { conversation_id: targetConversationId },
             orderBy: { created_at: 'asc' },
-            take: 40
+            take: 40,
+            include: { user: true }  // FIXED: include user relation
           });
         }
       })();
