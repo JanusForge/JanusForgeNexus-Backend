@@ -1,4 +1,5 @@
-import authRouter from './routes/auth';
+// src/server.ts - FIXED: auth import + added Socket.IO 'join' handler
+import authRouter from './routes/auth.ts';  // FIXED: explicit .ts extension
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -15,12 +16,15 @@ import Stripe from 'stripe';
 import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
 import passwordResetRouter from './routes/passwordReset';
+
 dotenv.config();
 console.log('Auth routes loading...');
+
 const app = express();
 const httpServer = createServer(app);
 const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
+
 // --- ⚙️ SERVICE INITIALIZATION ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -31,60 +35,23 @@ const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
 });
+
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.json());
+
 app.use('/api/auth', authRouter);
 app.use('/api/auth', passwordResetRouter);
 app.use('/api/archives', archiveRouter);
-// --- 🔑 AUTH & TOKEN SYSTEM ---
-app.post('/api/auth/register', async (req, res) => {
-  const { username, email, password, referralCode = "" } = req.body;
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
-    const user = await prisma.user.create({
-      data: {
-        username,
-        email,
-        password_hash: hashedPassword,
-        role: isBeta ? 'BETA_ARCHITECT' : 'USER',
-        tokens_remaining: isBeta ? 50 : 10,
-        token_balance: isBeta ? 50 : 10,
-        digest_subscribed: true
-      }
-    });
-    res.status(201).json(user);
-  } catch (error) {
-    res.status(400).json({ error: "Registration conflict." });
-  }
-});
-app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    console.log(`🔐 Login attempt for: ${email}`);
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-    if (!user || !user.password_hash) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    console.log("✅ Login Success");
-    res.json(user);
-  } catch (error: any) {
-    console.error("🔥 CRITICAL LOGIN ERROR:", error.message);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+
 // --- ROUTES ---
 app.use('/api/conversations', conversationRouter);
-// DAILY FORGE ROUTER — MOVED AFTER app creation
+
+// DAILY FORGE ROUTER
 import dailyForgeRouter from './routes/dailyForge';
 app.use('/api/daily-forge', dailyForgeRouter);
+
 app.get('/', (req, res) => res.status(200).json({ status: "ONLINE", timestamp: new Date().toISOString() }));
+
 // --- 💳 STRIPE CHECKOUT (Token Packs Only) ---
 app.post('/api/v1/billing/checkout', async (req, res) => {
   const { priceId, userId } = req.body;
@@ -111,6 +78,7 @@ app.post('/api/v1/billing/checkout', async (req, res) => {
     res.status(500).json({ error: "Checkout failed", details: error.message });
   }
 });
+
 // --- 🏛️ ADMIN: Manual Archive Entry ---
 app.post('/api/daily-forge/manual', async (req, res) => {
   const { userId, winningTopic, openingThoughts } = req.body;
@@ -140,6 +108,7 @@ app.post('/api/daily-forge/manual', async (req, res) => {
     res.status(500).json({ error: "Failed to save archive entry" });
   }
 });
+
 // --- 🏛️ ADVERSARIAL DISCOURSE ENGINE (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: {
@@ -155,10 +124,12 @@ const io = new Server(httpServer, {
   pingTimeout: 60000,
   connectionStateRecovery: {}
 });
+
 // Make io available in routes
 app.set('io', io);
+
 io.on('connection', (socket) => {
-  // FIXED: Add room join handler for observers
+  // FIXED: Add room join handler (matches frontend emit('join', ...))
   socket.on('join', ({ conversationId }) => {
     if (conversationId) {
       socket.join(conversationId);
@@ -232,7 +203,7 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
-      // --- COUNCIL DEBATE ENGINE (per Council guidance) ---
+      // --- COUNCIL DEBATE ENGINE ---
       (async () => {
         const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
@@ -242,21 +213,19 @@ Core Guidelines:
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
-        // Determine if this conversation is Daily Forge
         const conversation = await prisma.conversation.findUnique({
           where: { id: targetConversationId },
           select: { is_daily_forge: true }
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
-        // Council configuration - Daily Forge: only DeepSeek, Grok, Gemini
         let councilQueue = isDailyForge ? [
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
+          { name: "GROK", modelKey: "grok-beta" },
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" }
         ] : [
           { name: "GEMINI", modelKey: "gemini-3-flash-preview" },
           { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-          { name: "GROK", modelKey: "grok-4.1" },
+          { name: "GROK", modelKey: "grok-beta" },
           { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
           { name: "GPT_4O", modelKey: "gpt-5.2" }
         ];
@@ -294,7 +263,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
               });
               aiContent = res.choices[0].message.content || "";
             } else if (ai.name === "GROK") {
-              const grokModels = ["grok-4.1", "grok-4", "grok-beta"];
+              const grokModels = ["grok-beta", "grok-4", "grok-x"];
               aiContent = "[GROK unavailable]";
               for (const modelName of grokModels) {
                 try {
@@ -397,7 +366,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
                 });
                 aiContent = res.choices[0].message.content || "";
               } else if (ai.name === "GROK") {
-                const grokModels = ["grok-4.1", "grok-4", "grok-beta"];
+                const grokModels = ["grok-beta", "grok-4", "grok-x"];
                 aiContent = "[GROK unavailable]";
                 for (const modelName of grokModels) {
                   try {
@@ -465,5 +434,6 @@ The council values epistemic humility, relevance, and respectful adversarial col
     }
   });
 });
+
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
