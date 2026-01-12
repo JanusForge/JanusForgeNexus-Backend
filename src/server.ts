@@ -213,23 +213,41 @@ Core Guidelines:
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
-        const conversation = await prisma.conversation.findUnique({
-          where: { id: targetConversationId },
-          select: { is_daily_forge: true }
-        });
-        const isDailyForge = conversation?.is_daily_forge ?? false;
-        // Unified full frontier council for both Daily Forge and homepage chats
-        let councilQueue = isDailyForge ? [
-  { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
-  { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-  { name: "GEMINI", modelKey: "gemini-2.5-pro", modelKey: "gemini-3-flash-preview", modelKey: "gemini-3-pro-preview", modelKey: "gemini-2.5-flash" },
-] : [
-  { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },  
-  { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-  { name: "GEMINI", modelKey: "gemini-2.5-pro", modelKey: "gemini-3-flash-preview", modelKey: "gemini-3-pro-preview", modelKey: "gemini-2.5-flash" },
-  { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
-  { name: "ChatGPT", modelKey: "gpt-5.2" }
-];
+        // 1. Define council configurations in a central, reusable object
+const COUNCIL_CONFIGS = {
+  DAILY_FORGE: [
+    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
+    { name: "DEEPSEEK", modelKey: "deepseek-chat" },
+    { name: "GEMINI", modelKey: "gemini-2.5-pro" }
+  ],
+  FULL_COUNCIL: [
+    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
+    { name: "DEEPSEEK", modelKey: "deepseek-chat" },
+    { name: "GEMINI", modelKey: "gemini-2.5-pro" },
+    { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
+    { name: "ChatGPT", modelKey: "gpt-5.2" }
+  ]
+};
+
+// 2. Optional: Define a model fallback strategy separately
+const MODEL_FALLBACKS = {
+  GEMINI: {
+    primary: "gemini-2.5-pro",
+    fallbacks: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"]
+  }
+  // ... other models if needed
+};
+
+// 3. Your existing query logic
+const conversation = await prisma.conversation.findUnique({
+  where: { id: targetConversationId },
+  select: { is_daily_forge: true }
+});
+
+const isDailyForge = conversation?.is_daily_forge ?? false;
+
+// 4. Clean selection
+const councilQueue = isDailyForge ? COUNCIL_CONFIGS.DAILY_FORGE : COUNCIL_CONFIGS.FULL_COUNCIL;
         let transcript = await prisma.post.findMany({
           where: { conversation_id: targetConversationId },
           orderBy: { created_at: 'asc' },
