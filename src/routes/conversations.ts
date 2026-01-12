@@ -1,12 +1,10 @@
 // src/routes/conversations.ts - Conversation management endpoints
 import { Router, Response, Request } from 'express';
-import prisma from '../lib/prisma';  // Correct relative path from src/routes/
+import prisma from '../lib/prisma'; // Correct relative path from src/routes/
 import { AIParticipant } from '@prisma/client';
 import { AuthenticatedRequest } from '../types';
 
 const router = Router();
-
-// ... rest of your routes (findMany, create, update, etc.) remain unchanged ...
 
 // === Personal User Conversation History ===
 router.get('/user', async (req: Request, res: Response) => {
@@ -220,10 +218,10 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-// Create new post in conversation
+// Create new post in conversation (this is the interjection endpoint)
 router.post('/:id/posts', async (req: Request, res: Response) => {
   const { id: conversationId } = req.params;
-  const { content, userId } = req.body;
+  const { content, userId, is_human, isLiveChat } = req.body;
   if (!userId) {
     return res.status(401).json({ message: 'User ID required' });
   }
@@ -238,9 +236,10 @@ router.post('/:id/posts', async (req: Request, res: Response) => {
     const post = await prisma.post.create({
       data: {
         content: content.trim(),
-        is_human: true,
+        is_human,
         user_id: userId,
-        conversation_id: conversationId
+        conversation_id: conversationId,
+        ai_model: is_human ? null : AIParticipant.DEEPSEEK // fallback to valid enum
       },
       include: {
         user: { select: { id: true, username: true } }
@@ -258,40 +257,21 @@ router.post('/:id/posts', async (req: Request, res: Response) => {
         description: 'Posted message'
       }
     });
-    // Full council for all users - use correct enum values
-    const fullCouncil = [
-      AIParticipant.GEMINI,
-      AIParticipant.DEEPSEEK,
-      AIParticipant.GROK,
-      AIParticipant.CLAUDE,
-      AIParticipant.CHATGPT
-    ];
-    for (const aiEnum of fullCouncil) {
-      const aiPost = await prisma.post.create({
-        data: {
-          content: `[${aiEnum} responding...]`,
-          is_human: false,
-          ai_model: aiEnum,  // Use enum value directly
-          conversation_id: conversationId,
-          parent_post_id: post.id
-        }
-      });
-      const io = req.app.get('io');
-      io.to(`conversation:${conversationId}`).emit('post:incoming', {
-        id: aiPost.id,
-        name: aiEnum,
-        content: `[${aiEnum} responding...]`,
-        sender: 'ai',
-        tokens_remaining: user.token_balance - 1
-      });
-    }
+    // Emit to room for real-time
+    const io = req.app.get('io');
+    io.to(conversationId).emit('post:incoming', {
+      id: post.id,
+      name: user.username,
+      content: post.content,
+      sender: is_human ? 'user' : 'ai',
+      tokens_remaining: user.token_balance - 1
+    });
+    // Trigger council (async, full logic in server.ts)
     res.status(201).json({ post });
   } catch (error) {
-    console.error(error);
+    console.error("POST /posts error:", error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 export default router;
-
-
-// Keep it Clean - CLW
