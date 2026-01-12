@@ -1,4 +1,4 @@
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 async function fixStuckForge() {
     console.log("🔧 Checking for stuck Daily Forge...");
     try {

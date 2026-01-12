@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 const router = Router();
 // Get active daily forge debate
 router.get('/active', async (req, res) => {

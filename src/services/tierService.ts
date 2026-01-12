@@ -61,7 +61,7 @@ export const calculateAICost = (model: AIParticipant, tokens: number): number =>
 export const initializeTierConfigs = async () => {
   try {
     for (const config of Object.values(TIER_CONFIGURATIONS)) {
-      await prisma.tierConfiguration.upsert({
+      await prisma.tier_configurations.upsert({
         where: { tier: config.tier },
         update: {
           ai_models: config.ai_models,

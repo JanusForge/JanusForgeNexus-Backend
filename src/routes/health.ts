@@ -6,8 +6,8 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     // Basic database connectivity check
-    const tierCount = await prisma.tierConfiguration.count();
-    const latestTiers = await prisma.tierConfiguration.findMany({
+    const tierCount = await prisma.tier_configurations.count();
+    const latestTiers = await prisma.tier_configurations.findMany({
         take: 5
     });
 

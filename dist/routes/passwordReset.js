@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 import { Resend } from 'resend';
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);

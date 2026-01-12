@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 const router = Router();
 router.get('/', async (req, res) => {
     try {
         // Basic database connectivity check
-        const tierCount = await prisma.tierConfiguration.count();
-        const latestTiers = await prisma.tierConfiguration.findMany({
+        const tierCount = await prisma.tier_configurations.count();
+        const latestTiers = await prisma.tier_configurations.findMany({
             take: 5
         });
         res.json({

@@ -1,4 +1,4 @@
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 export const TIER_CONFIGURATIONS = {
     FREE: {
         tier: 'FREE',
@@ -43,7 +43,7 @@ export const calculateAICost = (model, tokens) => {
 export const initializeTierConfigs = async () => {
     try {
         for (const config of Object.values(TIER_CONFIGURATIONS)) {
-            await prisma.tierConfiguration.upsert({
+            await prisma.tier_configurations.upsert({
                 where: { tier: config.tier },
                 update: {
                     ai_models: config.ai_models,
