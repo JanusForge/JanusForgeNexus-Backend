@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import { generateCouncilResponse } from '../server';
-const prisma = new PrismaClient();
 async function processLiveDialogue() {
     console.log("⚖️ The Arbiter is monitoring the Ledger...");
     while (true) {

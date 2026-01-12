@@ -23,7 +23,6 @@ console.log('Auth routes loading...');
 
 const app = express();
 const httpServer = createServer(app);
-const prisma = prisma;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // --- ⚙️ SERVICE INITIALIZATION ---

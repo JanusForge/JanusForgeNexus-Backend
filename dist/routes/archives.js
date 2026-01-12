@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import cors from 'cors';
 const router = Router();
-const prisma = new PrismaClient();
 // Enable CORS for frontend
 router.use(cors({
     origin: ['https://janusforge.ai', 'https://www.janusforge.ai'],

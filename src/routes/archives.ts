@@ -3,7 +3,6 @@ import prisma from './lib/prisma';
 import cors from 'cors';
 
 const router = Router();
-const prisma = prisma;
 
 // Enable CORS for frontend
 router.use(cors({

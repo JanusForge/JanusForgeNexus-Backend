@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import OpenAI from 'openai';
-const prisma = new PrismaClient();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 async function runDailyForge() {
     console.log("🔭 Scout initiating daily sweep...");

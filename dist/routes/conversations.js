@@ -1,8 +1,7 @@
 // src/routes/conversations.ts
 import { Router } from 'express';
-import { PrismaClient, AIParticipant } from '@prisma/client';
+import { AIParticipant } from '@prisma/client';
 const router = Router();
-const prisma = new PrismaClient();
 // === Personal User Conversation History ===
 router.get('/user', async (req, res) => {
     const userId = req.query.userId;

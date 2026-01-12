@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
 dotenv.config();
-const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
 async function sendNightlyDigest() {
     console.log('🏛️ Initializing Nightly Digest Dispatch...');

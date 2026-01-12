@@ -5,7 +5,6 @@ import prisma from './lib/prisma';
 import { Resend } from 'resend';
 
 const router = express.Router();
-const prisma = prisma;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Forgot password endpoint - PRODUCTION READY

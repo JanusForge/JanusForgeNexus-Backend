@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 const router = Router();
-const prisma = new PrismaClient();
 // Get active daily forge debate
 router.get('/active', async (req, res) => {
     try {

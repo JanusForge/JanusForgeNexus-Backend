@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
@@ -19,7 +19,6 @@ dotenv.config();
 console.log('Auth routes loading...');
 const app = express();
 const httpServer = createServer(app);
-const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
 // --- ⚙️ SERVICE INITIALIZATION ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -209,14 +208,14 @@ The council values epistemic humility, relevance, and respectful adversarial col
                 const isDailyForge = conversation?.is_daily_forge ?? false;
                 let councilQueue = isDailyForge ? [
                     { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-                    { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
-                    { name: "GEMINI", modelKey: "gemini-2.5-pro" }
+                    { name: "GROK", modelKey: "grok-beta" },
+                    { name: "GEMINI", modelKey: "gemini-1.5-flash" }
                 ] : [
-                    { name: "GEMINI", modelKey: "gemini-2.5-pro" },
+                    { name: "GEMINI", modelKey: "gemini-1.5-flash" },
                     { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-                    { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
-                    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
-                    { name: "ChatGPT", modelKey: "gpt-5.2" } // ← Changed from GPT_4O
+                    { name: "GROK", modelKey: "grok-beta" },
+                    { name: "CLAUDE", modelKey: "claude-3-5-sonnet-20241022" },
+                    { name: "ChatGPT", modelKey: "gpt-4o" }
                 ];
                 let transcript = await prisma.post.findMany({
                     where: { conversation_id: targetConversationId },
@@ -423,3 +422,4 @@ The council values epistemic humility, relevance, and respectful adversarial col
 });
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
+// Keep it clean - CLW

@@ -1,6 +1,5 @@
 import prisma from './lib/prisma';
 
-const prisma = prisma;
 
 // Define local types to avoid Prisma export conflicts
 export type UserTier = 'FREE' | 'BASIC' | 'PROFESSIONAL' | 'ENTERPRISE';

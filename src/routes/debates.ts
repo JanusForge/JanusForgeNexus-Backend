@@ -3,7 +3,6 @@ import prisma from './lib/prisma';
 import { AuthenticatedRequest } from '../types';
 
 const router = Router();
-const prisma = prisma;
 
 // Get active daily forge debate
 router.get('/active', async (req: AuthenticatedRequest, res: Response) => {

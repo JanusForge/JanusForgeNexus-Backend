@@ -6,7 +6,6 @@ import crypto from 'crypto';
 import { Resend } from 'resend';
 
 const router = Router();
-const prisma = prisma;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Helper: Send verification email

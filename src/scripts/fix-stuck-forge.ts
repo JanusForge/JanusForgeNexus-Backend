@@ -1,6 +1,5 @@
 import prisma from './lib/prisma';
 
-const prisma = prisma;
 
 async function fixStuckForge() {
   console.log("🔧 Checking for stuck Daily Forge...");

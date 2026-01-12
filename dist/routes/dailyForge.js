@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 const router = Router();
 // DEBUG: Log what URL we're using
 console.log('🔧 dailyForge.ts - Prisma Client Initialization:');
