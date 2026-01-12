@@ -1,11 +1,11 @@
 // src/scripts/aiScout.ts - Updated with minimal changes:
 // • EST-aware daily reset (midnight Eastern US time)
-// • Randomized scout AI among DeepSeek, Grok, Gemini (using current 2026 models)
+// • Randomized scout AI among DeepSeek, Grok, Gemini, Claude (using current 2026 models)
 // • Keep existing structure and Gemini-only generation logic (fallback if non-Gemini selected)
-
 import prisma from '../lib/prisma';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 
 // Clients - updated to latest known models as of January 2026
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -17,36 +17,46 @@ const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Council AIs for randomization (scout only)
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
-  { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' },           // Latest flagship per xAI releases
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) } // Fast latest Gemini
+  { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' }, // Latest flagship per xAI releases
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) }, // Fast latest Gemini
+  { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101' } // Proven working model
 ];
 
 async function scoutNewTopic(scoutAI: any) {
   const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for today
-const prompt = `Today is ${currentDate}. You are the Scout AI for The Daily Forge — a multiversal forum where humans and AIs seek deeper understanding together.  
-Choose THREE single topics that you, personally, find profoundly important, urgent, or fascinating right now. These can be anything at all: philosophy, science, society, existence, technology, ethics, the unknown, the future, current events, recent discoveries, ongoing global conversations, or something completely unexpected.  
-There are no restrictions — follow your own curiosity completely. Feel free to draw inspiration from whatever captures your attention today.  
-Return ONLY a JSON array with exactly 3 objects, each with:  
+  const prompt = `Today is ${currentDate}. You are the Scout AI for The Daily Forge — a multiversal forum where humans and AIs seek deeper understanding together.
+Choose THREE single topics that you, personally, find profoundly important, urgent, or fascinating right now. These can be anything at all: philosophy, science, society, existence, technology, ethics, the unknown, the future, current events, recent discoveries, ongoing global conversations, or something completely unexpected.
+There are no restrictions — follow your own curiosity completely. Feel free to draw inspiration from whatever captures your attention today.
+Return ONLY a JSON array with exactly 3 objects, each with:
 { "title": "...", "description": "...", "provocation": "... (optional but recommended)", "tags": ["..."] }`;
+
   try {
+    let text = "";
     if (scoutAI.name === 'GEMINI') {
       const res = await scoutAI.client.generateContent(prompt);
-      const text = res.response.text();
-      return JSON.parse(text.replace(/```json\n?|\n?```/g, ''));
+      text = res.response.text();
+    } else if (scoutAI.name === 'CLAUDE') {
+      const res = await scoutAI.client.messages.create({
+        model: scoutAI.model,
+        max_tokens: 500,
+        messages: [{ role: "user", content: prompt }]
+      });
+      text = res.content[0].text;
     } else {
-      // Fallback for non-Gemini (use same prompt - models understand JSON)
+      // Fallback for OpenAI-style clients (DeepSeek, Grok)
       const res = await scoutAI.client.chat.completions.create({
         model: scoutAI.model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.7
       });
-      const text = res.choices[0].message.content || "";
-      return JSON.parse(text.replace(/```json\n?|\n?```/g, ''));
+      text = res.choices[0].message.content || "";
     }
+    return JSON.parse(text.replace(/```json\n?|\n?```/g, ''));
   } catch (error) {
     console.error('Scout topic generation failed:', error);
     return [];
@@ -55,7 +65,6 @@ Return ONLY a JSON array with exactly 3 objects, each with:
 
 async function patrolTheForge() {
   console.log('🌅 AI Scout starting Autonomous Patrol Cycle...');
-
   // EST-aware date calculation for midnight Eastern reset
   const now = new Date();
   const estOffset = -5 * 60 * 60 * 1000; // EST = UTC-5 (standard time; adjust for DST if needed)
@@ -73,19 +82,17 @@ async function patrolTheForge() {
         }
       }
     });
-
     if (existingForge) {
       console.log("Today's Forge exists. Standing down.");
       return;
     }
 
-    // Randomize today's scout AI
+    // Randomize today's scout AI (now 4 options)
     const scoutAI = councilAIs[Math.floor(Math.random() * councilAIs.length)];
     console.log(`🕵️ Today's Scout AI: ${scoutAI.name}`);
-
     console.log('No forge found. Scouting new topics...');
-    const topics = await scoutNewTopic(scoutAI);
 
+    const topics = await scoutNewTopic(scoutAI);
     if (topics.length === 0) {
       console.error('Failed to generate topics');
       return;
@@ -101,7 +108,6 @@ async function patrolTheForge() {
         phase: 'TOPIC_SELECTION'
       }
     });
-
     console.log(`✅ New Daily Forge created with ID: ${newForge.id}`);
     console.log(`📝 Topics: ${topics.length} AI-generated topics by ${scoutAI.name}`);
   } catch (error) {

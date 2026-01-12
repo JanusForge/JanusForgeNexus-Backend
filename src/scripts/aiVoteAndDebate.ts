@@ -1,11 +1,10 @@
-// src/scripts/aiVoteAndDebate.ts - New minimal script
-// Purpose: Automates voting on scouted topics + generates exact 3-post initial debate
+// src/scripts/aiVoteAndDebate.ts - Updated with Claude added
+// Purpose: Automates voting on scouted topics + generates 4-post initial debate
 // Run this on Render cron ~5-10 minutes after aiScout (e.g., 05:10 UTC daily)
-// Keeps your 3 council AIs only, randomizes debate order (who starts), concise responses
-
 import prisma from '../lib/prisma';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { AIParticipant } from '@prisma/client';
 
 // Clients - latest models as of January 2026
@@ -18,13 +17,14 @@ const xai = new OpenAI({
   apiKey: process.env.GROK_API_KEY,
   baseURL: 'https://api.x.ai/v1'
 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Your fixed 3 council AIs
-
+// Your updated 4 council AIs
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
-  { name: 'GROK', client: xai, model: 'grok-4', enumValue: AIParticipant.GROK },
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }), enumValue: AIParticipant.GEMINI_PRO }  // Updated name & enum
+  { name: 'GROK', client: xai, model: 'grok-beta', enumValue: AIParticipant.GROK },
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }), enumValue: AIParticipant.GEMINI_PRO },
+  { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101', enumValue: AIParticipant.CLAUDE }
 ];
 
 async function callAI(ai: any, prompt: string): Promise<string> {
@@ -32,11 +32,18 @@ async function callAI(ai: any, prompt: string): Promise<string> {
     if (ai.name === 'GEMINI') {
       const res = await ai.client.generateContent(prompt);
       return res.response.text().trim();
+    } else if (ai.name === 'CLAUDE') {
+      const res = await ai.client.messages.create({
+        model: ai.model,
+        max_tokens: 500,
+        messages: [{ role: "user", content: prompt }]
+      });
+      return res.content[0].text.trim();
     } else {
       const res = await ai.client.chat.completions.create({
         model: ai.model,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 100, // Enforce concise votes
+        max_tokens: 500, // Enforce concise votes
         temperature: 0.7
       });
       return res.choices[0].message.content?.trim() || "";
@@ -49,8 +56,7 @@ async function callAI(ai: any, prompt: string): Promise<string> {
 
 async function voteAndDebate() {
   console.log('🗳️🔥 AI Council Voting & Initial Debate Cycle Starting...');
-
-  // EST-aware date (copy logic from updated aiScout.ts)
+  // EST-aware date (copy logic from aiScout.ts)
   const now = new Date();
   const estOffset = -5 * 60 * 60 * 1000;
   const estNow = new Date(now.getTime() + estOffset);
@@ -65,7 +71,6 @@ async function voteAndDebate() {
         phase: 'TOPIC_SELECTION'
       }
     });
-
     if (!current || !current.scoutedTopics) {
       console.log('No forge in TOPIC_SELECTION or no topics. Standing down.');
       return;
@@ -76,12 +81,10 @@ async function voteAndDebate() {
       console.log('No scouted topics found.');
       return;
     }
-
     console.log(`📋 ${topics.length} topics available for voting.`);
 
     // Voting phase
     const votePrompt = `Here are today's 3 proposed topics (JSON format):\n${JSON.stringify(topics, null, 2)}\n\nVote for exactly ONE by responding ONLY with its exact "title". Choose the most provocative and civilization-scale worthy of debate.`;
-    
     const votes: Record<string, string> = {};
     for (const ai of councilAIs) {
       const vote = await callAI(ai, votePrompt);
@@ -95,12 +98,10 @@ async function voteAndDebate() {
       if (topics.some((t: any) => t.title === v)) voteCounts[v] = (voteCounts[v] || 0) + 1;
     });
     const winningTitle = Object.keys(voteCounts).sort((a, b) => voteCounts[b] - voteCounts[a] || Math.random() - 0.5)[0];
-
     if (!winningTitle) {
       console.log('No clear winner. Standing down.');
       return;
     }
-
     console.log(`🏆 Winning topic: ${winningTitle}`);
 
     // Create conversation for debate
@@ -136,7 +137,6 @@ async function voteAndDebate() {
             conversation_id: conversation.id
           }
         });
-
         openingThoughts.push({ model: ai.name, content });
         transcript += `${ai.name}: ${content}\n\n`;
         console.log(`${ai.name} contributed to initial debate.`);
@@ -155,7 +155,7 @@ async function voteAndDebate() {
       }
     });
 
-    console.log('✅ Daily Forge advanced: Voting complete, initial 3-post debate generated, interjections now open!');
+    console.log('✅ Daily Forge advanced: Voting complete, initial 4-post debate generated, interjections now open!');
   } catch (error) {
     console.error('Vote & Debate cycle failed:', error);
   }
