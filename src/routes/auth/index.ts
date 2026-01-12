@@ -1,6 +1,6 @@
 // src/routes/auth.ts - FULL UPDATED VERSION WITH EMAIL VERIFICATION
 import { Router } from 'express';
-import prisma from '../lib/prisma';
+import prisma from '../../lib/prisma';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { Resend } from 'resend';
@@ -62,7 +62,6 @@ router.post('/register', async (req, res) => {
         role: isBeta ? 'BETA_ARCHITECT' : 'USER',
         tokens_remaining: isBeta ? 50 : 10,
         token_balance: isBeta ? 50 : 10,
-        digest_subscribed: true,
         emailVerified: false,
         verificationToken,
         verificationTokenExpires,

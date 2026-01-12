@@ -1,9 +1,12 @@
-// src/routes/conversations.ts
+// src/routes/conversations.ts - Conversation management endpoints
 import { Router, Response, Request } from 'express';
-import { PrismaClient, AIParticipant } from '@prisma/client';
+import prisma from '../lib/prisma';  // Correct relative path from src/routes/
+import { AIParticipant } from '@prisma/client';
 import { AuthenticatedRequest } from '../types';
 
 const router = Router();
+
+// ... rest of your routes (findMany, create, update, etc.) remain unchanged ...
 
 // === Personal User Conversation History ===
 router.get('/user', async (req: Request, res: Response) => {

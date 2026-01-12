@@ -1,44 +1,22 @@
-// src/lib/prisma.ts - Reconnecting Prisma Client for Render/Neon
-import prisma from '../lib/prisma';
+// src/lib/prisma.ts - Simple Shared Prisma Client for Render/Neon
+import { PrismaClient } from '@prisma/client';
 
 console.log('🔧 Initializing Shared Prisma Client - Neon pooler connection');
 
-// Global cache to prevent multiple instances (critical for hot-reload in dev)
+// Global cache to prevent multiple instances
 const globalForPrisma = global as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-let prisma: PrismaClient;
-
-// Create or reuse client
-if (!globalForPrisma.prisma) {
-  prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL,
-      },
+const prisma = globalForPrisma.prisma || new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
     },
-    log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
-  });
+  },
+  log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
+});
 
-  // Auto-reconnect on connection errors/closures
-  prisma.$on('error', (e) => {
-    console.error('Prisma connection error detected:', e);
-    console.log('🔄 Re-creating Prisma client...');
-    globalForPrisma.prisma = new PrismaClient({
-      datasources: { db: { url: process.env.DATABASE_URL } },
-      log: ['error'],
-    });
-    prisma = globalForPrisma.prisma;
-  });
-
-  // In development, attach to global to preserve across hot-reloads
-  if (process.env.NODE_ENV !== 'production') {
-    globalForPrisma.prisma = prisma;
-  }
-} else {
-  prisma = globalForPrisma.prisma;
-  console.log('♻️ Reusing existing Prisma Client instance');
-}
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export default prisma;
