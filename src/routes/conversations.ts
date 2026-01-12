@@ -221,55 +221,71 @@ router.post('/', async (req: Request, res: Response) => {
 // Create new post in conversation (this is the interjection endpoint)
 router.post('/:id/posts', async (req: Request, res: Response) => {
   const { id: conversationId } = req.params;
-  const { content, userId, is_human, isLiveChat } = req.body;
+  const { content, userId, is_human = true, isLiveChat = false } = req.body;
+
+  console.log('POST /posts called:', { conversationId, userId, is_human, contentLength: content?.length || 0 });
+
   if (!userId) {
     return res.status(401).json({ message: 'User ID required' });
   }
+
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { token_balance: true }
+      select: { username: true, tokens_remaining: true }
     });
-    if (!user || user.token_balance < 1) {
-      return res.status(402).json({ message: 'Insufficient tokens' });
+    if (!user) {
+      console.log('User not found:', userId);
+      return res.status(404).json({ error: 'User not found' });
     }
+    if (!is_human && user.tokens_remaining < 1) {
+      console.log('Insufficient tokens for AI post');
+      return res.status(403).json({ error: 'Insufficient tokens' });
+    }
+
+    // Create the post (human or placeholder for AI)
     const post = await prisma.post.create({
       data: {
         content: content.trim(),
         is_human,
         user_id: userId,
         conversation_id: conversationId,
-        ai_model: is_human ? null : AIParticipant.DEEPSEEK // fallback to valid enum
+        ai_model: is_human ? null : AIParticipant.DEEPSEEK // fallback valid enum
       },
       include: {
         user: { select: { id: true, username: true } }
       }
     });
-    await prisma.user.update({
-      where: { id: userId },
-      data: { token_balance: { decrement: 1 } }
-    });
-    await prisma.tokenTransaction.create({
-      data: {
-        user_id: userId,
-        amount: -1,
-        transaction_type: 'post_creation',
-        description: 'Posted message'
-      }
-    });
-    // Emit to room for real-time
+
+    // Deduct token if not human
+    if (!is_human) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { tokens_remaining: { decrement: 1 } }
+      });
+      await prisma.tokenTransaction.create({
+        data: {
+          user_id: userId,
+          amount: -1,
+          transaction_type: 'post_creation',
+          description: 'Posted message'
+        }
+      });
+    }
+
+    // Emit to Socket.IO room for real-time
     const io = req.app.get('io');
     io.to(conversationId).emit('post:incoming', {
       id: post.id,
       name: user.username,
       content: post.content,
       sender: is_human ? 'user' : 'ai',
-      tokens_remaining: user.token_balance - 1
+      tokens_remaining: is_human ? user.tokens_remaining : user.tokens_remaining - 1
     });
-    // Trigger council (async, full logic in server.ts)
+
     res.status(201).json({ post });
   } catch (error) {
-    console.error("POST /posts error:", error);
+    console.error('POST /posts error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
