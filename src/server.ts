@@ -226,7 +226,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
 ] : [
   { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },  
   { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-  { name: "GEMINI", modelKey: "gemini-2.5-pro", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash" },
+  { name: "GEMINI", modelKey: "gemini-2.5-pro", modelKey: "gemini-3-flash-preview", modelKey: "gemini-3-pro-preview", modelKey: "gemini-2.5-flash" },
   { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
   { name: "ChatGPT", modelKey: "gpt-5.2" }
 ];
