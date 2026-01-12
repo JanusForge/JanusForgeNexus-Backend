@@ -1,11 +1,8 @@
 -- CreateEnum
-CREATE TYPE "AIParticipant" AS ENUM ('GROK', 'GEMINI_PRO', 'CLAUDE', 'CHATGPT', 'DEEPSEEK');
+--CREATE TYPE "AIParticipant" AS ENUM ('GROK', 'GEMINI_PRO', 'CLAUDE', 'CHATGPT', 'DEEPSEEK');
 
 -- CreateEnum
 CREATE TYPE "UserRole" AS ENUM ('USER', 'ADMIN', 'GOD_MODE', 'BETA_ARCHITECT');
-
--- CreateEnum
-CREATE TYPE "UserTier" AS ENUM ('FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE');
 
 -- CreateTable
 CREATE TABLE "Purchase" (
@@ -26,7 +23,6 @@ CREATE TABLE "users" (
     "email" TEXT NOT NULL,
     "username" TEXT NOT NULL,
     "password_hash" TEXT NOT NULL,
-    "tier" TEXT NOT NULL DEFAULT 'FREE',
     "token_balance" INTEGER NOT NULL DEFAULT 0,
     "tokens_used" INTEGER NOT NULL DEFAULT 0,
     "tokens_remaining" INTEGER NOT NULL DEFAULT 0,
@@ -34,7 +30,6 @@ CREATE TABLE "users" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
     "role" "UserRole" NOT NULL DEFAULT 'USER',
-    "digest_subscribed" BOOLEAN NOT NULL DEFAULT true,
     "reset_expires" TIMESTAMP(3),
     "reset_token" TEXT,
     "resetToken" TEXT,
@@ -130,17 +125,6 @@ CREATE TABLE "DailyForge" (
     CONSTRAINT "DailyForge_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "tier_configurations" (
-    "id" TEXT NOT NULL,
-    "tier" TEXT NOT NULL,
-    "ai_models" TEXT[],
-    "token_allowance" INTEGER NOT NULL,
-    "price_cents" INTEGER NOT NULL,
-
-    CONSTRAINT "tier_configurations_pkey" PRIMARY KEY ("id")
-);
-
 -- CreateIndex
 CREATE UNIQUE INDEX "Purchase_stripeSessionId_key" ON "Purchase"("stripeSessionId");
 
@@ -161,9 +145,6 @@ CREATE UNIQUE INDEX "ai_responses_post_id_key" ON "ai_responses"("post_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "debate_votes_user_id_conversation_id_ai_model_key" ON "debate_votes"("user_id", "conversation_id", "ai_model");
-
--- CreateIndex
-CREATE UNIQUE INDEX "tier_configurations_tier_key" ON "tier_configurations"("tier");
 
 -- AddForeignKey
 ALTER TABLE "Purchase" ADD CONSTRAINT "Purchase_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
