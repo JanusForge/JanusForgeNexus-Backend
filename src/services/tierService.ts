@@ -1,4 +1,4 @@
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 
 
 // Define local types to avoid Prisma export conflicts

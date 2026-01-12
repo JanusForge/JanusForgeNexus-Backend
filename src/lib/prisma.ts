@@ -1,5 +1,5 @@
 // src/lib/prisma.ts - Reconnecting Prisma Client for Render/Neon
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 
 console.log('🔧 Initializing Shared Prisma Client - Neon pooler connection');
 

@@ -1,6 +1,6 @@
 // src/routes/auth.ts - FULL UPDATED VERSION WITH EMAIL VERIFICATION
 import { Router } from 'express';
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { Resend } from 'resend';

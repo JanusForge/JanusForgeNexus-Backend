@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import prisma from './lib/prisma';
+import prisma from '../lib/prisma';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
