@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
@@ -23,7 +23,7 @@ console.log('Auth routes loading...');
 
 const app = express();
 const httpServer = createServer(app);
-const prisma = new PrismaClient();
+const prisma = prisma;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // --- ⚙️ SERVICE INITIALIZATION ---

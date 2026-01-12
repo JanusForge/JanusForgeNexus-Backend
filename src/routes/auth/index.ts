@@ -1,12 +1,12 @@
 // src/routes/auth.ts - FULL UPDATED VERSION WITH EMAIL VERIFICATION
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma = prisma;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Helper: Send verification email

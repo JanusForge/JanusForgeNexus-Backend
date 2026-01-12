@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 
-const prisma = new PrismaClient();
+const prisma = prisma;
 
 async function fixStuckForge() {
   console.log("🔧 Checking for stuck Daily Forge...");

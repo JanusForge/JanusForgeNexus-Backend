@@ -4,7 +4,7 @@ import { PrismaClient, AIParticipant } from '@prisma/client';
 import { AuthenticatedRequest } from '../types';
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma = prisma;
 
 // === Personal User Conversation History ===
 router.get('/user', async (req: Request, res: Response) => {

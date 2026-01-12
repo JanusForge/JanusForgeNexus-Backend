@@ -1,11 +1,11 @@
 import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import { Resend } from 'resend';
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = prisma;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Forgot password endpoint - PRODUCTION READY

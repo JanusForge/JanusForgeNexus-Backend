@@ -1,42 +1,34 @@
-import prisma from './lib/prisma';
+import { PrismaClient } from '@prisma/client';
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
-
 dotenv.config();
-
-const prisma = prisma;
+const prisma = new PrismaClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
-
 async function sendNightlyDigest() {
-  console.log('🏛️ Initializing Nightly Digest Dispatch...');
-
-  try {
-    // 1. Get the most recent synthesis from the Daily Forge
-    const latestForge = await prisma.dailyForge.findFirst({
-      orderBy: { createdAt: 'desc' }
-    });
-
-    if (!latestForge) {
-      console.log('⚠️ No forge entry found for today. Aborting.');
-      return;
-    }
-
-    // 2. Identify all users opted into the briefing
-    const subscribers = await prisma.user.findMany({
-      where: { digest_subscribed: true },
-      select: { email: true, username: true }
-    });
-
-    console.log(`📡 Found ${subscribers.length} subscribers.`);
-
-    // 3. Dispatch the High-Fidelity Briefing
-    for (const user of subscribers) {
-      try {
-        await resend.emails.send({
-          from: 'Janus Forge <digest@janusforge.ai>',
-          to: user.email,
-          subject: `Nightly Digest: ${latestForge.title}`,
-          html: `
+    console.log('🏛️ Initializing Nightly Digest Dispatch...');
+    try {
+        // 1. Get the most recent synthesis from the Daily Forge
+        const latestForge = await prisma.dailyForge.findFirst({
+            orderBy: { createdAt: 'desc' }
+        });
+        if (!latestForge) {
+            console.log('⚠️ No forge entry found for today. Aborting.');
+            return;
+        }
+        // 2. Identify all users opted into the briefing
+        const subscribers = await prisma.user.findMany({
+            where: { digest_subscribed: true },
+            select: { email: true, username: true }
+        });
+        console.log(`📡 Found ${subscribers.length} subscribers.`);
+        // 3. Dispatch the High-Fidelity Briefing
+        for (const user of subscribers) {
+            try {
+                await resend.emails.send({
+                    from: 'Janus Forge <digest@janusforge.ai>',
+                    to: user.email,
+                    subject: `Nightly Digest: ${latestForge.title}`,
+                    html: `
             <div style="background-color: #000000; color: #ffffff; font-family: sans-serif; padding: 40px; line-height: 1.5;">
               <div style="max-width: 600px; margin: 0 auto; border: 1px solid #1e40af; border-radius: 32px; padding: 48px; background: linear-gradient(180deg, #0a0a0a 0%, #000000 100%);">
                 
@@ -77,17 +69,19 @@ async function sendNightlyDigest() {
               </div>
             </div>
           `
-        });
-        console.log(`✅ Digest sent to ${user.email}`);
-      } catch (err) {
-        console.error(`❌ Failed to send to ${user.email}:`, err);
-      }
+                });
+                console.log(`✅ Digest sent to ${user.email}`);
+            }
+            catch (err) {
+                console.error(`❌ Failed to send to ${user.email}:`, err);
+            }
+        }
     }
-  } catch (error) {
-    console.error('🚨 Critical Dispatch Error:', error);
-  } finally {
-    await prisma.$disconnect();
-  }
+    catch (error) {
+        console.error('🚨 Critical Dispatch Error:', error);
+    }
+    finally {
+        await prisma.$disconnect();
+    }
 }
-
 sendNightlyDigest();

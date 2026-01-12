@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import cors from 'cors';
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma = prisma;
 
 // Enable CORS for frontend
 router.use(cors({
