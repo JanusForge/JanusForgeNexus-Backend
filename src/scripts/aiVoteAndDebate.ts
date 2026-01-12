@@ -24,7 +24,7 @@ const xai = new OpenAI({
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
   { name: 'GROK', client: xai, model: 'grok-4', enumValue: AIParticipant.GROK },
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }), enumValue: AIParticipant.GEMINI }  // Updated name & enum
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }), enumValue: AIParticipant.GEMINI_PRO }  // Updated name & enum
 ];
 
 async function callAI(ai: any, prompt: string): Promise<string> {
