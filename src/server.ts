@@ -220,13 +220,13 @@ The council values epistemic humility, relevance, and respectful adversarial col
         });
         const isDailyForge = conversation?.is_daily_forge ?? false;
         let councilQueue = isDailyForge ? [
-  { name: "GEMINI", modelKey: "gemini-3-flash" },
-  { name: "GROK", modelKey: "grok-4-1-fast-reasoning" },
-  { name: "DEEPSEEK", modelKey: "deepseek-chat" }
-] : [
-  { name: "GEMINI", modelKey: "gemini-3-flash" },
-  { name: "GROK", modelKey: "grok-4-1-fast-reasoning" },
   { name: "DEEPSEEK", modelKey: "deepseek-chat" },
+  { name: "GROK", modelKey: "grok-beta" },
+  { name: "GEMINI", modelKey: "gemini-1.5-flash" }
+] : [
+  { name: "GEMINI", modelKey: "gemini-1.5-flash" },
+  { name: "DEEPSEEK", modelKey: "deepseek-chat" },
+  { name: "GROK", modelKey: "grok-beta" },
   { name: "CLAUDE", modelKey: "claude-3-5-sonnet-20241022" },
   { name: "ChatGPT", modelKey: "gpt-4o" }
 ];
