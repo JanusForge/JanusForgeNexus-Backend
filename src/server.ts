@@ -205,8 +205,8 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
-
-// --- COUNCIL DEBATE ENGINE ---
+     
+    // --- COUNCIL DEBATE ENGINE ---
 (async () => {
   const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
@@ -217,11 +217,11 @@ Core Guidelines:
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
-  // Use only proven-working models (DeepSeek + Claude + Grok-beta)
+  // Stable 3-AI queue (DeepSeek + Claude + Grok-beta)
   const councilAIs = [
-    { name: "DEEPSEEK", modelKey: "deepseek-chat", client: deepseek },
-    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101", client: anthropic },
-    { name: "GROK", modelKey: "grok-beta", client: xai }
+    { name: "DEEPSEEK", modelKey: "deepseek-chat", enumValue: AIParticipant.DEEPSEEK },
+    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101", enumValue: AIParticipant.CLAUDE },
+    { name: "GROK", modelKey: "grok-beta", enumValue: AIParticipant.GROK }
   ];
 
   let transcript = await prisma.post.findMany({
@@ -241,21 +241,20 @@ The council values epistemic humility, relevance, and respectful adversarial col
     let aiContent = "";
     try {
       if (ai.name === "DEEPSEEK") {
-        const res = await ai.client.chat.completions.create({
+        const res = await deepseek.chat.completions.create({
           model: ai.modelKey,
           messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
         });
         aiContent = res.choices[0].message.content || "";
       } else if (ai.name === "CLAUDE") {
-        const res = await ai.client.messages.create({
+        const res = await anthropic.messages.create({
           model: ai.modelKey,
-          max_tokens: 1500,
-          system: councilDirective,
+          max_tokens: 800,
           messages: [{ role: "user", content: context }]
         });
         aiContent = res.content[0].text;
       } else if (ai.name === "GROK") {
-        const res = await ai.client.chat.completions.create({
+        const res = await xai.chat.completions.create({
           model: ai.modelKey,
           messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
         });
@@ -267,7 +266,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
           data: {
             content: aiContent,
             is_human: false,
-            ai_model: ai.name as AIParticipant, // Correct enum casting
+            ai_model: ai.enumValue,  // Correct enum value
             conversation_id: targetConversationId
           }
         });
@@ -278,8 +277,8 @@ The council values epistemic humility, relevance, and respectful adversarial col
           sender: 'ai',
           tokens_remaining: currentTokens
         });
-        await new Promise(r => setTimeout(r, 1500));
         console.log(`[SUCCESS] ${ai.name} response saved`);
+        await new Promise(r => setTimeout(r, 1500)); // breathing room
       }
     } catch (err) {
       console.error(`[${ai.name} FAILURE]`, err);
@@ -291,7 +290,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
         tokens_remaining: currentTokens
       });
     } finally {
-      // Refresh transcript after each AI (in finally so it always runs)
+      // Refresh transcript after each AI — this is the missing piece
       transcript = await prisma.post.findMany({
         where: { conversation_id: targetConversationId },
         orderBy: { created_at: 'asc' },
@@ -301,76 +300,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
     }
   }
 })();
-        // Phase 2: Intelligent follow-ups (max 2 rounds) - optional, kept simple
-        let followUpRounds = 0;
-        const maxFollowUpRounds = 2;
-        while (followUpRounds < maxFollowUpRounds) {
-          const lastHuman = transcript.slice().reverse().find(p => p.is_human);
-          const hasTrigger = lastHuman && lastHuman.content.match(/\?|why|but|however|explain|clarify|what about|you think/i);
-          if (!hasTrigger) break;
-          const shuffled = [...councilQueue].sort(() => Math.random() - 0.5);
-          let responded = false;
-          for (const ai of shuffled) {
-            const context = transcript.map(p => {
-              const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
-              return `${name}: ${p.content}`;
-            }).join("\n\n") + "\n\nRespond only if you have a meaningful new insight or direct response to the latest message.";
-            let aiContent = "";
-            try {
-              if (ai.name === "DEEPSEEK") {
-                const res = await deepseek.chat.completions.create({
-                  model: ai.modelKey,
-                  messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-                });
-                aiContent = res.choices[0].message.content || "";
-              } else if (ai.name === "CLAUDE") {
-                const res = await anthropic.messages.create({
-                  model: ai.modelKey,
-                  max_tokens: 1500,
-                  system: councilDirective,
-                  messages: [{ role: "user", content: context }]
-                });
-                aiContent = (res.content[0] as any).text;
-              } else if (ai.name === "GROK") {
-                const res = await xai.chat.completions.create({
-                  model: ai.modelKey,
-                  messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-                });
-                aiContent = res.choices[0].message.content || "";
-              }
-              if (aiContent && aiContent.trim().length > 50) {
-                const aiPost = await prisma.post.create({
-                  data: {
-                    content: aiContent,
-                    is_human: false,
-                    ai_model: ai.name as AIParticipant,
-                    conversation_id: targetConversationId
-                  }
-                });
-                io.to(targetConversationId).emit('post:incoming', {
-                  id: aiPost.id,
-                  name: ai.name,
-                  content: aiContent,
-                  sender: 'ai',
-                  tokens_remaining: currentTokens
-                });
-                responded = true;
-                await new Promise(r => setTimeout(r, 2500));
-              }
-            } catch (err) {
-              console.error(`[${ai.name} FAILURE in follow-up]`, err);
-            }
-          }
-          if (!responded) break;
-          followUpRounds++;
-          transcript = await prisma.post.findMany({
-            where: { conversation_id: targetConversationId },
-            orderBy: { created_at: 'asc' },
-            take: 40,
-            include: { user: true }
-          });
-        }
-      })();
+
     } catch (error: any) {
       console.error("Socket post:new error:", error);
       socket.emit('error', { message: "Channel Sync Lost." });
