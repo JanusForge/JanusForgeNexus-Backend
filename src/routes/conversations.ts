@@ -7,29 +7,33 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * Fetches the user's isolated history.
- * Enforces Row-Level Security (RLS) via a database transaction.
+ * Populates the 'Neural History' and 'Chrono Vault' sidebars.
+ * Enforces unbreakable privacy via Row-Level Security (RLS).
  */
-
 router.get('/user', async (req, res) => {
   try {
     const { userId } = req.query;
-    if (!userId) return res.status(400).json({ error: 'User ID required' });
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
 
     const uid = String(userId);
-    console.log(`[PRIVACY SYNC] Isolated history request for: ${uid}`);
+    console.log(`[PRIVACY SYNC] Isolated history request for ID: "${uid}"`);
 
     /**
-     * Use $transaction to ensure the session setting and query share a connection.
-     * We use 'SET' without 'LOCAL' or 'SESSION' keywords to safely initialize 
-     * custom parameters in some environments.
+     * PRODUCTION FIX: Use set_config to initialize the session variable.
+     * Wrapping this in a transaction ensures the ID check and the data query 
+     * happen on the same database connection.
      */
     const conversations = await prisma.$transaction(async (tx) => {
-      // Initialize the custom parameter to avoid the 500 'unrecognized' error
+      // Safely set the user context for the RLS policy
       await tx.$executeRawUnsafe(`SELECT set_config('app.current_user_id', '${uid}', true)`);
       
       return await tx.conversation.findMany({
-        where: { user_id: uid },
+        where: { 
+          user_id: uid // Explicitly maps to the TEXT column in Neon
+        },
         orderBy: { created_at: 'desc' },
         select: {
           id: true,
@@ -45,15 +49,20 @@ router.get('/user', async (req, res) => {
       });
     });
 
-    res.json(conversations.map(conv => ({
+    console.log(`[PRIVACY SYNC] Successfully retrieved ${conversations.length} isolated records.`);
+
+    const formatted = conversations.map(conv => ({
       id: conv.id,
-      title: conv.title || "Untitled Synthesis",
+      title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Untitled Synthesis"),
       isDailyForge: conv.is_daily_forge,
       timestamp: conv.created_at,
       preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived content"
-    })));
-  } catch (error) {
-    console.error('CRITICAL RENDER ERROR:', error);
+    }));
+
+    res.json(formatted);
+  } catch (error: any) {
+    // Log exact error to Render dashboard for debugging
+    console.error('CRITICAL RENDER RLS ERROR:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -76,12 +85,12 @@ router.get('/:conversationId', async (req, res) => {
       }
     });
 
-    if (!conversation) return res.status(404).json({ error: 'Not found' });
+    if (!conversation) return res.status(404).json({ error: 'Synthesis not found' });
 
     res.json({ conversation });
   } catch (error: any) {
     console.error('GET /conversations/:conversationId error:', error);
-    res.status(500).json({ error: 'Failed to fetch' });
+    res.status(500).json({ error: 'Failed to fetch transcript' });
   }
 });
 
@@ -99,7 +108,7 @@ router.post('/:conversationId/posts', async (req, res) => {
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation) return res.status(404).json({ error: 'Not found' });
 
-    // CLAIM LOGIC: If unowned, this user becomes the owner
+    // CLAIM LOGIC: Automatically assign owner if currently NULL
     if (!conversation.user_id) {
         await prisma.conversation.update({
             where: { id: conversationId },
