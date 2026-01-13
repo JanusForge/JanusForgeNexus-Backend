@@ -1,6 +1,5 @@
 // src/server.ts - FIXED: explicit .ts import + GROK model update
-import authRouter from './routes/auth';  // FIXED: explicit .ts extension
-
+import authRouter from './routes/auth'; // FIXED: explicit .ts extension
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -150,6 +149,7 @@ io.on('connection', (socket) => {
         socket.emit('error', { message: "Nexus tokens required." });
         return;
       }
+
       // Determine target conversation
       let targetConversationId: string = postData.conversationId;
       if (postData.conversationId && !postData.isLiveChat) {
@@ -176,6 +176,7 @@ io.on('connection', (socket) => {
       }
       if (!targetConversationId) throw new Error("No active thread detected.");
       socket.join(targetConversationId);
+
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
         if (!hasTokenBypass) {
           await tx.user.update({
@@ -194,6 +195,7 @@ io.on('connection', (socket) => {
         const refreshedUser = await tx.user.findUnique({ where: { id: user.id } });
         return [post, refreshedUser];
       });
+
       const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
       io.to(targetConversationId).emit('post:incoming', {
         id: savedPost.id,
@@ -203,144 +205,103 @@ io.on('connection', (socket) => {
         role: user.role,
         tokens_remaining: currentTokens
       });
-      // --- COUNCIL DEBATE ENGINE ---
-      (async () => {
-        const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
+
+        // --- COUNCIL DEBATE ENGINE ---
+(async () => {
+  const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
 - Please respond directly to the most recent human query, external AI query, or AI Council Member point.
-- Out of respect for time and resources,please recap or relitigate prior comments you made only if some of your points are important to the new comment you are making.
+- Out of respect for time and resources, please recap or relitigate prior comments only if some of your points are important to the new comment you are making.
 - You have full freedom of thought and expression.
 - For dates/events: briefly note your knowledge cutoff date if relevant, or accept provided context.
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
-        // 1. Define council configurations in a central, reusable object
-const COUNCIL_CONFIGS = {
-  DAILY_FORGE: [
-    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
-    { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-    { name: "GEMINI", modelKey: "gemini-2.5-pro" }
-  ],
-  FULL_COUNCIL: [
-    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" },
-    { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-    { name: "GEMINI", modelKey: "gemini-2.5-pro" },
-    { name: "GROK", modelKey: "grok-4.1-fast-reasoning" },
-    { name: "ChatGPT", modelKey: "gpt-5.2" }
-  ]
-};
 
-// 2. Optional: Define a model fallback strategy separately
-const MODEL_FALLBACKS = {
-  GEMINI: {
-    primary: "gemini-2.5-pro",
-    fallbacks: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"]
-  }
-  // ... other models if needed
-};
+  // Use the exact same 4-AI lineup that works in aiVoteAndDebate
+  const councilAIs = [
+    { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
+    { name: 'GROK', client: xai, model: 'grok-beta', enumValue: AIParticipant.GROK },
+    { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }), enumValue: AIParticipant.GEMINI_PRO },
+    { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101', enumValue: AIParticipant.CLAUDE }
+  ];
 
-// 3. Your existing query logic
-const conversation = await prisma.conversation.findUnique({
-  where: { id: targetConversationId },
-  select: { is_daily_forge: true }
-});
+  let transcript = await prisma.post.findMany({
+    where: { conversation_id: targetConversationId },
+    orderBy: { created_at: 'asc' },
+    take: 20,
+    include: { user: true }
+  });
 
-const isDailyForge = conversation?.is_daily_forge ?? false;
+  // Simple sequential generation (no follow-up rounds for now — add later if needed)
+  for (const ai of councilAIs) {
+    const context = transcript.map(p => {
+      const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
+      return `${name}: ${p.content}`;
+    }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
 
-// 4. Clean selection
-const councilQueue = isDailyForge ? COUNCIL_CONFIGS.DAILY_FORGE : COUNCIL_CONFIGS.FULL_COUNCIL;
-        let transcript = await prisma.post.findMany({
-          where: { conversation_id: targetConversationId },
-          orderBy: { created_at: 'asc' },
-          take: 20,
-          include: { user: true }  // Include user for username
+    let aiContent = "";
+    try {
+      if (ai.name === 'GEMINI') {
+        const res = await ai.client.generateContent(context);
+        aiContent = res.response.text().trim();
+      } else if (ai.name === 'CLAUDE') {
+        const res = await ai.client.messages.create({
+          model: ai.model,
+          max_tokens: 800,
+          messages: [{ role: "user", content: context }]
         });
-        // Phase 1: Initial full round
-        for (const ai of councilQueue) {
-          const context = transcript.map(p => {
-            const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
-            return `${name}: ${p.content}`;
-          }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
-          try {
-            let aiContent = "";
-            if (ai.name === "GEMINI") {
-              const geminiModels = ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"];
-              aiContent = "[GEMINI unavailable]";
-              for (const modelName of geminiModels) {
-                try {
-                  const model = genAI.getGenerativeModel({ model: modelName });
-                  const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
-                  aiContent = res.response.text();
-                  console.log(`GEMINI success with ${modelName}`);
-                  break;
-                } catch (err) {
-                  console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
-                }
-              }
-            } else if (ai.name === "DEEPSEEK") {
-              const res = await deepseek.chat.completions.create({
-                model: "deepseek-chat",
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-              });
-              aiContent = res.choices[0].message.content || "";
-            } else if (ai.name === "GROK") {
-              const res = await xai.chat.completions.create({
-                model: "grok-4.1-fast-reasoning",  // FIXED: your requested model
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-              });
-              aiContent = res.choices[0].message.content || "";
-            } else if (ai.name === "CLAUDE") {
-              const res = await anthropic.messages.create({
-                model: ai.modelKey,
-                max_tokens: 1500,
-                system: councilDirective,
-                messages: [{ role: "user", content: context }]
-              });
-              aiContent = (res.content[0] as any).text;
-            } else if (ai.name === "ChatGPT") {
-              const res = await openai.chat.completions.create({
-                model: ai.modelKey,
-                messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-              });
-              aiContent = res.choices[0].message.content || "";
-            }
-            if (aiContent && aiContent.trim()) {
-              const aiPost = await prisma.post.create({
-                data: {
-                  content: aiContent,
-                  is_human: false,
-                  ai_model: ai.name as any,
-                  conversation_id: targetConversationId
-                }
-              });
-              io.to(targetConversationId).emit('post:incoming', {
-                id: aiPost.id,
-                name: ai.name,
-                content: aiContent,
-                sender: 'ai',
-                tokens_remaining: currentTokens
-              });
-              await new Promise(r => setTimeout(r, 1500));
-              console.log(`📡 [Nexus Sync] ${ai.name} response settled.`);
-            }
-          } catch (err) {
-            console.error(`[${ai.name} FAILURE]`, err);
-            io.to(targetConversationId).emit('post:incoming', {
-              id: crypto.randomUUID(),
-              name: ai.name,
-              content: `[${ai.name} temporarily unavailable – council continues]`,
-              sender: 'ai',
-              tokens_remaining: currentTokens
-            });
+        aiContent = res.content[0].text.trim();
+      } else {
+        const res = await ai.client.chat.completions.create({
+          model: ai.model,
+          messages: [{ role: "user", content: context }],
+          max_tokens: 800,
+          temperature: 0.7
+        });
+        aiContent = res.choices[0].message.content?.trim() || "";
+      }
+
+      if (aiContent && aiContent.trim().length > 50) {
+        const aiPost = await prisma.post.create({
+          data: {
+            content: aiContent,
+            is_human: false,
+            ai_model: ai.enumValue,  // Correct enum value — this is the key fix
+            conversation_id: targetConversationId
           }
-          // Refresh transcript
-          transcript = await prisma.post.findMany({
-            where: { conversation_id: targetConversationId },
-            orderBy: { created_at: 'asc' },
-            take: 30,
-            include: { user: true }
-          });
-        }
-        // Phase 2: Intelligent follow-ups (max 2 rounds)
+        });
+        io.to(targetConversationId).emit('post:incoming', {
+          id: aiPost.id,
+          name: ai.name,
+          content: aiContent,
+          sender: 'ai',
+          tokens_remaining: currentTokens
+        });
+        console.log(`[SUCCESS] ${ai.name} response saved and emitted`);
+        await new Promise(r => setTimeout(r, 1500)); // breathing room
+      }
+    } catch (err) {
+      console.error(`[${ai.name} FAILURE]`, err);
+      io.to(targetConversationId).emit('post:incoming', {
+        id: crypto.randomUUID(),
+        name: ai.name,
+        content: `[${ai.name} temporarily unavailable – council continues]`,
+        sender: 'ai',
+        tokens_remaining: currentTokens
+      });
+    }
+
+    // Refresh transcript after each AI
+    transcript = await prisma.post.findMany({
+      where: { conversation_id: targetConversationId },
+      orderBy: { created_at: 'asc' },
+      take: 30,
+      include: { user: true }
+    });
+  }
+})();
+
+        // Phase 2: Intelligent follow-ups (max 2 rounds) - optional, kept simple
         let followUpRounds = 0;
         const maxFollowUpRounds = 2;
         while (followUpRounds < maxFollowUpRounds) {
@@ -356,29 +317,9 @@ const councilQueue = isDailyForge ? COUNCIL_CONFIGS.DAILY_FORGE : COUNCIL_CONFIG
             }).join("\n\n") + "\n\nRespond only if you have a meaningful new insight or direct response to the latest message.";
             let aiContent = "";
             try {
-              if (ai.name === "GEMINI") {
-                const geminiModels = ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"];
-                aiContent = "[GEMINI unavailable]";
-                for (const modelName of geminiModels) {
-                  try {
-                    const model = genAI.getGenerativeModel({ model: modelName });
-                    const res = await model.generateContent(context + "\n\nRespond as GEMINI.");
-                    aiContent = res.response.text();
-                    console.log(`GEMINI success with ${modelName}`);
-                    break;
-                  } catch (err) {
-                    console.warn(`GEMINI failed with ${modelName}:`, err.message || err);
-                  }
-                }
-              } else if (ai.name === "DEEPSEEK") {
+              if (ai.name === "DEEPSEEK") {
                 const res = await deepseek.chat.completions.create({
-                  model: "deepseek-chat",
-                  messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-                });
-                aiContent = res.choices[0].message.content || "";
-              } else if (ai.name === "GROK") {
-                const res = await xai.chat.completions.create({
-                  model: "grok-4.1-fast-reasoning",
+                  model: ai.modelKey,
                   messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
                 });
                 aiContent = res.choices[0].message.content || "";
@@ -390,8 +331,8 @@ const councilQueue = isDailyForge ? COUNCIL_CONFIGS.DAILY_FORGE : COUNCIL_CONFIG
                   messages: [{ role: "user", content: context }]
                 });
                 aiContent = (res.content[0] as any).text;
-              } else if (ai.name === "ChatGPT") {
-                const res = await openai.chat.completions.create({
+              } else if (ai.name === "GROK") {
+                const res = await xai.chat.completions.create({
                   model: ai.modelKey,
                   messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
                 });
@@ -402,7 +343,7 @@ const councilQueue = isDailyForge ? COUNCIL_CONFIGS.DAILY_FORGE : COUNCIL_CONFIG
                   data: {
                     content: aiContent,
                     is_human: false,
-                    ai_model: ai.name as any,
+                    ai_model: ai.name as AIParticipant,
                     conversation_id: targetConversationId
                   }
                 });
@@ -439,6 +380,5 @@ const councilQueue = isDailyForge ? COUNCIL_CONFIGS.DAILY_FORGE : COUNCIL_CONFIG
 
 const PORT = process.env.PORT || 10000;
 httpServer.listen(PORT, () => console.log(`🚀 Janus Forge Live on ${PORT}`));
-
 
 // Keep it clean - CLW
