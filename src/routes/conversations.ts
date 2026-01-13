@@ -5,119 +5,73 @@ import { triggerCouncilDebate } from '../lib/councilDebate';
 
 const router = express.Router();
 
-/**
- * GET /api/conversations/user
- * Populates Neural History and Chrono Vault.
- */
+// GET HISTORY
 router.get('/user', async (req, res) => {
   try {
     const { userId } = req.query;
-    if (!userId || userId === 'undefined') {
-        return res.status(400).json({ error: 'Valid User ID required' });
-    }
+    if (!userId || userId === 'undefined') return res.status(400).send("No ID");
 
-    const uid = String(userId);
-    console.log(`[STABILITY MODE] Fetching history for: ${uid}`);
-
-    // Direct fetch - works now that RLS is disabled in SQL
+    // No transactions, no RLS, just a straight query
     const conversations = await prisma.conversation.findMany({
-      where: { user_id: uid },
+      where: { user_id: String(userId) },
       orderBy: { created_at: 'desc' },
-      select: {
-        id: true,
-        title: true,
-        is_daily_forge: true,
-        created_at: true,
-        posts: {
-          take: 1,
-          orderBy: { created_at: 'asc' },
-          select: { content: true }
-        }
-      }
+      include: { posts: { take: 1, orderBy: { created_at: 'asc' } } }
     });
 
-    res.json(conversations.map(conv => ({
-      id: conv.id,
-      title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Synthesis"),
-      is_daily_forge: conv.is_daily_forge,
-      timestamp: conv.created_at,
-      preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived content"
+    res.json(conversations.map(c => ({
+      id: c.id,
+      title: c.title || "Untitled",
+      is_daily_forge: c.is_daily_forge,
+      timestamp: c.created_at,
+      preview: c.posts[0]?.content?.substring(0, 50) + "..."
     })));
-  } catch (error: any) {
-    console.error('HISTORY CRASH:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
+  } catch (error) {
+    console.error("HISTORY ERROR:", error);
+    res.status(500).send("Server Error");
   }
 });
 
-/**
- * POST /api/conversations/:conversationId/posts
- * Handles 'Initialize' and 'Deploy' actions.
- */
+// POST CONTENT
 router.post('/:conversationId/posts', async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { content, userId, is_human } = req.body;
+    const { content, userId } = req.body;
 
-    if (!content || !userId) return res.status(400).json({ error: 'Missing content/userId' });
-
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    // Admin/Owner Bypass
-    const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
-    
-    const [post, updatedUser] = await prisma.$transaction(async (tx) => {
-      // Auto-claim conversation ownership
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: { user_id: userId }
-      });
-
-      const newPost = await tx.post.create({
-        data: {
-          content,
-          is_human: is_human !== false,
-          user_id: userId,
-          conversation_id: conversationId
-        },
-        include: { user: true }
-      });
-
-      if (!isOwner) {
-        await tx.user.update({
-          where: { id: userId },
-          data: { tokens_remaining: { decrement: 3 } }
-        });
-      }
-
-      return [newPost, await tx.user.findUnique({ where: { id: userId } })];
+    // Direct update: Ensure the conversation belongs to you
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { user_id: userId }
     });
 
-    const currentTokens = isOwner ? 999999 : updatedUser!.tokens_remaining;
-    
-    // Broadcast via Socket.io
+    const post = await prisma.post.create({
+      data: {
+        content,
+        user_id: userId,
+        conversation_id: conversationId,
+        is_human: true
+      },
+      include: { user: true }
+    });
+
+    // Broadcast immediately
     req.app.get('io').to(conversationId).emit('post:incoming', {
-      id: post.id,
-      name: user.username,
-      content: post.content,
-      sender: 'user',
-      role: user.role,
-      tokens_remaining: currentTokens,
-      created_at: post.created_at,
-      conversationId
+      ...post,
+      name: post.user.username,
+      sender: 'user'
     });
 
-    triggerCouncilDebate({ 
-      conversationId, 
-      io: req.app.get('io'), 
-      currentTokens, 
-      ...req.app.get('aiClients') 
-    }).catch(e => console.error('AI Error:', e));
+    // Trigger AI
+    triggerCouncilDebate({
+      conversationId,
+      io: req.app.get('io'),
+      currentTokens: 999999,
+      ...req.app.get('aiClients')
+    }).catch(e => console.error("AI Error", e));
 
-    res.status(201).json({ success: true, tokens_remaining: currentTokens });
-  } catch (error: any) {
-    console.error('POST CRASH:', error.message);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(201).json({ success: true });
+  } catch (error) {
+    console.error("POST ERROR:", error);
+    res.status(500).send("Server Error");
   }
 });
 
