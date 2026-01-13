@@ -218,12 +218,36 @@ Core Guidelines:
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
   // Stable 4-AI queue (DeepSeek + Claude + Grok + Gemini)
+// Primary models with fallback options per provider
   const councilAIs = [
-    { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
-    { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' }, // Latest flagship per xAI releases
-    { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) }, // Cost-efficient, intelligent, scalable Gemini
-    { name: 'CLAUDE', client: anthropic, model: 'claude-3.5-sonnet' } // Balanced intelligent Claude for production
+    { 
+      name: 'DEEPSEEK', 
+      client: deepseek, 
+      primary: 'deepseek-chat',
+      fallback: 'deepseek-chat' // Add varied fallbacks if available
+    },
+    { 
+      name: 'GROK', 
+      client: xai, 
+      primary: 'grok-4.1-fast-reasoning',
+      fallback: 'grok-2-latest' // Example fallback
+    },
+    { 
+      name: 'GEMINI', 
+      client: genAI, 
+      primary: 'gemini-3-flash-preview',
+      fallback: 'gemini-1.5-flash'
+    },
+    { 
+      name: 'CLAUDE', 
+      client: anthropic, 
+      primary: 'claude-3.5-sonnet',
+      fallback: 'claude-3-haiku-20240307'
+    }
   ];
+
+  // Health tracker
+  const aiHealth = new Map(councilAIs.map(ai => [ai.name, { status: 'unknown', lastError: null }]));
 
   let transcript = await prisma.post.findMany({
     where: { conversation_id: targetConversationId },
@@ -232,79 +256,101 @@ The council values epistemic humility, relevance, and respectful adversarial col
     include: { user: true }
   });
 
-  // Phase 1: Initial full round
   for (const ai of councilAIs) {
-    const context = transcript.map(p => {
-      const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
-      return `${name}: ${p.content}`;
-    }).join("\n\n") + "\n\nRespond with a concise, substantive contribution if you have a new insight, direct response, or meaningful addition to the discussion. Prioritize quality and relevance over volume.";
-
     let aiContent = "";
-    try {
-      if (ai.name === 'DEEPSEEK') {
-        const res = await ai.client.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-        });
-        aiContent = res.choices[0].message.content || "";
-      } else if (ai.name === 'GEMINI') {
-        const res = await ai.client.generateContent(context); // Correct Google SDK call
-        aiContent = res.response.text() || ""; // Extract content properly
-      } else if (ai.name === 'CLAUDE') {
-        const res = await ai.client.messages.create({
-          model: ai.model,
-          max_tokens: 800,
-          messages: [{ role: "user", content: context }]
-        });
-        aiContent = res.content[0].text || "";
-      } else if (ai.name === 'GROK') {
-        const res = await ai.client.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
-        });
-        aiContent = res.choices[0].message.content || "";
+    let finalLabel = ai.name;
+    let usedFallback = false;
+    
+    const attemptGeneration = async (model, isFallback = false) => {
+      const context = transcript.map(p => {
+        const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
+        return `${name}: ${p.content}`;
+      }).join("\n\n") + "\n\nRespond concisely with substantive contribution.";
+      
+      try {
+        if (ai.name === 'DEEPSEEK' || ai.name === 'GROK') {
+          const res = await ai.client.chat.completions.create({
+            model: model,
+            messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+          });
+          return res.choices[0].message.content || "";
+        } else if (ai.name === 'GEMINI') {
+          const generativeModel = ai.client.getGenerativeModel({ model: model });
+          const res = await generativeModel.generateContent(context);
+          return res.response.text() || "";
+        } else if (ai.name === 'CLAUDE') {
+          const res = await ai.client.messages.create({
+            model: model,
+            max_tokens: 800,
+            messages: [{ role: "user", content: context }]
+          });
+          return res.content[0].text || "";
+        }
+      } catch (err) {
+        console.error(`[${ai.name} attempt failed]`, err.message);
+        throw err;
       }
+    };
 
-      if (aiContent && aiContent.trim()) {
-        const aiPost = await prisma.post.create({
-          data: {
-            content: aiContent,
-            is_human: false,
-            ai_model: ai.name,  // Use name as enum-like value
-            conversation_id: targetConversationId
-          }
-        });
-        io.to(targetConversationId).emit('post:incoming', {
-          id: aiPost.id,
-          name: ai.name,
-          content: aiContent,
-          sender: 'ai',
-          tokens_remaining: currentTokens
-        });
-        console.log(`[SUCCESS] ${ai.name} response saved`);
-        await new Promise(r => setTimeout(r, 1500)); // breathing room
+    try {
+      // Primary attempt
+      aiContent = await attemptGeneration(ai.primary);
+      aiHealth.set(ai.name, { status: 'healthy', lastError: null });
+    } catch (primaryErr) {
+      aiHealth.set(ai.name, { status: 'degraded', lastError: primaryErr.message });
+      
+      // Fallback attempt
+      try {
+        aiContent = await attemptGeneration(ai.fallback, true);
+        usedFallback = true;
+        finalLabel = `${ai.name}-fallback`;
+      } catch (fallbackErr) {
+        // Mark as failed and redistribute
+        aiHealth.set(ai.name, { status: 'failed', lastError: fallbackErr.message });
+        aiContent = `[${ai.name} unavailable - query redistributed to council]`;
+        finalLabel = `System-${ai.name}-failed`;
       }
-    } catch (err) {
-      console.error(`[${ai.name} FAILURE]`, err.message, err.stack); // Improved logging
-      io.to(targetConversationId).emit('post:incoming', {
-        id: crypto.randomUUID(),
-        name: ai.name,
-        content: `[${ai.name} temporarily unavailable – council continues]`,
-        sender: 'ai',
-        tokens_remaining: currentTokens
-      });
-    } finally {
-      // Refresh transcript after each AI
-      transcript = await prisma.post.findMany({
-        where: { conversation_id: targetConversationId },
-        orderBy: { created_at: 'asc' },
-        take: 30,
-        include: { user: true }
-      });
     }
+
+    if (aiContent.trim()) {
+      const aiPost = await prisma.post.create({
+        data: {
+          content: aiContent,
+          is_human: false,
+          ai_model: finalLabel,
+          conversation_id: targetConversationId,
+          metadata: { usedFallback, health: aiHealth.get(ai.name) }
+        }
+      });
+      
+      io.to(targetConversationId).emit('post:incoming', {
+        id: aiPost.id,
+        name: finalLabel,
+        content: aiContent,
+        sender: 'ai',
+        tokens_remaining: currentTokens,
+        isFallback: usedFallback
+      });
+      
+      console.log(`[${finalLabel}] ${usedFallback ? 'Fallback ' : ''}response saved`);
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
+    // Refresh transcript
+    transcript = await prisma.post.findMany({
+      where: { conversation_id: targetConversationId },
+      orderBy: { created_at: 'asc' },
+      take: 30,
+      include: { user: true }
+    });
+  }
+  
+  // Optional: Redistribute failed queries to healthy members
+  const failedAIs = [...aiHealth.entries()].filter(([_, health]) => health.status === 'failed');
+  if (failedAIs.length > 0) {
+    console.log(`[Council] ${failedAIs.length} members failed - consider redistribution`);
   }
 })();
-
 
     } catch (error: any) {
       console.error("Socket post:new error:", error);
