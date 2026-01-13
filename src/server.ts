@@ -14,8 +14,8 @@ import conversationRouter from './routes/conversations';
 import archiveRouter from './routes/archives';
 import passwordResetRouter from './routes/passwordReset';
 import dailyForgeRouter from './routes/dailyForge';
-import { triggerCouncilDebate } from './lib/councilDebate';
 import adminRouter from './routes/admin';
+import { triggerCouncilDebate } from './lib/councilDebate';
 
 dotenv.config();
 
@@ -38,10 +38,14 @@ const xai = new OpenAI({
 
 export const aiClients = { deepseek, xai, genAI, anthropic };
 
-app.use(cors({
-  origin: (origin, callback) => callback(null, true),
+// --- 🛡️ UNIFIED CORS CONFIGURATION ---
+// Ensures Render doesn't reject Socket handshakes during page navigation
+const CORS_OPTIONS = {
+  origin: (origin: any, callback: any) => callback(null, true),
   credentials: true
-}));
+};
+
+app.use(cors(CORS_OPTIONS));
 app.use(express.json());
 
 // --- 🛣️ ROUTES ---
@@ -54,17 +58,15 @@ app.use('/api/admin', adminRouter);
 
 app.get('/', (req, res) => res.status(200).json({
   status: "ONLINE",
-  timestamp: new Date().toISOString()
+  timestamp: new Date().toISOString(),
+  owner: "Cassandra"
 }));
 
 // --- 🏛️ SOCKET ENGINE ---
 const io = new Server(httpServer, {
-  cors: {
-    origin: ["https://janusforge.ai", "https://www.janusforge.ai", "http://localhost:3000"],
-    methods: ["GET", "POST"],
-    credentials: true
-  },
-  pingTimeout: 60000
+  cors: CORS_OPTIONS, // Match Express CORS to prevent 500/403 errors
+  pingTimeout: 60000,
+  transports: ['websocket', 'polling']
 });
 
 app.set('io', io);
@@ -75,6 +77,7 @@ io.on('connection', (socket) => {
 
   socket.on('join', ({ conversationId }) => {
     if (conversationId) {
+      // CLEAR GHOST ROOMS: Prevents 500 errors caused by multi-room noise
       socket.rooms.forEach(room => {
         if (room !== socket.id) socket.leave(room);
       });
@@ -83,54 +86,53 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle Interjections / Deploys via Socket
   socket.on('post:new', async (postData) => {
     try {
       const { conversationId, content, userId } = postData;
-
-      if (!conversationId || !content || !userId) {
-        return socket.emit('error', { message: "Incomplete post data." });
-      }
+      if (!conversationId || !content || !userId) return;
 
       const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (!user) return socket.emit('error', { message: "User not recognized." });
+      if (!user) return;
 
-      // --- 🛡️ ADMIN & TOKEN GATE ---
-      // Hardcoded bypass for the site owner
+      // OWNER ACCESS: Hardcoded bypass for Admin@janusforge.ai
       const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
-      const DEBATE_COST = 3; 
+      const DEBATE_COST = 3;
 
       if (!isOwner && user.tokens_remaining < DEBATE_COST) {
-        return socket.emit('error', { 
-          message: `Synthesis requires ${DEBATE_COST} tokens. Balance: ${user.tokens_remaining}` 
-        });
+        return socket.emit('error', { message: "Insufficient tokens." });
       }
 
+      // Simplified Transaction: Ensure ownership is assigned
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
+        // Force ownership to the sender
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: { user_id: userId }
+        });
+
+        const post = await tx.post.create({
+          data: {
+            content,
+            is_human: true,
+            user_id: userId,
+            conversation_id: conversationId
+          }
+        });
+
         if (!isOwner) {
           await tx.user.update({
             where: { id: userId },
-            data: {
-              tokens_remaining: { decrement: DEBATE_COST },
-              tokens_used: { increment: DEBATE_COST }
-            }
+            data: { tokens_remaining: { decrement: DEBATE_COST } }
           });
         }
 
-        return await Promise.all([
-          tx.post.create({
-            data: {
-              content,
-              is_human: true,
-              user_id: userId,
-              conversation_id: conversationId
-            }
-          }),
-          tx.user.findUnique({ where: { id: userId } })
-        ]);
+        return [post, await tx.user.findUnique({ where: { id: userId } })];
       });
 
       const currentTokens = isOwner ? 999999 : (updatedUser?.tokens_remaining ?? 0);
 
+      // Broadcast to room
       io.to(conversationId).emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -138,22 +140,16 @@ io.on('connection', (socket) => {
         sender: 'user',
         tokens_remaining: currentTokens,
         created_at: savedPost.created_at,
-        conversationId 
+        conversationId
       });
 
-      triggerCouncilDebate({
-        conversationId,
-        io,
-        currentTokens,
-        ...aiClients
-      }).catch(err => {
-        console.error(`❌ Council Error:`, err);
-        io.to(conversationId).emit('council:error', { message: "Council failed to synthesize." });
-      });
+      // Trigger AI
+      triggerCouncilDebate({ conversationId, io, currentTokens, ...aiClients })
+        .catch(err => console.error(`❌ Council Error:`, err));
 
     } catch (error: any) {
-      console.error("🔥 Critical Socket Error:", error);
-      socket.emit('error', { message: "Channel synchronization lost." });
+      console.error("🔥 Socket Transaction Error:", error.message);
+      socket.emit('error', { message: "Synchronization failed." });
     }
   });
 
