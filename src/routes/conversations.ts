@@ -7,8 +7,8 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * Populates the 'Neural History' and 'Chrono Vault' sidebars.
- * Enforces RLS by setting the app.current_user_id in the DB session.
+ * Fetches the user's isolated history.
+ * Enforces Row-Level Security (RLS) via a database transaction.
  */
 router.get('/user', async (req, res) => {
   try {
@@ -19,14 +19,19 @@ router.get('/user', async (req, res) => {
     }
 
     const uid = String(userId);
-    console.log(`[PRIVACY SYNC] Enforcing RLS for ID: "${uid}"`);
+    console.log(`[PRIVACY SYNC] Fetching history for ID: "${uid}"`);
 
-    // Use a transaction to set the DB session variable before running the query
-    const [_, conversations] = await prisma.$transaction([
-      prisma.$executeRawUnsafe(`SET app.current_user_id = '${uid}'`),
-      prisma.conversation.findMany({
+    /**
+     * On Render/Production, we use a single transaction to ensure the session 
+     * variable and the query share the same database connection.
+     */
+    const conversations = await prisma.$transaction(async (tx) => {
+      // Set the session variable for the current DB connection
+      await tx.$executeRawUnsafe(`SET LOCAL app.current_user_id = '${uid}'`);
+      
+      return await tx.conversation.findMany({
         where: { 
-          user_id: uid // Explicitly filter by the TEXT column mapping
+          user_id: uid // Filter by the TEXT column mapping
         },
         orderBy: { created_at: 'desc' },
         select: {
@@ -40,23 +45,23 @@ router.get('/user', async (req, res) => {
             select: { content: true }
           }
         }
-      })
-    ]);
+      });
+    });
 
-    console.log(`[PRIVACY SYNC] Database returned ${conversations.length} isolated records.`);
+    console.log(`[PRIVACY SYNC] Isolated results found: ${conversations.length}`);
 
     const formatted = conversations.map(conv => ({
       id: conv.id,
       title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Untitled Synthesis"),
       is_daily_forge: conv.is_daily_forge,
       timestamp: conv.created_at,
-      preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived synthesis"
+      preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived content"
     }));
 
     res.json(formatted);
   } catch (error: any) {
     console.error('CRITICAL SIDEBAR ERROR:', error);
-    res.status(500).json({ error: 'Failed to fetch isolated history' });
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -78,30 +83,30 @@ router.get('/:conversationId', async (req, res) => {
       }
     });
 
-    if (!conversation) return res.status(404).json({ error: 'Synthesis not found' });
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
 
     res.json({ conversation });
   } catch (error: any) {
     console.error('GET /conversations/:conversationId error:', error);
-    res.status(500).json({ error: 'Failed to fetch transcript' });
+    res.status(500).json({ error: 'Failed to fetch' });
   }
 });
 
 /**
  * POST /api/conversations/:conversationId/posts
- * Handles user input and secures 'user_id' ownership.
+ * Handles user input and ensures 'user_id' ownership is recorded.
  */
 router.post('/:conversationId/posts', async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { content, userId, is_human } = req.body;
 
-    if (!content || !userId) return res.status(400).json({ error: 'Missing content or userId' });
+    if (!content || !userId) return res.status(400).json({ error: 'Missing fields' });
 
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation) return res.status(404).json({ error: 'Not found' });
 
-    // If unowned, current user claims the synthesis
+    // CLAIM LOGIC: If unowned, this user becomes the owner
     if (!conversation.user_id) {
         await prisma.conversation.update({
             where: { id: conversationId },
@@ -112,6 +117,7 @@ router.post('/:conversationId/posts', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Admin Bypass Logic (admin@janusforge.ai)
     const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
     const DEBATE_COST = 3;
 
