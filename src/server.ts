@@ -206,7 +206,7 @@ io.on('connection', (socket) => {
         tokens_remaining: currentTokens
       });
      
-    // --- COUNCIL DEBATE ENGINE ---
+      // --- COUNCIL DEBATE ENGINE ---
 (async () => {
   const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
@@ -218,12 +218,12 @@ Core Guidelines:
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
   // Stable 4-AI queue (DeepSeek + Claude + Grok + Gemini)
-const councilAIs = [
-  { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
-  { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' }, // Latest flagship per xAI releases
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) }, // Fast latest Gemini
-  { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101' } // Proven working model
-];
+  const councilAIs = [
+    { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
+    { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' }, // Latest flagship per xAI releases
+    { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) }, // Cost-efficient, intelligent, scalable Gemini
+    { name: 'CLAUDE', client: anthropic, model: 'claude-3.5-sonnet' } // Balanced intelligent Claude for production
+  ];
 
   let transcript = await prisma.post.findMany({
     where: { conversation_id: targetConversationId },
@@ -241,28 +241,25 @@ const councilAIs = [
 
     let aiContent = "";
     try {
-      if (ai.name === "DEEPSEEK") {
-        const res = await deepseek.chat.completions.create({
-          model: ai.modelKey,
+      if (ai.name === 'DEEPSEEK') {
+        const res = await ai.client.chat.completions.create({
+          model: ai.model,
           messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
         });
         aiContent = res.choices[0].message.content || "";
-        } else if (ai.name === "Gemini") {
-        const res = await gemini.messages.create({
-          model: ai.modelKey,
+      } else if (ai.name === 'GEMINI') {
+        const res = await ai.client.generateContent(context); // Correct Google SDK call
+        aiContent = res.response.text() || ""; // Extract content properly
+      } else if (ai.name === 'CLAUDE') {
+        const res = await ai.client.messages.create({
+          model: ai.model,
           max_tokens: 800,
           messages: [{ role: "user", content: context }]
         });
-        } else if (ai.name === "CLAUDE") {
-        const res = await anthropic.messages.create({
-          model: ai.modelKey,
-          max_tokens: 800,
-          messages: [{ role: "user", content: context }]
-        });
-        aiContent = res.content[0].text;
-      } else if (ai.name === "GROK") {
-        const res = await xai.chat.completions.create({
-          model: ai.modelKey,
+        aiContent = res.content[0].text || "";
+      } else if (ai.name === 'GROK') {
+        const res = await ai.client.chat.completions.create({
+          model: ai.model,
           messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
         });
         aiContent = res.choices[0].message.content || "";
@@ -273,7 +270,7 @@ const councilAIs = [
           data: {
             content: aiContent,
             is_human: false,
-            ai_model: ai.enumValue,  // Correct enum value
+            ai_model: ai.name,  // Use name as enum-like value
             conversation_id: targetConversationId
           }
         });
@@ -288,7 +285,7 @@ const councilAIs = [
         await new Promise(r => setTimeout(r, 1500)); // breathing room
       }
     } catch (err) {
-      console.error(`[${ai.name} FAILURE]`, err);
+      console.error(`[${ai.name} FAILURE]`, err.message, err.stack); // Improved logging
       io.to(targetConversationId).emit('post:incoming', {
         id: crypto.randomUUID(),
         name: ai.name,
@@ -297,7 +294,7 @@ const councilAIs = [
         tokens_remaining: currentTokens
       });
     } finally {
-      // Refresh transcript after each AI — this is the missing piece
+      // Refresh transcript after each AI
       transcript = await prisma.post.findMany({
         where: { conversation_id: targetConversationId },
         orderBy: { created_at: 'asc' },
@@ -307,6 +304,7 @@ const councilAIs = [
     }
   }
 })();
+
 
     } catch (error: any) {
       console.error("Socket post:new error:", error);
