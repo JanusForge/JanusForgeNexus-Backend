@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma';
-// import { generateCouncilResponse } from '../server';
+import { generateCouncilResponse } from '../server';
 async function processLiveDialogue() {
     console.log("⚖️ The Arbiter is monitoring the Ledger...");
     while (true) {

@@ -22,8 +22,8 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Your updated 4 council AIs
 const councilAIs = [
   { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
-  { name: 'GROK', client: xai, model: 'grok-beta', enumValue: AIParticipant.GROK },
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }), enumValue: AIParticipant.GEMINI_PRO },
+  { name: 'GROK', client: xai, model: 'grok-4', enumValue: AIParticipant.GROK },
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }), enumValue: AIParticipant.GEMINI_PRO },
   { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101', enumValue: AIParticipant.CLAUDE }
 ];
 

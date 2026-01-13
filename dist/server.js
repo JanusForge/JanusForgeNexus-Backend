@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import prisma from '../lib/prisma';
+import prisma from './lib/prisma';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 import Stripe from 'stripe';
@@ -206,16 +206,13 @@ The council values epistemic humility, relevance, and respectful adversarial col
                     select: { is_daily_forge: true }
                 });
                 const isDailyForge = conversation?.is_daily_forge ?? false;
-                let councilQueue = isDailyForge ? [
-                    { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-                    { name: "GROK", modelKey: "grok-beta" },
-                    { name: "GEMINI", modelKey: "gemini-1.5-flash" }
-                ] : [
-                    { name: "GEMINI", modelKey: "gemini-1.5-flash" },
-                    { name: "DEEPSEEK", modelKey: "deepseek-chat" },
-                    { name: "GROK", modelKey: "grok-beta" },
-                    { name: "CLAUDE", modelKey: "claude-3-5-sonnet-20241022" },
-                    { name: "ChatGPT", modelKey: "gpt-4o" }
+                // Unified full frontier council for both Daily Forge and homepage chats
+                let councilQueue = [
+                    { name: "GEMINI", modelKey: "gemini-2.5-pro" }, // Cutting-edge Gemini
+                    { name: "DEEPSEEK", modelKey: "deepseek-chat" }, // Reliable & cost-effective
+                    { name: "GROK", modelKey: "grok-4-1-fast-reasoning" }, // Best Grok reasoning
+                    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101" }, // Premium Claude
+                    { name: "ChatGPT", modelKey: "gpt-5.2" } // Latest GPT flagship
                 ];
                 let transcript = await prisma.post.findMany({
                     where: { conversation_id: targetConversationId },
