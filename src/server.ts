@@ -217,12 +217,13 @@ Core Guidelines:
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
-  // Stable 3-AI queue (DeepSeek + Claude + Grok-beta)
-  const councilAIs = [
-    { name: "DEEPSEEK", modelKey: "deepseek-chat", enumValue: AIParticipant.DEEPSEEK },
-    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101", enumValue: AIParticipant.CLAUDE },
-    { name: "GROK", modelKey: "grok-beta", enumValue: AIParticipant.GROK }
-  ];
+  // Stable 4-AI queue (DeepSeek + Claude + Grok + Gemini)
+const councilAIs = [
+  { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat' },
+  { name: 'GROK', client: xai, model: 'grok-4.1-fast-reasoning' }, // Latest flagship per xAI releases
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' }) }, // Fast latest Gemini
+  { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101' } // Proven working model
+];
 
   let transcript = await prisma.post.findMany({
     where: { conversation_id: targetConversationId },
@@ -246,7 +247,13 @@ The council values epistemic humility, relevance, and respectful adversarial col
           messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
         });
         aiContent = res.choices[0].message.content || "";
-      } else if (ai.name === "CLAUDE") {
+        } else if (ai.name === "Gemini") {
+        const res = await gemini.messages.create({
+          model: ai.modelKey,
+          max_tokens: 800,
+          messages: [{ role: "user", content: context }]
+        });
+        } else if (ai.name === "CLAUDE") {
         const res = await anthropic.messages.create({
           model: ai.modelKey,
           max_tokens: 800,
