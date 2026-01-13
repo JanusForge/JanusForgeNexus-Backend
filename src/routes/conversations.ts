@@ -7,8 +7,8 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * Fetches history specific to the logged-in user.
- * Uses the exact 'user_id' label defined in prisma/schema.prisma.
+ * Populates the 'Neural History' and 'Chrono Vault' sidebars.
+ * Enforces RLS by setting the app.current_user_id in the DB session.
  */
 router.get('/user', async (req, res) => {
   try {
@@ -18,45 +18,51 @@ router.get('/user', async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // DEBUG LOG: Check your terminal to see if this matches 550e8400...
-    console.log(`[SYNCHRONIZER] History request for ID: "${userId}"`);
+    const uid = String(userId);
+    console.log(`[PRIVACY SYNC] Enforcing RLS for ID: "${uid}"`);
 
-    const conversations = await prisma.conversation.findMany({
-      where: { 
-        user_id: String(userId) // Strictly matches the @map("user_id") in your schema
-      },
-      orderBy: { created_at: 'desc' },
-      select: {
-        id: true,
-        title: true,
-        created_at: true,
-        posts: {
-          take: 1,
-          orderBy: { created_at: 'asc' },
-          select: { content: true }
+    // Use a transaction to set the DB session variable before running the query
+    const [_, conversations] = await prisma.$transaction([
+      prisma.$executeRawUnsafe(`SET app.current_user_id = '${uid}'`),
+      prisma.conversation.findMany({
+        where: { 
+          user_id: uid // Explicitly filter by the TEXT column mapping
+        },
+        orderBy: { created_at: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          is_daily_forge: true,
+          created_at: true,
+          posts: {
+            take: 1,
+            orderBy: { created_at: 'asc' },
+            select: { content: true }
+          }
         }
-      }
-    });
+      })
+    ]);
 
-    console.log(`[SYNCHRONIZER] Found ${conversations.length} records in Neon for this ID.`);
+    console.log(`[PRIVACY SYNC] Database returned ${conversations.length} isolated records.`);
 
     const formatted = conversations.map(conv => ({
       id: conv.id,
-      title: conv.title || "Untitled Synthesis",
+      title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Untitled Synthesis"),
+      is_daily_forge: conv.is_daily_forge,
       timestamp: conv.created_at,
-      preview: conv.posts[0]?.content?.substring(0, 100) + "..." || "No content yet"
+      preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived synthesis"
     }));
 
     res.json(formatted);
   } catch (error: any) {
     console.error('CRITICAL SIDEBAR ERROR:', error);
-    res.status(500).json({ error: 'Failed to fetch user history' });
+    res.status(500).json({ error: 'Failed to fetch isolated history' });
   }
 });
 
 /**
  * GET /api/conversations/:conversationId
- * Public endpoint - retrieves full transcript for a specific synthesis.
+ * Fetches the full transcript for a specific synthesis.
  */
 router.get('/:conversationId', async (req, res) => {
   try {
@@ -72,41 +78,30 @@ router.get('/:conversationId', async (req, res) => {
       }
     });
 
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
+    if (!conversation) return res.status(404).json({ error: 'Synthesis not found' });
 
     res.json({ conversation });
   } catch (error: any) {
     console.error('GET /conversations/:conversationId error:', error);
-    res.status(500).json({ error: 'Failed to fetch conversation' });
+    res.status(500).json({ error: 'Failed to fetch transcript' });
   }
 });
 
 /**
  * POST /api/conversations/:conversationId/posts
- * Handles interjections and enforces token costs.
- * Now ensures conversation ownership is set if it was previously null.
+ * Handles user input and secures 'user_id' ownership.
  */
 router.post('/:conversationId/posts', async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { content, userId, is_human } = req.body;
 
-    if (!content || !userId) {
-      return res.status(400).json({ error: 'Missing required fields: content, userId' });
-    }
+    if (!content || !userId) return res.status(400).json({ error: 'Missing content or userId' });
 
-    // Verify conversation exists
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId }
-    });
+    const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
 
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-
-    // AUTO-CLAIM: If this conversation has no owner, assign it to the interjecting user
+    // If unowned, current user claims the synthesis
     if (!conversation.user_id) {
         await prisma.conversation.update({
             where: { id: conversationId },
@@ -114,24 +109,16 @@ router.post('/:conversationId/posts', async (req, res) => {
         });
     }
 
-    // Get user
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // --- 🛡️ ADMIN BYPASS LOGIC ---
     const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
     const DEBATE_COST = 3;
 
     if (!isOwner && user.tokens_remaining < DEBATE_COST) {
-      return res.status(403).json({
-        error: 'Insufficient tokens',
-        message: `This synthesis requires ${DEBATE_COST} tokens.`
-      });
+      return res.status(403).json({ error: 'Insufficient tokens' });
     }
 
-    // Transaction for token decrement and post creation
     const [post, updatedUser] = await prisma.$transaction(async (tx) => {
       if (!isOwner) {
         await tx.user.update({
@@ -153,15 +140,13 @@ router.post('/:conversationId/posts', async (req, res) => {
         include: { user: true }
       });
 
-      const refreshedUser = await tx.user.findUnique({ where: { id: userId } });
-      return [newPost, refreshedUser];
+      return [newPost, await tx.user.findUnique({ where: { id: userId } })];
     });
 
     const currentTokens = isOwner ? 999999 : updatedUser!.tokens_remaining;
     const io = req.app.get('io');
     const aiClients = req.app.get('aiClients');
 
-    // Socket emission
     io.to(conversationId).emit('post:incoming', {
       id: post.id,
       name: user.username,
@@ -173,25 +158,18 @@ router.post('/:conversationId/posts', async (req, res) => {
       conversationId
     });
 
-    // Trigger AI Council
-    triggerCouncilDebate({
-      conversationId,
-      io,
-      currentTokens,
-      ...aiClients
-    }).catch(err => console.error('[Daily Forge] Council error:', err));
+    triggerCouncilDebate({ conversationId, io, currentTokens, ...aiClients })
+      .catch(err => console.error('[Council Error]', err));
 
     res.status(201).json({ success: true, tokens_remaining: currentTokens });
-
   } catch (error: any) {
-    console.error('POST /conversations/:conversationId/posts error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 /**
  * PATCH /api/conversations/:conversationId
- * Handles title updates (renaming) from the sidebar.
+ * Sidebar Rename Functionality.
  */
 router.patch('/:conversationId', async (req, res) => {
     try {
@@ -203,23 +181,21 @@ router.patch('/:conversationId', async (req, res) => {
         });
         res.json(updated);
     } catch (error) {
-        res.status(500).json({ error: "Failed to update title" });
+        res.status(500).json({ error: "Rename failed" });
     }
 });
 
 /**
  * DELETE /api/conversations/:conversationId
- * Removes a conversation from the Nexus.
+ * Sidebar Delete Functionality.
  */
 router.delete('/:conversationId', async (req, res) => {
     try {
         const { conversationId } = req.params;
-        await prisma.conversation.delete({
-            where: { id: conversationId }
-        });
+        await prisma.conversation.delete({ where: { id: conversationId } });
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ error: "Failed to delete synthesis" });
+        res.status(500).json({ error: "Delete failed" });
     }
 });
 
