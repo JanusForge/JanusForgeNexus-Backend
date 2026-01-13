@@ -7,17 +7,19 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * Populates 'Neural History' and 'Chrono Vault'.
+ * Populates Neural History and Chrono Vault.
  */
 router.get('/user', async (req, res) => {
   try {
     const { userId } = req.query;
-    if (!userId || userId === 'undefined') return res.status(400).json({ error: 'Valid User ID required' });
+    if (!userId || userId === 'undefined') {
+        return res.status(400).json({ error: 'Valid User ID required' });
+    }
 
     const uid = String(userId);
-    console.log(`[BACKEND] Loading history for owner: ${uid}`);
+    console.log(`[STABILITY MODE] Fetching history for: ${uid}`);
 
-    // Direct query without RLS session overhead
+    // Direct fetch - works now that RLS is disabled in SQL
     const conversations = await prisma.conversation.findMany({
       where: { user_id: uid },
       orderBy: { created_at: 'desc' },
@@ -26,26 +28,30 @@ router.get('/user', async (req, res) => {
         title: true,
         is_daily_forge: true,
         created_at: true,
-        posts: { take: 1, orderBy: { created_at: 'asc' }, select: { content: true } }
+        posts: {
+          take: 1,
+          orderBy: { created_at: 'asc' },
+          select: { content: true }
+        }
       }
     });
 
     res.json(conversations.map(conv => ({
       id: conv.id,
-      title: conv.title || (conv.is_daily_forge ? "Daily Forge" : "Synthesis"),
+      title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Synthesis"),
       is_daily_forge: conv.is_daily_forge,
       timestamp: conv.created_at,
       preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived content"
     })));
   } catch (error: any) {
-    console.error('HISTORY FETCH ERROR:', error.message);
+    console.error('HISTORY CRASH:', error.message);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
 /**
  * POST /api/conversations/:conversationId/posts
- * Handles user interjections and claims ownership.
+ * Handles 'Initialize' and 'Deploy' actions.
  */
 router.post('/:conversationId/posts', async (req, res) => {
   try {
@@ -57,16 +63,11 @@ router.post('/:conversationId/posts', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // God-Mode / Admin Bypass
+    // Admin/Owner Bypass
     const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
-    const DEBATE_COST = 3;
-
-    if (!isOwner && user.tokens_remaining < DEBATE_COST) {
-      return res.status(403).json({ error: 'Insufficient tokens' });
-    }
-
+    
     const [post, updatedUser] = await prisma.$transaction(async (tx) => {
-      // Force assign ownership to the interjecting user
+      // Auto-claim conversation ownership
       await tx.conversation.update({
         where: { id: conversationId },
         data: { user_id: userId }
@@ -85,7 +86,7 @@ router.post('/:conversationId/posts', async (req, res) => {
       if (!isOwner) {
         await tx.user.update({
           where: { id: userId },
-          data: { tokens_remaining: { decrement: DEBATE_COST } }
+          data: { tokens_remaining: { decrement: 3 } }
         });
       }
 
@@ -94,7 +95,7 @@ router.post('/:conversationId/posts', async (req, res) => {
 
     const currentTokens = isOwner ? 999999 : updatedUser!.tokens_remaining;
     
-    // Immediate Socket Broadcast so it appears in the thread
+    // Broadcast via Socket.io
     req.app.get('io').to(conversationId).emit('post:incoming', {
       id: post.id,
       name: user.username,
@@ -106,12 +107,16 @@ router.post('/:conversationId/posts', async (req, res) => {
       conversationId
     });
 
-    triggerCouncilDebate({ conversationId, io: req.app.get('io'), currentTokens, ...req.app.get('aiClients') })
-      .catch(e => console.error('AI Error:', e));
+    triggerCouncilDebate({ 
+      conversationId, 
+      io: req.app.get('io'), 
+      currentTokens, 
+      ...req.app.get('aiClients') 
+    }).catch(e => console.error('AI Error:', e));
 
     res.status(201).json({ success: true, tokens_remaining: currentTokens });
   } catch (error: any) {
-    console.error('POST ERROR:', error.message);
+    console.error('POST CRASH:', error.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
