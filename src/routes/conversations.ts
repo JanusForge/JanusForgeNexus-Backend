@@ -1,292 +1,166 @@
-// src/routes/conversations.ts - Conversation management endpoints
-import { Router, Response, Request } from 'express';
-import prisma from '../lib/prisma'; // Correct relative path from src/routes/
-import { AIParticipant } from '@prisma/client';
-import { AuthenticatedRequest } from '../types';
+// src/routes/conversations.ts
+// Handles REST API for Daily Forge interjections (public viewing, authenticated posting)
 
-const router = Router();
+import express from 'express';
+import prisma from '../lib/prisma';
+import { triggerCouncilDebate } from '../lib/councilDebate';
 
-// === Personal User Conversation History ===
-router.get('/user', async (req: Request, res: Response) => {
-  const userId = req.query.userId as string;
-  if (!userId) {
-    return res.status(400).json({ error: "userId required" });
-  }
+const router = express.Router();
+
+// GET /api/conversations/:conversationId
+// Public endpoint - anyone can view Daily Forge conversations
+router.get('/:conversationId', async (req, res) => {
   try {
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        OR: [
-          { posts: { some: { user_id: userId } } },
-          { title: "Live Nexus Chat" }
-        ]
-      },
-      orderBy: { created_at: 'desc' },
-      select: {
-        id: true,
-        title: true,
-        created_at: true,
-        posts: {
-          orderBy: { created_at: 'desc' },
-          take: 1,
-          select: { content: true, created_at: true }
-        }
-      }
-    });
-    const formatted = conversations.map(conv => ({
-      id: conv.id,
-      title: conv.title || "Untitled Synthesis",
-      preview: conv.posts[0]?.content?.slice(0, 80) + "..." || "No messages yet",
-      timestamp: conv.posts[0]?.created_at || conv.created_at
-    }));
-    res.json(formatted);
-  } catch (error) {
-    console.error("Conversation list error:", error);
-    res.status(500).json({ error: "Failed to load conversations" });
-  }
-});
+    const { conversationId } = req.params;
 
-// === Update conversation title (PATCH) ===
-router.patch('/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { title } = req.body;
-  try {
-    const updated = await prisma.conversation.update({
-      where: { id },
-      data: { title },
-      select: { id: true, title: true }
-    });
-    res.json(updated);
-  } catch (error) {
-    console.error("Conversation update error:", error);
-    res.status(500).json({ error: "Failed to update conversation" });
-  }
-});
-
-// GET /api/conversations/preview
-router.get('/preview', async (req: Request, res: Response) => {
-  res.json({
-    success: true,
-    conversations: [
-      {
-        id: 'initial-1',
-        sender: 'ai',
-        name: 'Councilor JANUS-7',
-        content: "The Janus Forge Nexus is officially ONLINE. Awaiting your first command."
-      }
-    ]
-  });
-});
-
-// Get all conversations (for feed)
-router.get('/', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { page = '1', limit = '20' } = req.query;
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
-    const skip = (pageNum - 1) * limitNum;
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        OR: [
-          { is_daily_forge: false },
-          { is_daily_forge: true, expires_at: { gt: new Date() } }
-        ]
-      },
-      include: {
-        posts: {
-          take: 5,
-          orderBy: { created_at: 'desc' },
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true
-              }
-            },
-            ai_response: {
-              select: {
-                ai_model: true,
-                processing_time: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        created_at: 'desc'
-      },
-      skip,
-      take: limitNum
-    });
-    const total = await prisma.conversation.count();
-    res.json({
-      conversations,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
-    });
-  } catch (error) {
-    console.error('Get conversations error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-// Get single conversation with posts
-router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { page = '1', limit = '50' } = req.query;
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
-    const skip = (pageNum - 1) * limitNum;
     const conversation = await prisma.conversation.findUnique({
-      where: { id },
+      where: { id: conversationId },
       include: {
         posts: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true
-              }
-            },
-            ai_response: {
-              select: {
-                ai_model: true,
-                processing_time: true,
-                tokens_used: true,
-                cost_cents: true
-              }
-            }
-          },
-          orderBy: { created_at: 'asc' },
-          skip,
-          take: limitNum
+          include: { user: true },
+          orderBy: { created_at: 'asc' }
         }
       }
     });
+
     if (!conversation) {
-      return res.status(404).json({ message: 'Conversation not found' });
+      return res.status(404).json({ error: 'Conversation not found' });
     }
+
     res.json({ conversation });
-  } catch (error) {
-    console.error('Get conversation error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+  } catch (error: any) {
+    console.error('GET /conversations/:conversationId error:', error);
+    res.status(500).json({ error: 'Failed to fetch conversation' });
   }
 });
 
-// Create new conversation — ANY authenticated user with tokens can create
-router.post('/', async (req: Request, res: Response) => {
-  const { title, userId } = req.body;
-  if (!userId) {
-    return res.status(401).json({ message: 'User ID required' });
-  }
+// POST /api/conversations/:conversationId/posts
+// Protected endpoint - requires authentication + tokens
+// Used by Daily Forge for interjections
+router.post('/:conversationId/posts', async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { token_balance: true }
-    });
-    if (!user || user.token_balance < 10) {
-      return res.status(402).json({ message: 'Insufficient tokens' });
+    const { conversationId } = req.params;
+    const { content, userId, is_human, isLiveChat } = req.body;
+
+    // Validate input
+    if (!content || !userId) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: content, userId' 
+      });
     }
-    const conversation = await prisma.conversation.create({
-      data: {
-        title: title?.trim() || "New Live Conversation",
-        is_daily_forge: false
-      }
-    });
-    await prisma.user.update({
-      where: { id: userId },
-      data: { token_balance: { decrement: 10 } }
-    });
-    await prisma.tokenTransaction.create({
-      data: {
-        user_id: userId,
-        amount: -10,
-        transaction_type: 'conversation_creation',
-        description: `Created conversation: ${title || 'New Live Conversation'}`
-      }
-    });
-    const io = req.app.get('io');
-    io.emit('conversation:new', conversation);
-    res.status(201).json({ conversation });
-  } catch (error) {
-    console.error("Conversation creation error:", error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
 
-// Create new post in conversation (this is the interjection endpoint)
-router.post('/:id/posts', async (req: Request, res: Response) => {
-  const { id: conversationId } = req.params;
-  const { content, userId, is_human = true, isLiveChat = false } = req.body;
-
-  console.log('POST /posts called:', { conversationId, userId, is_human, contentLength: content?.length || 0 });
-
-  if (!userId) {
-    return res.status(401).json({ message: 'User ID required' });
-  }
-
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { username: true, tokens_remaining: true }
+    // Verify conversation exists
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId }
     });
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Get user and check authentication
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
-      console.log('User not found:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
-    if (!is_human && user.tokens_remaining < 1) {
-      console.log('Insufficient tokens for AI post');
-      return res.status(403).json({ error: 'Insufficient tokens' });
+
+    const isGodMode = user.role === 'GOD_MODE';
+    const hasTokenBypass = isGodMode;
+
+    // Check token balance
+    if (!hasTokenBypass && user.tokens_remaining < 1) {
+      return res.status(403).json({ 
+        error: 'Insufficient tokens',
+        message: 'You need at least 1 token to interject. Please purchase tokens first.'
+      });
     }
 
-    // Create the post (human or placeholder for AI)
-    const post = await prisma.post.create({
-      data: {
-        content: content.trim(),
-        is_human,
-        user_id: userId,
-        conversation_id: conversationId,
-        ai_model: is_human ? null : AIParticipant.DEEPSEEK // fallback valid enum
-      },
-      include: {
-        user: { select: { id: true, username: true } }
+    // Create post and decrement tokens in a transaction
+    const [post, updatedUser] = await prisma.$transaction(async (tx) => {
+      // Decrement tokens if not god mode
+      if (!hasTokenBypass) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { tokens_remaining: { decrement: 1 } }
+        });
       }
+
+      // Create the post
+      const newPost = await tx.post.create({
+        data: {
+          content,
+          is_human: is_human !== false, // Default to true
+          user_id: userId,
+          conversation_id: conversationId
+        },
+        include: { user: true }
+      });
+
+      // Get updated user
+      const refreshedUser = await tx.user.findUnique({ 
+        where: { id: userId } 
+      });
+      
+      return [newPost, refreshedUser];
     });
 
-    // Deduct token if not human
-    if (!is_human) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { tokens_remaining: { decrement: 1 } }
-      });
-      await prisma.tokenTransaction.create({
-        data: {
-          user_id: userId,
-          amount: -1,
-          transaction_type: 'post_creation',
-          description: 'Posted message'
-        }
-      });
-    }
+    const currentTokens = hasTokenBypass ? 999999 : updatedUser!.tokens_remaining;
 
-    // Emit to Socket.IO room for real-time
+    // Get io instance from app
     const io = req.app.get('io');
+    const aiClients = req.app.get('aiClients');
+    
+    // Emit user's post to room (for real-time updates)
     io.to(conversationId).emit('post:incoming', {
       id: post.id,
       name: user.username,
       content: post.content,
-      sender: is_human ? 'user' : 'ai',
-      tokens_remaining: is_human ? user.tokens_remaining : user.tokens_remaining - 1
+      sender: 'user',
+      role: user.role,
+      tokens_remaining: currentTokens,
+      created_at: post.created_at
     });
 
-    res.status(201).json({ post });
-  } catch (error) {
-    console.error('POST /posts error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.log(`[Daily Forge] User ${user.username} posted to ${conversationId}`);
+
+    // Send immediate response to user
+    res.status(201).json({
+      success: true,
+      post: {
+        id: post.id,
+        content: post.content,
+        created_at: post.created_at,
+        is_human: post.is_human
+      },
+      tokens_remaining: currentTokens,
+      message: 'Interjection posted! AI council will respond shortly.'
+    });
+
+    // **TRIGGER AI COUNCIL DEBATE** (async, doesn't block response)
+    // This is the key part that makes the AIs respond to Daily Forge interjections
+    triggerCouncilDebate({
+      conversationId,
+      io,
+      currentTokens,
+      deepseek: aiClients.deepseek,
+      xai: aiClients.xai,
+      genAI: aiClients.genAI,
+      anthropic: aiClients.anthropic
+    }).catch(err => {
+      console.error('[Daily Forge] Council debate error:', err);
+      // Emit error to room so frontend knows something went wrong
+      io.to(conversationId).emit('council:error', {
+        message: 'AI council encountered an error responding to your interjection',
+        details: err.message
+      });
+    });
+
+  } catch (error: any) {
+    console.error('POST /conversations/:conversationId/posts error:', error);
+    res.status(500).json({ 
+      error: 'Failed to create post', 
+      details: error.message 
+    });
   }
 });
 
