@@ -10,29 +10,26 @@ const router = express.Router();
  * Fetches the user's isolated history.
  * Enforces Row-Level Security (RLS) via a database transaction.
  */
+
 router.get('/user', async (req, res) => {
   try {
     const { userId } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
-    }
+    if (!userId) return res.status(400).json({ error: 'User ID required' });
 
     const uid = String(userId);
-    console.log(`[PRIVACY SYNC] Fetching history for ID: "${uid}"`);
+    console.log(`[PRIVACY SYNC] Isolated history request for: ${uid}`);
 
     /**
-     * On Render/Production, we use a single transaction to ensure the session 
-     * variable and the query share the same database connection.
+     * Use $transaction to ensure the session setting and query share a connection.
+     * We use 'SET' without 'LOCAL' or 'SESSION' keywords to safely initialize 
+     * custom parameters in some environments.
      */
     const conversations = await prisma.$transaction(async (tx) => {
-      // Set the session variable for the current DB connection
-      await tx.$executeRawUnsafe(`SET LOCAL app.current_user_id = '${uid}'`);
+      // Initialize the custom parameter to avoid the 500 'unrecognized' error
+      await tx.$executeRawUnsafe(`SELECT set_config('app.current_user_id', '${uid}', true)`);
       
       return await tx.conversation.findMany({
-        where: { 
-          user_id: uid // Filter by the TEXT column mapping
-        },
+        where: { user_id: uid },
         orderBy: { created_at: 'desc' },
         select: {
           id: true,
@@ -48,19 +45,15 @@ router.get('/user', async (req, res) => {
       });
     });
 
-    console.log(`[PRIVACY SYNC] Isolated results found: ${conversations.length}`);
-
-    const formatted = conversations.map(conv => ({
+    res.json(conversations.map(conv => ({
       id: conv.id,
-      title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Untitled Synthesis"),
-      is_daily_forge: conv.is_daily_forge,
+      title: conv.title || "Untitled Synthesis",
+      isDailyForge: conv.is_daily_forge,
       timestamp: conv.created_at,
       preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived content"
-    }));
-
-    res.json(formatted);
-  } catch (error: any) {
-    console.error('CRITICAL SIDEBAR ERROR:', error);
+    })));
+  } catch (error) {
+    console.error('CRITICAL RENDER ERROR:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
