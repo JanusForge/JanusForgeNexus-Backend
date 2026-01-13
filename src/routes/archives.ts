@@ -4,13 +4,12 @@ import cors from 'cors';
 
 const router = Router();
 
-// Enable CORS for frontend
 router.use(cors({
   origin: ['https://janusforge.ai', 'https://www.janusforge.ai'],
   credentials: true
 }));
 
-// GET all archives
+// GET all archives - optimized for sidebar and vault list
 router.get('/history', async (req: Request, res: Response) => {
   try {
     const archives = await prisma.dailyForge.findMany({
@@ -19,7 +18,7 @@ router.get('/history', async (req: Request, res: Response) => {
         id: true,
         date: true,
         winningTopic: true,
-        openingThoughts: true
+        conversationId: true // Added to link to full threads
       }
     });
     res.json(archives);
@@ -29,22 +28,22 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 });
 
-// GET single archive by ID
+// GET single archive by ID - for the deep-dive view
 router.get('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const archive = await prisma.dailyForge.findUnique({
       where: { id },
-      select: {
-        id: true,
-        date: true,
-        winningTopic: true,
-        openingThoughts: true
+      include: {
+        // This allows us to pull the linked conversation and all its posts in one hit
+        conversation: {
+          include: {
+            posts: { orderBy: { created_at: 'asc' } }
+          }
+        }
       }
     });
-    if (!archive) {
-      return res.status(404).json({ error: "Archive not found" });
-    }
+    if (!archive) return res.status(404).json({ error: "Archive not found" });
     res.json(archive);
   } catch (error) {
     console.error("Archive fetch error:", error);
@@ -52,18 +51,14 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST manual archive entry (GodMode only)
+// POST manual archive entry (Admin/GodMode only)
 router.post('/manual', async (req: Request, res: Response) => {
   const { userId, winningTopic, openingThoughts } = req.body;
-
-  if (!userId || !winningTopic || !openingThoughts) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.role !== 'GOD_MODE') {
-      return res.status(403).json({ error: "GodMode required" });
+    // Updated to include your email bypass
+    if (!user || (user.role !== 'GOD_MODE' && user.email !== 'admin@janusforge.ai')) {
+      return res.status(403).json({ error: "Unauthorized Protocol" });
     }
 
     const today = new Date();
@@ -79,10 +74,8 @@ router.post('/manual', async (req: Request, res: Response) => {
         phase: "MANUAL_ARCHIVE"
       }
     });
-
     res.json({ success: true, entry });
   } catch (error: any) {
-    console.error("Manual archive error:", error);
     res.status(500).json({ error: "Failed to save archive entry" });
   }
 });

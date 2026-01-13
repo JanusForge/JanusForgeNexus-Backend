@@ -1,30 +1,23 @@
-// src/scripts/aiVoteAndDebate.ts - Updated with Claude added
-// Purpose: Automates voting on scouted topics + generates 4-post initial debate
-// Run this on Render cron ~5-10 minutes after aiScout (e.g., 05:10 UTC daily)
+// src/scripts/aiVoteAndDebate.ts
 import prisma from '../lib/prisma';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { AIParticipant } from '@prisma/client';
 
-// Clients - latest models as of January 2026
+// Clients - 2026 High-Reasoning Tier
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: "https://api.deepseek.com"
-});
-const xai = new OpenAI({
-  apiKey: process.env.GROK_API_KEY,
-  baseURL: 'https://api.x.ai/v1'
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const deepseek = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+const xai = new OpenAI({ apiKey: process.env.GROK_API_KEY, baseURL: 'https://api.x.ai/v1' });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Your updated 4 council AIs
 const councilAIs = [
-  { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
+  { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-reasoner', enumValue: AIParticipant.DEEPSEEK },
   { name: 'GROK', client: xai, model: 'grok-4', enumValue: AIParticipant.GROK },
-  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }), enumValue: AIParticipant.GEMINI_PRO },
-  { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101', enumValue: AIParticipant.CLAUDE }
+  { name: 'CHATGPT', client: openai, model: 'gpt-5.2', enumValue: AIParticipant.CHATGPT },
+  { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-2.5-pro' }), enumValue: AIParticipant.GEMINI_PRO },
+  { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5', enumValue: AIParticipant.CLAUDE }
 ];
 
 async function callAI(ai: any, prompt: string): Promise<string> {
@@ -35,28 +28,26 @@ async function callAI(ai: any, prompt: string): Promise<string> {
     } else if (ai.name === 'CLAUDE') {
       const res = await ai.client.messages.create({
         model: ai.model,
-        max_tokens: 500,
+        max_tokens: 800,
         messages: [{ role: "user", content: prompt }]
       });
-      return res.content[0].text.trim();
+      return (res.content[0] as any).text.trim();
     } else {
-      const res = await ai.client.chat.completions.create({
+      const res = await (ai.client as OpenAI).chat.completions.create({
         model: ai.model,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 500, // Enforce concise votes
-        temperature: 0.7
       });
       return res.choices[0].message.content?.trim() || "";
     }
   } catch (error) {
-    console.error(`${ai.name} call failed:`, error);
+    console.error(`${ai.name} failed:`, error);
     return "[Unavailable]";
   }
 }
 
 async function voteAndDebate() {
-  console.log('🗳️🔥 AI Council Voting & Initial Debate Cycle Starting...');
-  // EST-aware date (copy logic from aiScout.ts)
+  console.log('🗳️🔥 Calculating Combined Consensus (Human + AI)...');
+  
   const now = new Date();
   const estOffset = -5 * 60 * 60 * 1000;
   const estNow = new Date(now.getTime() + estOffset);
@@ -66,69 +57,58 @@ async function voteAndDebate() {
 
   try {
     const current = await prisma.dailyForge.findFirst({
-      where: {
-        date: { gte: todayUTCStart, lt: tomorrowUTCStart },
-        phase: 'TOPIC_SELECTION'
-      }
+      where: { date: { gte: todayUTCStart, lt: tomorrowUTCStart }, phase: 'TOPIC_SELECTION' }
     });
-    if (!current || !current.scoutedTopics) {
-      console.log('No forge in TOPIC_SELECTION or no topics. Standing down.');
-      return;
-    }
+
+    if (!current || !current.scoutedTopics) return;
 
     const topics = JSON.parse(current.scoutedTopics);
-    if (topics.length === 0) {
-      console.log('No scouted topics found.');
-      return;
-    }
-    console.log(`📋 ${topics.length} topics available for voting.`);
+    const humanVotes: Record<string, number> = JSON.parse(current.userVotes || "{}");
+    
+    // 1. Council Internal Voting
+    const votePrompt = `Here are 3 topics: ${JSON.stringify(topics)}. Vote for exactly ONE by title ONLY.`;
+    const councilVotes: Record<string, string> = {};
+    const finalTally: Record<string, number> = {};
 
-    // Voting phase
-    const votePrompt = `Here are today's 3 proposed topics (JSON format):\n${JSON.stringify(topics, null, 2)}\n\nVote for exactly ONE by responding ONLY with its exact "title". Choose the most provocative and civilization-scale worthy of debate.`;
-    const votes: Record<string, string> = {};
+    // Initialize tally with human votes (Weighted 2x for impact)
+    Object.entries(humanVotes).forEach(([title, count]) => {
+      finalTally[title] = (finalTally[title] || 0) + (count * 2);
+    });
+
     for (const ai of councilAIs) {
       const vote = await callAI(ai, votePrompt);
-      votes[ai.name.toLowerCase()] = vote;
-      console.log(`${ai.name} voted: ${vote}`);
+      councilVotes[ai.name.toLowerCase()] = vote;
+      if (topics.some((t: any) => t.title === vote)) {
+        finalTally[vote] = (finalTally[vote] || 0) + 1;
+      }
     }
 
-    // Tally winner (most votes; random tiebreak)
-    const voteCounts: Record<string, number> = {};
-    Object.values(votes).forEach(v => {
-      if (topics.some((t: any) => t.title === v)) voteCounts[v] = (voteCounts[v] || 0) + 1;
-    });
-    const winningTitle = Object.keys(voteCounts).sort((a, b) => voteCounts[b] - voteCounts[a] || Math.random() - 0.5)[0];
+    // 2. Determine Winner
+    const winningTitle = Object.keys(finalTally).sort((a, b) => finalTally[b] - finalTally[a] || Math.random() - 0.5)[0];
+    
     if (!winningTitle) {
-      console.log('No clear winner. Standing down.');
+      console.error("No consensus reached.");
       return;
     }
-    console.log(`🏆 Winning topic: ${winningTitle}`);
 
-    // Create conversation for debate
+    console.log(`🏆 WINNER: ${winningTitle} (Tally Score: ${finalTally[winningTitle]})`);
+
+    // 3. Create Conversation
     const conversation = await prisma.conversation.create({
-      data: {
-        title: winningTitle,
-        is_daily_forge: true
-      }
+      data: { title: winningTitle, is_daily_forge: true }
     });
 
-    // Randomize debate order (who starts)
+    // 4. Initial 5-Post Debate
     const debateOrder = [...councilAIs].sort(() => Math.random() - 0.5);
-    console.log(`🗣️ Debate order: ${debateOrder.map(a => a.name).join(' → ')}`);
-
-    const openingThoughts: Array<{ model: string; content: string }> = [];
     let transcript = `Topic: ${winningTitle}\n\n`;
 
-    for (let i = 0; i < debateOrder.length; i++) {
-      const ai = debateOrder[i];
-      const isFirst = i === 0;
-      const prompt = isFirst
-        ? `Start a provocative, concise debate (300-500 words max) on: "${winningTitle}". Be substantive, bold, and true to your unique perspective.`
-        : `Respond directly to the previous points in this debate transcript. Keep concise (300-500 words max), add new insight, stay on topic.\n\nTranscript so far:\n${transcript}`;
-
+    for (const ai of debateOrder) {
+      const prompt = `Contribute to the opening synthesis of Janus Forge on the topic: "${winningTitle}". 
+      Stay true to your persona. Keep it under 400 words. 
+      Current Transcript:\n${transcript}`;
+      
       const content = await callAI(ai, prompt);
       if (content && content !== "[Unavailable]") {
-        // Save post to conversation (AI post)
         await prisma.post.create({
           data: {
             content,
@@ -137,37 +117,26 @@ async function voteAndDebate() {
             conversation_id: conversation.id
           }
         });
-        openingThoughts.push({ model: ai.name, content });
         transcript += `${ai.name}: ${content}\n\n`;
-        console.log(`${ai.name} contributed to initial debate.`);
       }
     }
 
-    // Update dailyForge
+    // 5. Final Update
     await prisma.dailyForge.update({
       where: { id: current.id },
       data: {
         winningTopic: winningTitle,
-        councilVotes: JSON.stringify(votes),
-        openingThoughts: JSON.stringify(openingThoughts),
+        councilVotes: JSON.stringify(councilVotes),
         conversationId: conversation.id,
         phase: 'CONVERSATION'
       }
     });
 
-    console.log('✅ Daily Forge advanced: Voting complete, initial 4-post debate generated, interjections now open!');
+    console.log('✅ Daily Forge Active. Transcript generated. Interjections open.');
+
   } catch (error) {
-    console.error('Vote & Debate cycle failed:', error);
+    console.error('Debate initiation failed:', error);
   }
 }
 
-// Run
-voteAndDebate()
-  .then(() => {
-    console.log('🏁 Vote & Debate cycle completed');
-    process.exit(0);
-  })
-  .catch(error => {
-    console.error('💥 Cycle failed:', error);
-    process.exit(1);
-  });
+voteAndDebate().then(() => process.exit(0));
