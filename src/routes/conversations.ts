@@ -7,8 +7,8 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * Populates 'Neural History' and 'Chrono Vault'.
- * Uses a production-safe method to set the user session for RLS.
+ * Fetches history for the Neural History sidebar and Chrono Vault.
+ * Uses a transaction to set the identity for RLS without requiring DB ownership.
  */
 router.get('/user', async (req, res) => {
   try {
@@ -17,13 +17,13 @@ router.get('/user', async (req, res) => {
 
     const uid = String(userId);
 
-    // transaction ensures the session setting and query stay on the same connection
+    // Transaction ensures the session setting and the query share the same connection
     const conversations = await prisma.$transaction(async (tx) => {
-      // Safely initialize the user session variable
+      // Safely initialize the user session variable for the RLS policy
       await tx.$executeRawUnsafe(`SELECT set_config('app.current_user_id', '${uid}', true)`);
       
       return await tx.conversation.findMany({
-        where: { user_id: uid },
+        where: { user_id: uid }, // Filters by the TEXT column confirmed in your DB
         orderBy: { created_at: 'desc' },
         select: {
           id: true,
@@ -41,19 +41,21 @@ router.get('/user', async (req, res) => {
 
     res.json(conversations.map(conv => ({
       id: conv.id,
-      title: conv.title || "Untitled Synthesis",
+      title: conv.title || (conv.is_daily_forge ? "Daily Forge Archive" : "Synthesis"),
       isDailyForge: conv.is_daily_forge,
       timestamp: conv.created_at,
       preview: conv.posts[0]?.content?.substring(0, 80) + "..." || "Archived content"
     })));
-  } catch (error) {
-    console.error('CRITICAL RENDER RLS ERROR:', error);
+  } catch (error: any) {
+    // Detailed error logging for Render dashboard
+    console.error('OWNER ACCESS ERROR:', error.message || error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
 /**
  * GET /api/conversations/:conversationId
+ * Public/Private transcript access.
  */
 router.get('/:conversationId', async (req, res) => {
   try {
@@ -76,7 +78,7 @@ router.get('/:conversationId', async (req, res) => {
 
 /**
  * POST /api/conversations/:conversationId/posts
- * Claims ownership if conversation is unowned.
+ * Handles user interjections and enforces 'GOD_MODE' bypass.
  */
 router.post('/:conversationId/posts', async (req, res) => {
   try {
@@ -88,6 +90,7 @@ router.post('/:conversationId/posts', async (req, res) => {
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation) return res.status(404).json({ error: 'Not found' });
 
+    // CLAIM LOGIC: Assign owner if NULL
     if (!conversation.user_id) {
         await prisma.conversation.update({
             where: { id: conversationId },
@@ -98,6 +101,7 @@ router.post('/:conversationId/posts', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // OWNER BYPASS: admin@janusforge.ai or GOD_MODE role
     const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
     const DEBATE_COST = 3;
 
@@ -151,12 +155,12 @@ router.post('/:conversationId/posts', async (req, res) => {
   }
 });
 
+// Rename synthesis
 router.patch('/:conversationId', async (req, res) => {
     try {
-        const { title } = req.body;
         const updated = await prisma.conversation.update({
             where: { id: req.params.conversationId },
-            data: { title }
+            data: { title: req.body.title }
         });
         res.json(updated);
     } catch (error) {
@@ -164,6 +168,7 @@ router.patch('/:conversationId', async (req, res) => {
     }
 });
 
+// Delete synthesis
 router.delete('/:conversationId', async (req, res) => {
     try {
         await prisma.conversation.delete({ where: { id: req.params.conversationId } });
