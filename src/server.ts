@@ -206,7 +206,7 @@ io.on('connection', (socket) => {
         tokens_remaining: currentTokens
       });
      
-      // --- COUNCIL DEBATE ENGINE ---
+      // --- COUNCIL DEBATE ENGINE (DEBUGGED) ---
 (async () => {
   const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
@@ -217,42 +217,44 @@ Core Guidelines:
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
-  // Stable 4-AI queue (DeepSeek + Claude + Grok + Gemini)
-// Primary models with fallback options per provider
+  // Stable 4-AI queue with updated model strings
   const councilAIs = [
-    { 
-      name: 'DEEPSEEK', 
-      client: deepseek, 
+    {
+      name: 'DEEPSEEK',
+      client: deepseek,
       primary: 'deepseek-chat',
-      fallback: 'deepseek-chat' // Add varied fallbacks if available
+      fallback: 'deepseek-chat'
     },
-    { 
-      name: 'GROK', 
-      client: xai, 
+    {
+      name: 'GROK',
+      client: xai,
       primary: 'grok-4.1-fast-reasoning',
-      fallback: 'grok-2-latest' // Example fallback
+      fallback: 'grok-2-latest'
     },
-    { 
-      name: 'GEMINI', 
-      client: genAI, 
+    {
+      name: 'GEMINI',
+      client: genAI,
       primary: 'gemini-3-flash-preview',
       fallback: 'gemini-1.5-flash'
     },
-    { 
-      name: 'CLAUDE', 
-      client: anthropic, 
-      primary: 'claude-3.5-sonnet',
-      fallback: 'claude-3-haiku-20240307'
+    {
+      name: 'CLAUDE',
+      client: anthropic,
+      primary: 'claude-sonnet-4-5-20250929', // Updated to latest model
+      fallback: 'claude-sonnet-4-20241022'
     }
   ];
 
   // Health tracker
   const aiHealth = new Map(councilAIs.map(ai => [ai.name, { status: 'unknown', lastError: null }]));
 
+  // Consistent transcript limit
+  const TRANSCRIPT_LIMIT = 30;
+  
   let transcript = await prisma.post.findMany({
     where: { conversation_id: targetConversationId },
     orderBy: { created_at: 'asc' },
-    take: 20,
+    take: TRANSCRIPT_LIMIT,
     include: { user: true }
   });
 
@@ -260,34 +262,49 @@ The council values epistemic humility, relevance, and respectful adversarial col
     let aiContent = "";
     let finalLabel = ai.name;
     let usedFallback = false;
-    
+
     const attemptGeneration = async (model, isFallback = false) => {
       const context = transcript.map(p => {
         const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
         return `${name}: ${p.content}`;
       }).join("\n\n") + "\n\nRespond concisely with substantive contribution.";
-      
+
       try {
         if (ai.name === 'DEEPSEEK' || ai.name === 'GROK') {
           const res = await ai.client.chat.completions.create({
             model: model,
-            messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+            messages: [
+              { role: "system", content: councilDirective },
+              { role: "user", content: context }
+            ]
           });
-          return res.choices[0].message.content || "";
+          const content = res?.choices?.[0]?.message?.content;
+          if (!content) throw new Error('No content in response');
+          return content;
+
         } else if (ai.name === 'GEMINI') {
-          const generativeModel = ai.client.getGenerativeModel({ model: model });
+          const generativeModel = ai.client.getGenerativeModel({ 
+            model: model,
+            systemInstruction: councilDirective // Add system directive for Gemini
+          });
           const res = await generativeModel.generateContent(context);
-          return res.response.text() || "";
+          const content = res?.response?.text();
+          if (!content) throw new Error('No content in response');
+          return content;
+
         } else if (ai.name === 'CLAUDE') {
           const res = await ai.client.messages.create({
             model: model,
             max_tokens: 800,
+            system: councilDirective, // FIXED: Added system parameter
             messages: [{ role: "user", content: context }]
           });
-          return res.content[0].text || "";
+          const content = res?.content?.[0]?.text;
+          if (!content) throw new Error('No content in response');
+          return content;
         }
       } catch (err) {
-        console.error(`[${ai.name} attempt failed]`, err.message);
+        console.error(`[${ai.name}/${model}] Attempt failed:`, err.message);
         throw err;
       }
     };
@@ -296,61 +313,115 @@ The council values epistemic humility, relevance, and respectful adversarial col
       // Primary attempt
       aiContent = await attemptGeneration(ai.primary);
       aiHealth.set(ai.name, { status: 'healthy', lastError: null });
+      
     } catch (primaryErr) {
       aiHealth.set(ai.name, { status: 'degraded', lastError: primaryErr.message });
-      
+      console.warn(`[${ai.name}] Primary model failed, attempting fallback...`);
+
       // Fallback attempt
       try {
         aiContent = await attemptGeneration(ai.fallback, true);
         usedFallback = true;
         finalLabel = `${ai.name}-fallback`;
+        console.log(`[${ai.name}] Fallback succeeded`);
+        
       } catch (fallbackErr) {
-        // Mark as failed and redistribute
+        // Mark as failed
         aiHealth.set(ai.name, { status: 'failed', lastError: fallbackErr.message });
         aiContent = `[${ai.name} unavailable - query redistributed to council]`;
         finalLabel = `System-${ai.name}-failed`;
+        console.error(`[${ai.name}] Both primary and fallback failed`);
       }
     }
 
-    if (aiContent.trim()) {
-      const aiPost = await prisma.post.create({
-        data: {
+    // Save and emit response
+    if (aiContent && aiContent.trim()) {
+      try {
+        const aiPost = await prisma.post.create({
+          data: {
+            content: aiContent,
+            is_human: false,
+            ai_model: finalLabel,
+            conversation_id: targetConversationId,
+            metadata: { 
+              usedFallback, 
+              health: aiHealth.get(ai.name),
+              timestamp: new Date().toISOString()
+            }
+          }
+        });
+
+        io.to(targetConversationId).emit('post:incoming', {
+          id: aiPost.id,
+          name: finalLabel,
           content: aiContent,
-          is_human: false,
-          ai_model: finalLabel,
-          conversation_id: targetConversationId,
-          metadata: { usedFallback, health: aiHealth.get(ai.name) }
-        }
-      });
-      
-      io.to(targetConversationId).emit('post:incoming', {
-        id: aiPost.id,
-        name: finalLabel,
-        content: aiContent,
-        sender: 'ai',
-        tokens_remaining: currentTokens,
-        isFallback: usedFallback
-      });
-      
-      console.log(`[${finalLabel}] ${usedFallback ? 'Fallback ' : ''}response saved`);
-      await new Promise(r => setTimeout(r, 1500));
+          sender: 'ai',
+          tokens_remaining: currentTokens,
+          isFallback: usedFallback,
+          health: aiHealth.get(ai.name)
+        });
+
+        console.log(`[${finalLabel}] ${usedFallback ? 'Fallback ' : ''}Response saved (${aiContent.length} chars)`);
+        
+        // Delay before next AI to prevent race conditions
+        await new Promise(r => setTimeout(r, 1500));
+        
+      } catch (dbErr) {
+        console.error(`[${ai.name}] Database save failed:`, dbErr.message);
+      }
     }
 
-    // Refresh transcript
-    transcript = await prisma.post.findMany({
-      where: { conversation_id: targetConversationId },
-      orderBy: { created_at: 'asc' },
-      take: 30,
-      include: { user: true }
-    });
+    // Refresh transcript after each AI response
+    try {
+      transcript = await prisma.post.findMany({
+        where: { conversation_id: targetConversationId },
+        orderBy: { created_at: 'asc' },
+        take: TRANSCRIPT_LIMIT,
+        include: { user: true }
+      });
+    } catch (refreshErr) {
+      console.error('[Council] Transcript refresh failed:', refreshErr.message);
+      // Continue with existing transcript if refresh fails
+    }
+  }
+
+  // Report on council health
+  const healthReport = Array.from(aiHealth.entries()).map(([name, health]) => ({
+    ai: name,
+    status: health.status,
+    error: health.lastError
+  }));
+
+  const failedAIs = healthReport.filter(h => h.status === 'failed');
+  const degradedAIs = healthReport.filter(h => h.status === 'degraded');
+  
+  if (failedAIs.length > 0) {
+    console.warn(`[Council] ${failedAIs.length} member(s) failed:`, 
+      failedAIs.map(a => a.ai).join(', '));
   }
   
-  // Optional: Redistribute failed queries to healthy members
-  const failedAIs = [...aiHealth.entries()].filter(([_, health]) => health.status === 'failed');
-  if (failedAIs.length > 0) {
-    console.log(`[Council] ${failedAIs.length} members failed - consider redistribution`);
+  if (degradedAIs.length > 0) {
+    console.info(`[Council] ${degradedAIs.length} member(s) used fallback:`, 
+      degradedAIs.map(a => a.ai).join(', '));
   }
-})();
+
+  console.log('[Council] Debate round complete', {
+    total: councilAIs.length,
+    healthy: healthReport.filter(h => h.status === 'healthy').length,
+    degraded: degradedAIs.length,
+    failed: failedAIs.length
+  });
+
+})().catch(err => {
+  console.error('[Council] Fatal error:', err);
+  // Optionally emit error to frontend
+  io.to(targetConversationId).emit('council:error', {
+    message: 'Council debate encountered an error',
+    details: err.message
+  });
+});
+
+
 
     } catch (error: any) {
       console.error("Socket post:new error:", error);
