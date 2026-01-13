@@ -7,7 +7,8 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * Fetches history specific to the logged-in user for the Neural History sidebar.
+ * Fetches history specific to the logged-in user.
+ * Uses the exact 'user_id' label defined in prisma/schema.prisma.
  */
 router.get('/user', async (req, res) => {
   try {
@@ -17,8 +18,13 @@ router.get('/user', async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
+    // DEBUG LOG: Check your terminal to see if this matches 550e8400...
+    console.log(`[SYNCHRONIZER] History request for ID: "${userId}"`);
+
     const conversations = await prisma.conversation.findMany({
-      where: { user_id: String(userId) }, // Correct schema mapping from prisma/schema.prisma
+      where: { 
+        user_id: String(userId) // Strictly matches the @map("user_id") in your schema
+      },
       orderBy: { created_at: 'desc' },
       select: {
         id: true,
@@ -32,7 +38,8 @@ router.get('/user', async (req, res) => {
       }
     });
 
-    // Format for sidebar preview
+    console.log(`[SYNCHRONIZER] Found ${conversations.length} records in Neon for this ID.`);
+
     const formatted = conversations.map(conv => ({
       id: conv.id,
       title: conv.title || "Untitled Synthesis",
@@ -42,14 +49,14 @@ router.get('/user', async (req, res) => {
 
     res.json(formatted);
   } catch (error: any) {
-    console.error('GET /conversations/user error:', error);
+    console.error('CRITICAL SIDEBAR ERROR:', error);
     res.status(500).json({ error: 'Failed to fetch user history' });
   }
 });
 
 /**
  * GET /api/conversations/:conversationId
- * Public endpoint - anyone can view synthesis transcripts
+ * Public endpoint - retrieves full transcript for a specific synthesis.
  */
 router.get('/:conversationId', async (req, res) => {
   try {
@@ -78,7 +85,8 @@ router.get('/:conversationId', async (req, res) => {
 
 /**
  * POST /api/conversations/:conversationId/posts
- * Handles interjections and automatically assigns ownership if not already set.
+ * Handles interjections and enforces token costs.
+ * Now ensures conversation ownership is set if it was previously null.
  */
 router.post('/:conversationId/posts', async (req, res) => {
   try {
@@ -98,7 +106,7 @@ router.post('/:conversationId/posts', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Assign ownership to the conversation if it's currently orphaned
+    // AUTO-CLAIM: If this conversation has no owner, assign it to the interjecting user
     if (!conversation.user_id) {
         await prisma.conversation.update({
             where: { id: conversationId },
@@ -119,11 +127,11 @@ router.post('/:conversationId/posts', async (req, res) => {
     if (!isOwner && user.tokens_remaining < DEBATE_COST) {
       return res.status(403).json({
         error: 'Insufficient tokens',
-        message: `This synthesis requires ${DEBATE_COST} tokens. Please purchase tokens to continue.`
+        message: `This synthesis requires ${DEBATE_COST} tokens.`
       });
     }
 
-    // Create post and handle tokens in a transaction
+    // Transaction for token decrement and post creation
     const [post, updatedUser] = await prisma.$transaction(async (tx) => {
       if (!isOwner) {
         await tx.user.update({
@@ -150,12 +158,10 @@ router.post('/:conversationId/posts', async (req, res) => {
     });
 
     const currentTokens = isOwner ? 999999 : updatedUser!.tokens_remaining;
-
-    // Get io and clients from app settings
     const io = req.app.get('io');
     const aiClients = req.app.get('aiClients');
 
-    // Emit user's post to the room
+    // Socket emission
     io.to(conversationId).emit('post:incoming', {
       id: post.id,
       name: user.username,
@@ -167,20 +173,15 @@ router.post('/:conversationId/posts', async (req, res) => {
       conversationId
     });
 
-    // Trigger AI Council (Async)
+    // Trigger AI Council
     triggerCouncilDebate({
       conversationId,
       io,
       currentTokens,
       ...aiClients
-    }).catch(err => {
-      console.error('[Daily Forge] Council error:', err);
-    });
+    }).catch(err => console.error('[Daily Forge] Council error:', err));
 
-    res.status(201).json({
-      success: true,
-      tokens_remaining: currentTokens
-    });
+    res.status(201).json({ success: true, tokens_remaining: currentTokens });
 
   } catch (error: any) {
     console.error('POST /conversations/:conversationId/posts error:', error);
@@ -190,7 +191,7 @@ router.post('/:conversationId/posts', async (req, res) => {
 
 /**
  * PATCH /api/conversations/:conversationId
- * Allows renaming a synthesis.
+ * Handles title updates (renaming) from the sidebar.
  */
 router.patch('/:conversationId', async (req, res) => {
     try {
@@ -208,7 +209,7 @@ router.patch('/:conversationId', async (req, res) => {
 
 /**
  * DELETE /api/conversations/:conversationId
- * Removes a synthesis from history.
+ * Removes a conversation from the Nexus.
  */
 router.delete('/:conversationId', async (req, res) => {
     try {
