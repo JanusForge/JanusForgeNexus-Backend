@@ -206,7 +206,7 @@ io.on('connection', (socket) => {
         tokens_remaining: currentTokens
       });
 
-        // --- COUNCIL DEBATE ENGINE ---
+// --- COUNCIL DEBATE ENGINE ---
 (async () => {
   const councilDirective = `You are a member of the Janus Forge AI Council — a real-time multiversal debate forum.
 Core Guidelines:
@@ -217,12 +217,11 @@ Core Guidelines:
 - Please do your best to provide quality over quantity.
 The council values epistemic humility, relevance, and respectful adversarial collaborative truth-seeking.`;
 
-  // Use the exact same 4-AI lineup that works in aiVoteAndDebate
+  // Use only proven-working models (DeepSeek + Claude + Grok-beta)
   const councilAIs = [
-    { name: 'DEEPSEEK', client: deepseek, model: 'deepseek-chat', enumValue: AIParticipant.DEEPSEEK },
-    { name: 'GROK', client: xai, model: 'grok-beta', enumValue: AIParticipant.GROK },
-    { name: 'GEMINI', client: genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }), enumValue: AIParticipant.GEMINI_PRO },
-    { name: 'CLAUDE', client: anthropic, model: 'claude-opus-4-5-20251101', enumValue: AIParticipant.CLAUDE }
+    { name: "DEEPSEEK", modelKey: "deepseek-chat", client: deepseek },
+    { name: "CLAUDE", modelKey: "claude-opus-4-5-20251101", client: anthropic },
+    { name: "GROK", modelKey: "grok-beta", client: xai }
   ];
 
   let transcript = await prisma.post.findMany({
@@ -232,7 +231,7 @@ The council values epistemic humility, relevance, and respectful adversarial col
     include: { user: true }
   });
 
-  // Simple sequential generation (no follow-up rounds for now — add later if needed)
+  // Phase 1: Initial full round
   for (const ai of councilAIs) {
     const context = transcript.map(p => {
       const name = p.is_human ? (p.user?.username || 'User') : (p.ai_model || 'Council Member');
@@ -241,32 +240,34 @@ The council values epistemic humility, relevance, and respectful adversarial col
 
     let aiContent = "";
     try {
-      if (ai.name === 'GEMINI') {
-        const res = await ai.client.generateContent(context);
-        aiContent = res.response.text().trim();
-      } else if (ai.name === 'CLAUDE') {
+      if (ai.name === "DEEPSEEK") {
+        const res = await ai.client.chat.completions.create({
+          model: ai.modelKey,
+          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
+        });
+        aiContent = res.choices[0].message.content || "";
+      } else if (ai.name === "CLAUDE") {
         const res = await ai.client.messages.create({
-          model: ai.model,
-          max_tokens: 800,
+          model: ai.modelKey,
+          max_tokens: 1500,
+          system: councilDirective,
           messages: [{ role: "user", content: context }]
         });
-        aiContent = res.content[0].text.trim();
-      } else {
+        aiContent = res.content[0].text;
+      } else if (ai.name === "GROK") {
         const res = await ai.client.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "user", content: context }],
-          max_tokens: 800,
-          temperature: 0.7
+          model: ai.modelKey,
+          messages: [{ role: "system", content: councilDirective }, { role: "user", content: context }]
         });
-        aiContent = res.choices[0].message.content?.trim() || "";
+        aiContent = res.choices[0].message.content || "";
       }
 
-      if (aiContent && aiContent.trim().length > 50) {
+      if (aiContent && aiContent.trim()) {
         const aiPost = await prisma.post.create({
           data: {
             content: aiContent,
             is_human: false,
-            ai_model: ai.enumValue,  // Correct enum value — this is the key fix
+            ai_model: ai.name as AIParticipant, // Correct enum casting
             conversation_id: targetConversationId
           }
         });
@@ -277,8 +278,8 @@ The council values epistemic humility, relevance, and respectful adversarial col
           sender: 'ai',
           tokens_remaining: currentTokens
         });
-        console.log(`[SUCCESS] ${ai.name} response saved and emitted`);
-        await new Promise(r => setTimeout(r, 1500)); // breathing room
+        await new Promise(r => setTimeout(r, 1500));
+        console.log(`[SUCCESS] ${ai.name} response saved`);
       }
     } catch (err) {
       console.error(`[${ai.name} FAILURE]`, err);
@@ -289,18 +290,17 @@ The council values epistemic humility, relevance, and respectful adversarial col
         sender: 'ai',
         tokens_remaining: currentTokens
       });
+    } finally {
+      // Refresh transcript after each AI (in finally so it always runs)
+      transcript = await prisma.post.findMany({
+        where: { conversation_id: targetConversationId },
+        orderBy: { created_at: 'asc' },
+        take: 30,
+        include: { user: true }
+      });
     }
-
-    // Refresh transcript after each AI
-    transcript = await prisma.post.findMany({
-      where: { conversation_id: targetConversationId },
-      orderBy: { created_at: 'asc' },
-      take: 30,
-      include: { user: true }
-    });
   }
 })();
-
         // Phase 2: Intelligent follow-ups (max 2 rounds) - optional, kept simple
         let followUpRounds = 0;
         const maxFollowUpRounds = 2;
