@@ -4,20 +4,23 @@ import prisma from '../lib/prisma';
 
 const router = express.Router();
 
+/**
+ * GET /api/conversations/user
+ * STRICT PRIVATE ACCESS: Only pulls data for the logged-in user.
+ */
 router.get('/user', async (req, res) => {
   try {
     const { userId } = req.query;
     
-    // Define your Admin UUID
-    const ADMIN_ID = '550e8400-e29b-41d4-a716-446655440000';
-    const isAdmin = userId === ADMIN_ID;
+    // Safety check: if no ID, return nothing. No global leaks.
+    if (!userId || userId === 'undefined') {
+      return res.status(200).json([]);
+    }
 
+    // Filter strictly by the unique userId
     const conversations = await prisma.conversation.findMany({
-      where: isAdmin 
-        ? {} // GOD MODE: If it's you, don't filter by ID (pulls all 59+)
-        : { user_id: String(userId) }, // USER MODE: Only pull their own stuff
+      where: { user_id: String(userId) },
       orderBy: { created_at: 'desc' },
-      take: 100,
       select: {
         id: true,
         title: true,
@@ -34,14 +37,14 @@ router.get('/user', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json(conversations.map(c => ({
       id: c.id,
-      title: c.title || (c.is_daily_forge ? "Daily Forge" : "Synthesis"),
-      is_daily_forge: c.is_daily_forge,
+      title: c.title || "Private Synthesis",
+      is_daily_forge: false,
       timestamp: c.created_at,
       preview: c.posts?.[0]?.content?.substring(0, 60) + "..." || ""
     })));
 
   } catch (error: any) {
-    console.error('History Fetch Error:', error.message);
+    console.error('Private History Fetch Error:', error.message);
     return res.status(200).json([]); 
   }
 });
