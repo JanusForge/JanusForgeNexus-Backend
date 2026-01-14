@@ -20,29 +20,30 @@ model Purchase {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
-  username           String             @unique
-  password_hash      String             @map("password_hash")
-  tier               String             @default("FREE")
-  token_balance      Int                @default(0) @map("token_balance")
-  tokens_used        Int                @default(0) @map("tokens_used")
-  tokens_remaining   Int                @default(0) @map("tokens_remaining")
-  refresh_token      String?            @map("refresh_token")
-  created_at         DateTime           @default(now()) @map("created_at")
-  updated_at         DateTime           @updatedAt @map("updated_at")
-  role               UserRole           @default(USER)
-  reset_expires      DateTime?
-  reset_token        String?            @unique
-  resetToken         String?
-  resetTokenExpiry   DateTime?
-  purchases          Purchase[]
-  ai_responses       AIResponse[]
-  debate_votes       DebateVote[]
-  posts              Post[]
-  token_transactions TokenTransaction[]
-  emailVerified             Boolean   @default(false)
-  verificationToken         String?   @unique
+  id                        String             @id @default(uuid())
+  email                     String             @unique
+  username                  String             @unique
+  password_hash             String             @map("password_hash")
+  tier                      String             @default("FREE")
+  token_balance             Int                @default(0) @map("token_balance")
+  tokens_used               Int                @default(0) @map("tokens_used")
+  tokens_remaining          Int                @default(0) @map("tokens_remaining")
+  refresh_token             String?            @map("refresh_token")
+  created_at                DateTime           @default(now()) @map("created_at")
+  updated_at                DateTime           @updatedAt @map("updated_at")
+  role                      UserRole           @default(USER)
+  reset_expires             DateTime?
+  reset_token               String?            @unique
+  resetToken                String?
+  resetTokenExpiry          DateTime?
+  purchases                 Purchase[]
+  ai_responses              AIResponse[]
+  debate_votes              DebateVote[]
+  posts                     Post[]
+  token_transactions        TokenTransaction[]
+  conversations             Conversation[]     // Relation back to private conversations
+  emailVerified             Boolean            @default(false)
+  verificationToken         String?            @unique
   verificationTokenExpires  DateTime?
 
   @@map("users")
@@ -50,6 +51,7 @@ model User {
 
 model Conversation {
   id              String          @id @default(uuid())
+  user_id         String?         @map("user_id") // Added to track private Neural History
   title           String?
   is_daily_forge  Boolean         @default(false) @map("is_daily_forge")
   daily_topic     String?         @map("daily_topic")
@@ -58,8 +60,9 @@ model Conversation {
   created_at      DateTime        @default(now()) @map("created_at")
   expires_at      DateTime?       @map("expires_at")
   daily_forges    DailyForge[]
-  debate_votes    DebateVote[]
-  posts           Post[]
+  debate_votes    DebateVote[]    @relation("ConversationVotes")
+  posts           Post[]          @relation("ConversationPosts")
+  user            User?           @relation(fields: [user_id], references: [id])
 
   @@map("conversations")
 }
@@ -75,8 +78,11 @@ model Post {
   likes           Int            @default(0)
   required_tier   String?        @map("required_tier")
   created_at      DateTime       @default(now()) @map("created_at")
-  ai_response     AIResponse?
-  conversation    Conversation   @relation(fields: [conversation_id], references: [id])
+  ai_response     AIResponse?    @relation("PostToAIResponse")
+  
+  // CASCADE: If conversation is deleted, delete all posts
+  conversation    Conversation   @relation("ConversationPosts", fields: [conversation_id], references: [id], onDelete: Cascade)
+  
   parent          Post?          @relation("PostReplies", fields: [parent_post_id], references: [id])
   replies         Post[]         @relation("PostReplies")
   user            User?          @relation(fields: [user_id], references: [id])
@@ -94,7 +100,9 @@ model AIResponse {
   cost_cents      Int           @map("cost_cents")
   user_id         String        @map("user_id")
   created_at      DateTime      @default(now()) @map("created_at")
-  post            Post          @relation(fields: [post_id], references: [id])
+  
+  // CASCADE: If post is deleted, delete the AI response data
+  post            Post          @relation("PostToAIResponse", fields: [post_id], references: [id], onDelete: Cascade)
   user            User          @relation(fields: [user_id], references: [id])
 
   @@map("ai_responses")
@@ -107,7 +115,9 @@ model DebateVote {
   ai_model        AIParticipant @map("ai_model")
   score           Int
   created_at      DateTime      @default(now()) @map("created_at")
-  conversation    Conversation  @relation(fields: [conversation_id], references: [id])
+  
+  // CASCADE: Deleting conversation wipes votes
+  conversation    Conversation  @relation("ConversationVotes", fields: [conversation_id], references: [id], onDelete: Cascade)
   user            User          @relation(fields: [user_id], references: [id])
 
   @@unique([user_id, conversation_id, ai_model])
@@ -127,16 +137,16 @@ model TokenTransaction {
 }
 
 model DailyForge {
-  id              String        @id @default(uuid())
-  date            DateTime      @default(now())
-  scoutedTopics   String
-  winningTopic    String
-  councilVotes    String
-  openingThoughts String?
-  phase           String        @default("INITIALIZED")
-  nextReset       DateTime?
-  conversationId  String?       @map("conversationId")
-  conversation    Conversation? @relation(fields: [conversationId], references: [id])
+  id               String        @id @default(uuid())
+  date             DateTime      @default(now())
+  scoutedTopics    String
+  winningTopic     String
+  councilVotes     String
+  openingThoughts  String?
+  phase            String        @default("INITIALIZED")
+  nextReset        DateTime?
+  conversationId   String?       @map("conversationId")
+  conversation     Conversation? @relation(fields: [conversationId], references: [id])
 
   @@map("DailyForge")
 }
@@ -155,4 +165,3 @@ enum UserRole {
   GOD_MODE
   BETA_ARCHITECT
 }
-

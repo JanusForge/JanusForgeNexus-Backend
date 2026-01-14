@@ -54,4 +54,37 @@ router.get('/user', async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/conversations/:id
+ * PERMANENT PURGE: Removes a specific synthesis from the database.
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query; 
+
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    // Ensure the conversation belongs to the person deleting it
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: String(id) }
+    });
+
+    if (!conversation || conversation.user_id !== String(userId)) {
+      return res.status(403).json({ error: "Permission denied." });
+    }
+
+    // This permanently removes the record from Neon
+    await prisma.conversation.delete({
+      where: { id: String(id) }
+    });
+
+    return res.status(200).json({ message: "Purge complete." });
+  } catch (error: any) {
+    console.error("Delete Error:", error.message);
+    res.status(500).json({ error: "Failed to delete." });
+  }
+});
+
+// ALWAYS KEEP THIS AT THE VERY BOTTOM
 export default router;
