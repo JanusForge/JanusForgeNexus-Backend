@@ -7,15 +7,17 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// --- 1. CONFIGURATION & IMPORTS ---
+// --- 1. CONFIGURATION & ROUTE IMPORTS ---
 dotenv.config();
+// Restore the Auth Bridge
+import authRouter from './routes/auth-router'; 
 import nexusRouter from './services/nexus-core/nexus-router';
 
 const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 10000;
 
-// --- 2. AI CLIENT INITIALIZATION (2026 CLUSTER) ---
+// --- 2. AI CLIENT INITIALIZATION (JAN 2026) ---
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -28,7 +30,6 @@ const deepseek = new OpenAI({
   baseURL: "https://api.deepseek.com" 
 });
 
-// Exporting clients for the synthesis-engine
 export const aiClients = {
   CLAUDE: anthropic,
   GPT4: openai,
@@ -37,7 +38,7 @@ export const aiClients = {
   DEEPSEEK: deepseek
 };
 
-// --- 3. MIDDLEWARE & PRIVATE ROUTES ---
+// --- 3. MIDDLEWARE & CROSS-ORIGIN SECURITY ---
 const allowedOrigins = [
   'https://www.janusforge.ai',
   'https://janusforge.ai',
@@ -50,11 +51,13 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// The Private Gateway (Nexus Core)
+// RESTORED: Authentication Gateway (Fixes the 404 Login Error)
+app.use('/api/auth', authRouter);
+
+// Nexus Core Gateway
 app.use('/api/nexus', nexusRouter);
 
 // --- 4. THE NEURAL LINK (SOCKET.IO) ---
-// FIX: No wildcards, specific origins only to allow credentials
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
@@ -63,7 +66,6 @@ const io = new Server(httpServer, {
   }
 });
 
-// Pass the 'io' instance to the synthesis engine
 app.set('io', io);
 
 io.on('connection', (socket) => {
