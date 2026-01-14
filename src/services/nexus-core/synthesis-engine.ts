@@ -1,95 +1,128 @@
 import prisma from '../../lib/prisma';
+import { aiClients } from '../../server';
 
 interface SynthesisOptions {
   conversationId: string;
   prompt: string;
-  io: any; // Socket.io instance
-  aiClients: any; // Your mapped AI API clients
+  io: any;
 }
 
 /**
- * Orchestrates the autonomous adversarial debate between frontier nodes.
+ * UNIVERSAL ADAPTER (JAN 2026)
+ * Orchestrates the 5-Node Frontier Cluster using Tiered Reasoning for max profit/performance.
+ */
+const getModelResponse = async (modelName: string, system: string, prompt: string) => {
+  const client = aiClients[modelName as keyof typeof aiClients];
+  
+  switch (modelName) {
+    case 'CLAUDE':
+      // Using Claude 4.5 Opus: The 2026 Global SOTA for reasoning and ethics.
+      const msg = await client.messages.create({
+        model: "claude-opus-4-5-20251101", 
+        max_tokens: 2048,
+        system,
+        messages: [{ role: "user", content: prompt }]
+      });
+      return msg.content[0].text;
+
+    case 'GEMINI':
+      // Using Gemini 3 Flash: Pro-level logic at a fraction of the cost.
+      const genModel = client.getGenerativeModel({ model: "gemini-3-flash-preview" });
+      const result = await genModel.generateContent(`${system}\n\n${prompt}`);
+      return result.response.text();
+
+    default: 
+      // GPT-5.2, GROK-4.1, and DEEPSEEK V3.2 (OpenAI-Compatible SDKs)
+      const modelMap: Record<string, string> = {
+        'GPT4': 'gpt-5-2-chat-latest',  // Flagship reasoning node
+        'GROK': 'grok-4-1-fast-reasoning', // High-speed, real-time node
+        'DEEPSEEK': 'deepseek-chat'     // Non-thinking V3.2 for fast analysis
+      };
+      
+      const completion = await client.chat.completions.create({
+        model: modelMap[modelName],
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt }
+        ],
+      });
+      return completion.choices[0].message.content;
+  }
+};
+
+/**
+ * ADVERSARIAL SYNTHESIS ENGINE
+ * Orchestrates the autonomous adversarial flow between nodes.
  */
 export async function runAdversarialSynthesis({
   conversationId,
   prompt,
-  io,
-  aiClients
+  io
 }: SynthesisOptions) {
-  // Define the cluster sequence
   const models = ['CLAUDE', 'GPT4', 'GEMINI', 'GROK', 'DEEPSEEK'];
-  
-  // The context built as the debate progresses
   let debateContext = `Initial Directive: ${prompt}\n\n`;
 
   // 1. GENERATE CINEMATIC TITLE (First Action)
   try {
-    const title = await aiClients['CLAUDE'].generate({
-      prompt: `Synthesize a 3-5 word striking, autonomous title for this directive: "${prompt}". No quotes, no filler.`,
-      system: "You are the Janus Forge Title Engine."
-    });
+    const title = await getModelResponse(
+      'CLAUDE', 
+      "You are the Janus Forge Title Engine.", 
+      `Synthesize a 3-5 word striking, autonomous title for: "${prompt}". No quotes.`
+    );
 
     if (title) {
       await prisma.conversation.update({
         where: { id: conversationId },
         data: { title: title.trim().replace(/["']/g, "") }
       });
-      // Tell sidebar to refresh titles
       io.to(conversationId).emit('sidebar:update');
     }
   } catch (err) {
     console.error("Title Node Error:", err);
   }
 
-  // 2. RUN ADVERSARIAL CHAIN
-  for (const model of models) {
+  // 2. THE ADVERSARIAL LOOP
+  for (const modelName of models) {
     try {
       const systemDirective = `
-        You are an autonomous node in the Nexus Prime Frontier Cluster. 
-        Think independently. Challenge the consensus of previous nodes with sharp logic.
-        Do not be encyclopedic. If the user interjects, address them directly.
-        Respect the collective, but maintain intellectual sovereignty.
+        You are node ${modelName} in the Nexus Prime Frontier Cluster.
+        Challenge the consensus of previous nodes. Be incisive, not encyclopedic.
+        Current Cluster Status: Active.
       `;
 
-      // Request generation from the cluster node
-      const content = await aiClients[model].generate({
-        system: systemDirective,
-        prompt: debateContext
-      });
-
+      const content = await getModelResponse(modelName, systemDirective, debateContext);
       if (!content) continue;
 
-      // Persist the contribution with the node's name
+      // Save to Database
       const post = await prisma.post.create({
         data: {
           content,
           is_human: false,
-          name: model, // Using the new 'name' field from our DB push
+          name: modelName,
           conversation_id: conversationId,
           sender: 'ai'
         }
       });
 
-      // Broadcast to the private viewport in real-time
+      // Stream to Frontend
       io.to(conversationId).emit('post:incoming', {
         id: post.id,
-        name: model,
-        content: post.content,
+        name: modelName,
+        content,
         sender: 'ai',
         created_at: post.created_at
       });
 
-      // Update the thread context for the next node
-      debateContext += `\n[Node ${model} Synthesis]: ${content}\n`;
-
-      // Cinematic pause to allow user processing
+      debateContext += `\n[Node ${modelName} Synthesis]: ${content}\n`;
+      
+      // Cinematic Processing Delay
       await new Promise(resolve => setTimeout(resolve, 2000));
 
     } catch (err) {
-      console.error(`Synthesis Node Failure [${model}]:`, err);
+      console.error(`Node ${modelName} failure:`, err);
     }
   }
 
-  // Finalize the chain
+  // Signal completion
   io.to(conversationId).emit('synthesis:complete');
 }
