@@ -5,25 +5,26 @@ import { runAdversarialSynthesis } from './synthesis-engine';
 const router = Router();
 
 router.post('/synthesis', async (req, res) => {
-  // Support both camelCase and snake_case from the frontend [cite: 2025-11-27]
   const { prompt, userId, user_id, isPrivate = true } = req.body;
   const finalUserId = userId || user_id;
 
+  // 🛑 Pre-database validation to stop 500 errors
   if (!finalUserId) {
-    return res.status(400).json({ error: "User ID required for synthesis." });
+    console.error("❌ Synthesis Blocked: Missing User ID");
+    return res.status(400).json({ error: "User identity required." });
   }
 
   try {
     const conversation = await prisma.conversation.create({
       data: { 
         user_id: finalUserId, 
-        title: "Initializing...", 
+        title: "Synthesis Active...", 
         is_private: isPrivate,
         name: "Nexus Prime"
       }
     });
 
-    // Invoke the 2026 AI Cluster
+    // Invoke the 2026 AI Cluster via Socket
     runAdversarialSynthesis({ 
       conversationId: conversation.id, 
       prompt, 
@@ -32,8 +33,8 @@ router.post('/synthesis', async (req, res) => {
 
     res.json({ conversationId: conversation.id });
   } catch (err) {
-    console.error("Synthesis Init Failure:", err);
-    res.status(500).json({ error: "Nexus Core failed to initialize." });
+    console.error("Critical Engine Failure:", err);
+    res.status(500).json({ error: "Nexus Core ignition failure." });
   }
 });
 
