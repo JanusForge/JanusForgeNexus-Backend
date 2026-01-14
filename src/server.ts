@@ -28,7 +28,7 @@ const deepseek = new OpenAI({
   baseURL: "https://api.deepseek.com" 
 });
 
-// Exporting clients so the synthesis-engine can use them
+// Exporting clients for the synthesis-engine
 export const aiClients = {
   CLAUDE: anthropic,
   GPT4: openai,
@@ -38,8 +38,14 @@ export const aiClients = {
 };
 
 // --- 3. MIDDLEWARE & PRIVATE ROUTES ---
+const allowedOrigins = [
+  'https://www.janusforge.ai',
+  'https://janusforge.ai',
+  'http://localhost:3000'
+];
+
 app.use(cors({
-  origin: [process.env.FRONTEND_URL || 'http://localhost:3000', 'https://your-nexus-prime.vercel.app'],
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(express.json());
@@ -48,20 +54,21 @@ app.use(express.json());
 app.use('/api/nexus', nexusRouter);
 
 // --- 4. THE NEURAL LINK (SOCKET.IO) ---
+// FIX: No wildcards, specific origins only to allow credentials
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", // Adjust for production security
-    methods: ["GET", "POST"]
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-// Pass the 'io' instance to our synthesis engine so it can stream messages
+// Pass the 'io' instance to the synthesis engine
 app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log(`📡 Neural Link Established: ${socket.id}`);
 
-  // Join a private synthesis room
   socket.on('join:room', (roomId) => {
     socket.join(roomId);
     console.log(`🔐 Admin Joined Private Room: ${roomId}`);
