@@ -119,4 +119,24 @@ router.post('/broadcast', adminGuard, async (req, res) => {
   }
 });
 
+/**
+ * 📚 GET ALL CONVERSATIONS
+ * Fixes the 404 for the Admin Dashboard History
+ */
+router.get('/all-conversations', adminGuard, async (req, res) => {
+  try {
+    const conversations = await prisma.conversation.findMany({
+      orderBy: { created_at: 'desc' },
+      include: {
+        _count: {
+          select: { posts: true }
+        }
+      }
+    });
+    res.json(conversations);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to sync conversation history." });
+  }
+});
+
 export default router;
