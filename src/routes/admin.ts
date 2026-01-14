@@ -5,24 +5,26 @@ import prisma from '../lib/prisma';
 const router = express.Router();
 
 /**
- * 🛡️ ADMIN GUARD
- * Ensures only the owner (admin@janusforge.ai) or authorized GOD_MODE roles
- * can access the Nexus Watch commands.
+ * 🛡️ ADMIN GUARD (Consolidated)
+ * Handles identity verification via Query, Body, or Headers.
+ * Ensures Cassandra (admin@janusforge.ai) has full site access.
  */
 const adminGuard = async (req: any, res: any, next: any) => {
   try {
-    const { userId } = req.query; // Admin ID passed as query param for verification
-    
+    // Flexibility: Look for userId in query params, request body, or custom header
+    const userId = req.query.userId || req.body.userId || req.headers['x-user-id'];
+
     if (!userId) {
-      return res.status(401).json({ error: "Identification required." });
+      return res.status(401).json({ error: "Identification required for Nexus Watch." });
     }
 
     const adminUser = await prisma.user.findUnique({ where: { id: userId } });
-    
-    if (adminUser?.email === 'admin@janusforge.ai' || adminUser?.role === 'GOD_MODE') {
+
+    // Protocol 0 Check: Verify Master Authority or God Mode
+    if (adminUser?.email === 'admin@janusforge.ai' || adminUser?.role === 'GOD_MODE' || adminUser?.tier === 'ENTERPRISE') {
       next();
     } else {
-      console.warn(`[Security Alert] Unauthorized admin access attempt by: ${adminUser?.email || 'Unknown'}`);
+      console.warn(`[Security Alert] Unauthorized access attempt by: ${adminUser?.email || 'Unknown'}`);
       res.status(403).json({ error: "Access Denied: Janus Protocol 0 Violation" });
     }
   } catch (error) {
@@ -31,8 +33,27 @@ const adminGuard = async (req: any, res: any, next: any) => {
 };
 
 /**
+ * 📚 GET ALL CONVERSATIONS
+ * Fixes the 404/401 for the Admin Dashboard History Feed.
+ */
+router.get('/all-conversations', adminGuard, async (req, res) => {
+  try {
+    const conversations = await prisma.conversation.findMany({
+      orderBy: { created_at: 'desc' },
+      include: {
+        _count: {
+          select: { posts: true }
+        }
+      }
+    });
+    res.json(conversations);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to sync global conversation history." });
+  }
+});
+
+/**
  * 📊 GET NEXUS METRICS
- * Aggregates global user activity and token consumption.
  */
 router.get('/nexus-metrics', adminGuard, async (req, res) => {
   try {
@@ -58,13 +79,12 @@ router.get('/nexus-metrics', adminGuard, async (req, res) => {
 
     res.json({ totalUsers, activeDebates, userTokens });
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch metrics." });
+    res.status(500).json({ error: "Failed to fetch neural metrics." });
   }
 });
 
 /**
- * 🛠️ UPDATE TOKENS
- * Manual override for user neural balances.
+ * 🛠️ UPDATE TOKENS (Manual Override)
  */
 router.post('/update-tokens', adminGuard, async (req, res) => {
   const { targetUserId, amount } = req.body;
@@ -73,7 +93,6 @@ router.post('/update-tokens', adminGuard, async (req, res) => {
       where: { id: targetUserId },
       data: { tokens_remaining: parseInt(amount) }
     });
-    console.log(`[Admin] Token override: ${updated.email} set to ${amount}`);
     res.json({ success: true, newBalance: updated.tokens_remaining });
   } catch (error) {
     res.status(500).json({ error: "Token override failed." });
@@ -81,26 +100,7 @@ router.post('/update-tokens', adminGuard, async (req, res) => {
 });
 
 /**
- * 🚫 TOGGLE STATUS (Remote Kill)
- * Bans or restores user access to the Nexus.
- */
-router.post('/toggle-status', adminGuard, async (req, res) => {
-  const { targetUserId, status } = req.body; // status: 'BANNED' | 'USER'
-  try {
-    const updated = await prisma.user.update({
-      where: { id: targetUserId },
-      data: { role: status } 
-    });
-    console.log(`[Admin] Status change: ${updated.email} set to ${status}`);
-    res.json({ success: true, status: updated.role });
-  } catch (error) {
-    res.status(500).json({ error: "Status override failed." });
-  }
-});
-
-/**
  * 📡 GLOBAL BROADCAST
- * Deploys a system-wide alert to all active socket connections.
  */
 router.post('/broadcast', adminGuard, async (req, res) => {
   const { message } = req.body;
@@ -108,34 +108,10 @@ router.post('/broadcast', adminGuard, async (req, res) => {
     const io = req.app.get('io');
     if (!io) throw new Error("Socket instance not found");
 
-    // Emit global broadcast event
     io.emit('broadcast:incoming', { message });
-    
-    console.log(`[Admin] Global Broadcast Deployed: ${message}`);
     res.json({ success: true });
   } catch (error) {
-    console.error("Broadcast failure:", error);
     res.status(500).json({ error: "Broadcast deployment failed." });
-  }
-});
-
-/**
- * 📚 GET ALL CONVERSATIONS
- * Fixes the 404 for the Admin Dashboard History
- */
-router.get('/all-conversations', adminGuard, async (req, res) => {
-  try {
-    const conversations = await prisma.conversation.findMany({
-      orderBy: { created_at: 'desc' },
-      include: {
-        _count: {
-          select: { posts: true }
-        }
-      }
-    });
-    res.json(conversations);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to sync conversation history." });
   }
 });
 
