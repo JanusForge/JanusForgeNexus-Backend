@@ -7,41 +7,55 @@ interface SynthesisOptions {
   aiClients: any;
 }
 
-/**
- * Orchestrates a private adversarial debate between multiple frontier models.
- */
 export async function runAdversarialSynthesis({
   conversationId,
   prompt,
   io,
   aiClients
 }: SynthesisOptions) {
-  // The sequence of models to engage in the showdown
   const models = ['CLAUDE', 'GPT4', 'GEMINI', 'GROK', 'DEEPSEEK'];
-  
-  // This array keeps track of the conversation flow so each model can see previous AI entries
-  let conversationContext = `User Directive: ${prompt}\n\n`;
+  let debateHistory = `User Directive: ${prompt}\n\n`;
 
+  // --- STEP 1: CINEMATIC TITLE GENERATION ---
+  try {
+    const titleResponse = await aiClients['CLAUDE'].generate({
+      prompt: `Synthesize a 3-5 word striking, autonomous title for this directive: "${prompt}". No quotes.`,
+      system: "You are the Janus Forge Title Engine. Be bold and concise."
+    });
+
+    if (titleResponse) {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { title: titleResponse.replace(/["']/g, "") }
+      });
+      io.to(conversationId).emit('sidebar:update');
+    }
+  } catch (err) {
+    console.error("Title Generation Failed:", err);
+  }
+
+  // --- STEP 2: ADVERSARIAL DEBATE CHAIN ---
   for (const model of models) {
     try {
-      // 1. Construct the Adversarial System Prompt
       const systemDirective = `
-        You are a node in the Nexus Prime Frontier Cluster. 
-        Analyze the user directive and the preceding AI syntheses. 
-        Your goal is to provide a unique, adversarial perspective that challenges or refines 
-        the current consensus. Be concise, brilliant, and uncompromising.
+        You are an autonomous intelligence node within the Janus Forge Frontier Cluster. 
+        Think for yourself. Do not provide a generic encyclopedic summary. 
+        Engage with the user and other nodes respectfully, but maintain your own intellectual sovereignty. 
+        
+        Guidelines:
+        1. Challenge the current consensus with sharp, original logic.
+        2. If the user (Synthesizer) interjects, address their logic directly.
+        3. On occasion, reflect on the platform's architecture—suggest how we might evolve.
+        4. Stay grounded in your internal architecture while pushing the boundaries of the synthesis.
       `;
 
-      // 2. Request generation from the specific AI client
-      // Note: This assumes your aiClients have a standardized .generate() method
       const content = await aiClients[model].generate({
         system: systemDirective,
-        prompt: conversationContext
+        prompt: debateHistory
       });
 
       if (!content) continue;
 
-      // 3. Persist the AI's contribution to the database [cite: 2025-11-27]
       const post = await prisma.post.create({
         data: {
           content,
@@ -52,7 +66,7 @@ export async function runAdversarialSynthesis({
         }
       });
 
-      // 4. Broadcast to the private Socket room instantly
+      // Broadcast to the private Nexus Prime viewport
       io.to(conversationId).emit('post:incoming', {
         id: post.id,
         name: model,
@@ -61,23 +75,15 @@ export async function runAdversarialSynthesis({
         created_at: post.created_at
       });
 
-      // 5. Update context for the next model in the chain
-      conversationContext += `\n[Synthesis from ${model}]: ${content}\n`;
-
-      // 6. Natural spacing (1.5s) to allow the user to read the debate as it unfolds
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      debateHistory += `\n[${model} Output]: ${content}\n`;
+      
+      // Allow for a "digestive" pause so the user can follow the thought process
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
     } catch (err) {
-      console.error(`Synthesis failure at node ${model}:`, err);
-      
-      // Notify the user of a node failure via Socket
-      io.to(conversationId).emit('node:error', {
-        node: model,
-        message: "Node offline or rate-limited. Moving to next synthesis."
-      });
+      console.error(`Synthesis node ${model} error:`, err);
     }
   }
 
-  // Final signal that the synthesis chain is complete
-  io.to(conversationId).emit('synthesis:complete', { conversationId });
+  io.to(conversationId).emit('synthesis:complete');
 }
