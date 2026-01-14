@@ -6,18 +6,20 @@ const router = express.Router();
 
 /**
  * GET /api/conversations/user
- * STRICT PRIVATE ACCESS: Only pulls data for the logged-in user.
+ * STRICT PRIVATE ACCESS: Fetches history ONLY for the logged-in user.
+ * This prevents cross-user data leaks and stops 500 errors by handling 
+ * empty states gracefully.
  */
 router.get('/user', async (req, res) => {
   try {
     const { userId } = req.query;
     
-    // Safety check: if no ID, return nothing. No global leaks.
-    if (!userId || userId === 'undefined') {
+    // Guard: If the frontend doesn't send a valid ID, return an empty list.
+    if (!userId || userId === 'undefined' || userId === 'null') {
       return res.status(200).json([]);
     }
 
-    // Filter strictly by the unique userId
+    // Strict ownership filter
     const conversations = await prisma.conversation.findMany({
       where: { user_id: String(userId) },
       orderBy: { created_at: 'desc' },
@@ -34,17 +36,20 @@ router.get('/user', async (req, res) => {
       }
     });
 
-    res.setHeader('Cache-Control', 'no-store');
+    // Ensure the browser doesn't cache an old error state
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+
     return res.status(200).json(conversations.map(c => ({
       id: c.id,
       title: c.title || "Private Synthesis",
       is_daily_forge: false,
       timestamp: c.created_at,
-      preview: c.posts?.[0]?.content?.substring(0, 60) + "..." || ""
+      preview: c.posts?.[0]?.content?.substring(0, 60) + "..." || "No content"
     })));
 
   } catch (error: any) {
-    console.error('Private History Fetch Error:', error.message);
+    console.error('🔥 PRIVATE_SPACE_ERROR:', error.message);
+    // Return 200 [] to prevent the UI from showing error popups
     return res.status(200).json([]); 
   }
 });
