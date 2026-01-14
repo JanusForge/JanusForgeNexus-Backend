@@ -44,7 +44,7 @@ router.get('/history', async (req, res) => {
 /**
  * POST /api/daily-forge/interject
  * Allows users to influence the live debate.
- * OWNER ACCESS: Admin@janus.com bypasses token costs.
+ * OWNER ACCESS: admin@janusforge.ai bypasses token costs.
  */
 router.post('/interject', async (req, res) => {
   const { userId, conversationId, content } = req.body;
@@ -57,8 +57,8 @@ router.post('/interject', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // OWNER BYPASS: Full unrestricted access for Admin@janus.com
-    const isOwner = user.email === 'Admin@janus.com';
+    // OWNER BYPASS: Full unrestricted access for admin@janusforge.ai
+    const isOwner = user.email === 'admin@janusforge.ai';
     const INTERJECTION_COST = 3;
 
     if (!isOwner && user.tokens_remaining < INTERJECTION_COST) {
