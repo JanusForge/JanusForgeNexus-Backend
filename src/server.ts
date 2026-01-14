@@ -8,7 +8,6 @@ import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 dotenv.config();
-
 import authRouter from './routes/auth'; 
 import adminRouter from './routes/admin';
 import nexusRouter from './services/nexus-core/nexus-router';
@@ -29,22 +28,20 @@ const allowedOrigins = ['https://www.janusforge.ai', 'https://janusforge.ai', 'h
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// Routes
+// Routes & Aliases
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/nexus', nexusRouter);
-app.use('/api/conversations', nexusRouter); // 🛡️ Safety Alias for Legacy Frontend
+app.use('/api/conversations', nexusRouter); // 🛡️ Safety Net for Synthesis & Sidebar
 
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true }
 });
-
 app.set('io', io);
 
 io.on('connection', (socket) => {
   socket.on('join:room', (roomId) => socket.join(roomId));
 });
 
-httpServer.listen(PORT, () => console.log(`🚀 JANUS FORGE ENGINE LIVE`));
-
+httpServer.listen(PORT, () => console.log(`🚀 JANUS FORGE CORE ONLINE`));
 export { io };
