@@ -9,8 +9,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // --- 1. CONFIGURATION & ROUTE IMPORTS ---
 dotenv.config();
-// Restore the Auth Bridge
-import authRouter from './routes/auth-router'; 
+
+// CORRECTED PATH: Points to src/routes/auth/index.ts
+import authRouter from './routes/auth'; 
 import nexusRouter from './services/nexus-core/nexus-router';
 
 const app = express();
@@ -51,10 +52,8 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// RESTORED: Authentication Gateway (Fixes the 404 Login Error)
+// Gateways
 app.use('/api/auth', authRouter);
-
-// Nexus Core Gateway
 app.use('/api/nexus', nexusRouter);
 
 // --- 4. THE NEURAL LINK (SOCKET.IO) ---
@@ -70,12 +69,10 @@ app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log(`📡 Neural Link Established: ${socket.id}`);
-
   socket.on('join:room', (roomId) => {
     socket.join(roomId);
     console.log(`🔐 Admin Joined Private Room: ${roomId}`);
   });
-
   socket.on('disconnect', () => {
     console.log(`🔌 Neural Link Severed: ${socket.id}`);
   });
@@ -83,13 +80,7 @@ io.on('connection', (socket) => {
 
 // --- 5. INITIALIZATION ---
 httpServer.listen(PORT, () => {
-  console.log(`
-  --------------------------------------------------
-  🚀 JANUS FORGE NEXUS CORE LIVE ON PORT ${PORT}
-  🛠️  Mode: 2026 Frontier Cluster Active
-  🛡️  Identity: Master Authority (admin@janusforge.ai)
-  --------------------------------------------------
-  `);
+  console.log(`🚀 JANUS FORGE NEXUS CORE LIVE ON PORT ${PORT}`);
 });
 
 export { io };
