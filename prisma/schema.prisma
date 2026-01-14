@@ -49,16 +49,23 @@ model User {
   @@map("users")
 }
 
+
 model Conversation {
   id              String          @id @default(uuid())
-  user_id         String?         @map("user_id") // Added to track private Neural History
-  title           String?
-  is_daily_forge  Boolean         @default(false) @map("is_daily_forge")
+  user_id         String?         @map("user_id") 
+  title           String?         // Will store the cinematic 3-5 word titles
+  
+  // ISOLATION LOGIC
+  is_private      Boolean         @default(true) @map("is_private") // True for Nexus Prime
+  is_daily_forge  Boolean         @default(false) @map("is_daily_forge") // False for Nexus Prime
+  
   daily_topic     String?         @map("daily_topic")
   forge_date      DateTime?       @map("forge_date")
   council_members AIParticipant[] @map("council_members")
   created_at      DateTime        @default(now()) @map("created_at")
   expires_at      DateTime?       @map("expires_at")
+  
+  // RELATIONS
   daily_forges    DailyForge[]
   debate_votes    DebateVote[]    @relation("ConversationVotes")
   posts           Post[]          @relation("ConversationPosts")
@@ -69,26 +76,31 @@ model Conversation {
 
 model Post {
   id              String         @id @default(uuid())
-  content         String
+  content         String         @db.Text // Use Text for long adversarial syntheses
   is_human        Boolean        @default(true) @map("is_human")
+  
+  // IDENTIFICATION
+  name            String?        // NEW: Stores "Claude", "GPT4", etc. for the chat UI
   ai_model        AIParticipant? @map("ai_model")
   user_id         String?        @map("user_id")
   conversation_id String         @map("conversation_id")
+  
   parent_post_id  String?        @map("parent_post_id")
   likes           Int            @default(0)
   required_tier   String?        @map("required_tier")
   created_at      DateTime       @default(now()) @map("created_at")
   ai_response     AIResponse?    @relation("PostToAIResponse")
-  
-  // CASCADE: If conversation is deleted, delete all posts
+
+  // RELATIONS & CLEANUP
   conversation    Conversation   @relation("ConversationPosts", fields: [conversation_id], references: [id], onDelete: Cascade)
-  
   parent          Post?          @relation("PostReplies", fields: [parent_post_id], references: [id])
   replies         Post[]         @relation("PostReplies")
   user            User?          @relation(fields: [user_id], references: [id])
 
   @@map("posts")
 }
+
+
 
 model AIResponse {
   id              String        @id @default(uuid())

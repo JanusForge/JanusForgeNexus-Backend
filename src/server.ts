@@ -1,5 +1,6 @@
 // src/server.ts
 import authRouter from './routes/auth';
+import nexusRouter from './services/nexus-core/nexus-router';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -39,7 +40,6 @@ const xai = new OpenAI({
 export const aiClients = { deepseek, xai, genAI, anthropic };
 
 // --- 🛡️ UNIFIED CORS CONFIGURATION ---
-// Ensures Render doesn't reject Socket handshakes during page navigation
 const CORS_OPTIONS = {
   origin: (origin: any, callback: any) => callback(null, true),
   credentials: true
@@ -55,6 +55,7 @@ app.use('/api/archives', archiveRouter);
 app.use('/api/conversations', conversationRouter);
 app.use('/api/daily-forge', dailyForgeRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/nexus', nexusRouter); // Mounting the Nexus Core
 
 app.get('/', (req, res) => res.status(200).json({
   status: "ONLINE",
@@ -64,7 +65,7 @@ app.get('/', (req, res) => res.status(200).json({
 
 // --- 🏛️ SOCKET ENGINE ---
 const io = new Server(httpServer, {
-  cors: CORS_OPTIONS, // Match Express CORS to prevent 500/403 errors
+  cors: CORS_OPTIONS,
   pingTimeout: 60000,
   transports: ['websocket', 'polling']
 });
@@ -75,14 +76,22 @@ app.set('aiClients', aiClients);
 io.on('connection', (socket) => {
   console.log(`🏛️ Socket Connected: ${socket.id}`);
 
+  // --- Standard Daily Forge Join ---
   socket.on('join', ({ conversationId }) => {
     if (conversationId) {
-      // CLEAR GHOST ROOMS: Prevents 500 errors caused by multi-room noise
       socket.rooms.forEach(room => {
         if (room !== socket.id) socket.leave(room);
       });
       socket.join(conversationId);
       console.log(`👤 Socket ${socket.id} joined room: ${conversationId}`);
+    }
+  });
+
+  // --- Nexus Prime Specific Room Join (Independent Listener) ---
+  socket.on('join:room', (conversationId) => {
+    if (conversationId) {
+      socket.join(conversationId);
+      console.log(`👤 Nexus Neural Link: Socket ${socket.id} joined ${conversationId}`);
     }
   });
 
@@ -95,7 +104,6 @@ io.on('connection', (socket) => {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) return;
 
-      // OWNER ACCESS: Hardcoded bypass for Admin@janusforge.ai
       const isOwner = user.email === 'admin@janusforge.ai' || user.role === 'GOD_MODE';
       const DEBATE_COST = 3;
 
@@ -103,9 +111,7 @@ io.on('connection', (socket) => {
         return socket.emit('error', { message: "Insufficient tokens." });
       }
 
-      // Simplified Transaction: Ensure ownership is assigned
       const [savedPost, updatedUser] = await prisma.$transaction(async (tx) => {
-        // Force ownership to the sender
         await tx.conversation.update({
           where: { id: conversationId },
           data: { user_id: userId }
@@ -132,7 +138,6 @@ io.on('connection', (socket) => {
 
       const currentTokens = isOwner ? 999999 : (updatedUser?.tokens_remaining ?? 0);
 
-      // Broadcast to room
       io.to(conversationId).emit('post:incoming', {
         id: savedPost.id,
         name: user.username,
@@ -143,7 +148,6 @@ io.on('connection', (socket) => {
         conversationId
       });
 
-      // Trigger AI
       triggerCouncilDebate({ conversationId, io, currentTokens, ...aiClients })
         .catch(err => console.error(`❌ Council Error:`, err));
 
