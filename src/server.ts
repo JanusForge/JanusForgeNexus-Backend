@@ -20,40 +20,49 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 10000;
 
-// --- 1. AI CLUSTER (2026 STANDARDS) ---
+// --- 1. AI CLUSTER (2026 FRONTIER STANDARDS) ---
 export const aiClients = {
   CLAUDE: new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
   GPT4: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
   GEMINI: new GoogleGenerativeAI(process.env.GEMINI_API_KEY!),
-  GROK: new OpenAI({ apiKey: process.env.GROK_API_KEY, baseURL: "https://api.x.ai/v1" }),
-  DEEPSEEK: new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" })
+  // Grok & DeepSeek leverage OpenAI-compatible SDKs via specialized baseURLs
+  GROK: new OpenAI({ 
+    apiKey: process.env.GROK_API_KEY, 
+    baseURL: "https://api.x.ai/v1" 
+  }),
+  DEEPSEEK: new OpenAI({ 
+    apiKey: process.env.DEEPSEEK_API_KEY, 
+    baseURL: "https://api.deepseek.com" 
+  })
 };
 app.set('aiClients', aiClients);
 
 // --- 2. SECURITY & RESOURCE OPTIMIZATION ---
-// Exact origins allowed for cookies and secure socket handshakes
-const allowedOrigins = ['https://www.janusforge.ai', 'https://janusforge.ai', 'http://localhost:3000'];
+const allowedOrigins = [
+  'https://www.janusforge.ai', 
+  'https://janusforge.ai', 
+  'http://localhost:3000',
+  'https://janusforgenexus-react.vercel.app' // Added Vercel for the CouncilBuilder build
+];
 
 app.use(cors({
   origin: allowedOrigins,
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' })); // Handles large 5-AI synthesis payloads
+
+// Increased limit for complex 5-AI synthesis logs and large prompts
+app.use(express.json({ limit: '10mb' })); 
 
 // --- 3. FIREBREAK API GATEWAYS ---
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
-app.use('/api/nexus', nexusRouter);      // Private Synthesis Frontier
-app.use('/api/daily-forge', dailyForgeRouter); // Public Debate Square
+app.use('/api/nexus', nexusRouter);           // Private Frontier Cluster
+app.use('/api/daily-forge', dailyForgeRouter);  // Public Debate Square
 
-// 🛡️ LEGACY ALIAS: Redirects old traffic to Nexus Prime logic
+// 🛡️ LEGACY ALIAS: Preserves backward compatibility for the Sidebar logic
 app.use('/api/conversations', nexusRouter);
 
 // --- 4. NEURAL LINK (SOCKETS) ---
-/**
- * REPAIR: We merge nexusSocketOptions with a explicit CORS object 
- * to ensure 'Access-Control-Allow-Credentials' is 'true'
- */
 const io = new Server(httpServer, {
   ...nexusSocketOptions,
   cors: {
@@ -62,14 +71,23 @@ const io = new Server(httpServer, {
     credentials: true
   }
 });
+
+// Pass 'io' to the app context so routers/engines can broadcast
 app.set('io', io);
 
-// Initialize specialized Nexus Prime socket logic (Heartbeats/Isolation)
+/**
+ * 🌌 NEXUS PRIME: SECURE NAMESPACE
+ * Initializes specialized logic (Heartbeats/Isolation) specifically 
+ * for the /nexus-prime firebreak namespace.
+ */
 setupNexusSockets(io);
 
-// Standard socket fallback
+// Standard socket fallback (Public Daily Forge)
 io.on('connection', (socket) => {
-  socket.on('join:room', (roomId) => socket.join(roomId));
+  socket.on('join:room', (roomId) => {
+    socket.join(roomId);
+    console.log(`🔌 Public Neural Link: Room ${roomId}`);
+  });
 });
 
 // --- 5. RESILIENCE LAYER ---
@@ -79,7 +97,8 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`🚀 JANUS CORE ACTIVE | AUTHORITY: admin@janusforge.ai`);
+  console.log(`🚀 JANUS CORE ACTIVE | PORT: ${PORT}`);
+  console.log(`🛡️ AUTHORITY STATUS: admin@janusforge.ai - MASTER UNLOCKED`);
 });
 
 export { io };
