@@ -47,7 +47,10 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: allowedOrigins,
-  credentials: true
+  credentials: true,
+  // 🛡️ Explicitly allow the Master Authority header
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
 // Increased limit for complex 5-AI synthesis logs and large prompts
