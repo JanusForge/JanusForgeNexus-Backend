@@ -31,9 +31,12 @@ export const aiClients = {
 app.set('aiClients', aiClients);
 
 // --- 2. SECURITY & RESOURCE OPTIMIZATION ---
-app.use(cors({ 
-  origin: ['https://www.janusforge.ai', 'https://janusforge.ai', 'http://localhost:3000'], 
-  credentials: true 
+// Exact origins allowed for cookies and secure socket handshakes
+const allowedOrigins = ['https://www.janusforge.ai', 'https://janusforge.ai', 'http://localhost:3000'];
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
 }));
 app.use(express.json({ limit: '10mb' })); // Handles large 5-AI synthesis payloads
 
@@ -41,13 +44,24 @@ app.use(express.json({ limit: '10mb' })); // Handles large 5-AI synthesis payloa
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/nexus', nexusRouter);      // Private Synthesis Frontier
-app.use('/api/daily-forge', dailyForgeRouter); // Public Public Debate Square
+app.use('/api/daily-forge', dailyForgeRouter); // Public Debate Square
 
-// 🛡️ LEGACY ALIAS: Redirects old traffic to Nexus Prime
+// 🛡️ LEGACY ALIAS: Redirects old traffic to Nexus Prime logic
 app.use('/api/conversations', nexusRouter);
 
 // --- 4. NEURAL LINK (SOCKETS) ---
-const io = new Server(httpServer, nexusSocketOptions);
+/**
+ * REPAIR: We merge nexusSocketOptions with a explicit CORS object 
+ * to ensure 'Access-Control-Allow-Credentials' is 'true'
+ */
+const io = new Server(httpServer, {
+  ...nexusSocketOptions,
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
 app.set('io', io);
 
 // Initialize specialized Nexus Prime socket logic (Heartbeats/Isolation)
