@@ -20,51 +20,70 @@ model Purchase {
 }
 
 model User {
-  id                        String             @id @default(uuid())
-  email                     String             @unique
-  username                  String             @unique
-  password_hash             String             @map("password_hash")
-  tier                      String             @default("FREE")
-  token_balance             Int                @default(0) @map("token_balance")
-  tokens_used               Int                @default(0) @map("tokens_used")
-  tokens_remaining          Int                @default(0) @map("tokens_remaining")
-  refresh_token             String?            @map("refresh_token")
-  created_at                DateTime           @default(now()) @map("created_at")
-  updated_at                DateTime           @updatedAt @map("updated_at")
-  role                      UserRole           @default(USER)
-  reset_expires             DateTime?
-  reset_token               String?            @unique
-  resetToken                String?
-  resetTokenExpiry          DateTime?
-  purchases                 Purchase[]
-  ai_responses              AIResponse[]
-  debate_votes              DebateVote[]
-  posts                     Post[]
-  token_transactions        TokenTransaction[]
-  conversations             Conversation[]     // Relation back to private conversations
-  emailVerified             Boolean            @default(false)
-  verificationToken         String?            @unique
-  verificationTokenExpires  DateTime?
+  id                       String             @id @default(uuid())
+  email                    String             @unique
+  username                 String             @unique
+  password_hash            String             @map("password_hash")
+  tier                     String             @default("FREE")
+  token_balance            Int                @default(0) @map("token_balance")
+  tokens_used              Int                @default(0) @map("tokens_used")
+  tokens_remaining         Int                @default(0) @map("tokens_remaining")
+  refresh_token            String?            @map("refresh_token")
+  created_at               DateTime           @default(now()) @map("created_at")
+  updated_at               DateTime           @updatedAt @map("updated_at")
+  role                     UserRole           @default(USER)
+  reset_expires            DateTime?
+  reset_token              String?            @unique
+  resetToken               String?
+  resetTokenExpiry         DateTime?
+  
+  // Relations
+  purchases                Purchase[]
+  ai_responses             AIResponse[]
+  debate_votes             DebateVote[]
+  posts                    Post[]
+  token_transactions       TokenTransaction[]
+  conversations            Conversation[]     // Relation back to private conversations
+  support_tickets          SupportTicket[]    // ✅ Track Architect transmissions
+  
+  emailVerified            Boolean            @default(false)
+  verificationToken        String?            @unique
+  verificationTokenExpires DateTime?
 
   @@map("users")
 }
 
+model SupportTicket {
+  id          String   @id @default(uuid())
+  user_id     String   @map("user_id")
+  subject     String
+  message     String   @db.Text
+  status      String   @default("OPEN")     // OPEN, IN_PROGRESS, RESOLVED
+  priority    String   @default("NORMAL")   // NORMAL, HIGH, CRITICAL
+  created_at  DateTime @default(now())      @map("created_at")
+  updated_at  DateTime @updatedAt           @map("updated_at")
+
+  // Relations
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("support_tickets")
+}
 
 model Conversation {
   id              String          @id @default(uuid())
-  user_id         String?         @map("user_id") 
+  user_id         String?         @map("user_id")
   title           String?         // Will store the cinematic 3-5 word titles
-  
+
   // ISOLATION LOGIC
   is_private      Boolean         @default(true) @map("is_private") // True for Nexus Prime
   is_daily_forge  Boolean         @default(false) @map("is_daily_forge") // False for Nexus Prime
-  
+
   daily_topic     String?         @map("daily_topic")
   forge_date      DateTime?       @map("forge_date")
   council_members AIParticipant[] @map("council_members")
   created_at      DateTime        @default(now()) @map("created_at")
   expires_at      DateTime?       @map("expires_at")
-  
+
   // RELATIONS
   daily_forges    DailyForge[]
   debate_votes    DebateVote[]    @relation("ConversationVotes")
@@ -75,62 +94,60 @@ model Conversation {
 }
 
 model Post {
-  id              String         @id @default(uuid())
-  content         String         @db.Text // Use Text for long adversarial syntheses
-  is_human        Boolean        @default(true) @map("is_human")
-  
+  id               String         @id @default(uuid())
+  content          String         @db.Text // Use Text for long adversarial syntheses
+  is_human         Boolean        @default(true) @map("is_human")
+
   // IDENTIFICATION
-  name            String?        // NEW: Stores "Claude", "GPT4", etc. for the chat UI
-  ai_model        AIParticipant? @map("ai_model")
-  user_id         String?        @map("user_id")
-  conversation_id String         @map("conversation_id")
-  
-  parent_post_id  String?        @map("parent_post_id")
-  likes           Int            @default(0)
-  required_tier   String?        @map("required_tier")
-  created_at      DateTime       @default(now()) @map("created_at")
-  ai_response     AIResponse?    @relation("PostToAIResponse")
+  name             String?        // Stores "Claude", "GPT4", etc. for the chat UI
+  ai_model         AIParticipant? @map("ai_model")
+  user_id          String?        @map("user_id")
+  conversation_id  String         @map("conversation_id")
+
+  parent_post_id   String?        @map("parent_post_id")
+  likes            Int            @default(0)
+  required_tier    String?        @map("required_tier")
+  created_at       DateTime       @default(now()) @map("created_at")
+  ai_response      AIResponse?    @relation("PostToAIResponse")
 
   // RELATIONS & CLEANUP
-  conversation    Conversation   @relation("ConversationPosts", fields: [conversation_id], references: [id], onDelete: Cascade)
-  parent          Post?          @relation("PostReplies", fields: [parent_post_id], references: [id])
-  replies         Post[]         @relation("PostReplies")
-  user            User?          @relation(fields: [user_id], references: [id])
+  conversation     Conversation   @relation("ConversationPosts", fields: [conversation_id], references: [id], onDelete: Cascade)
+  parent           Post?          @relation("PostReplies", fields: [parent_post_id], references: [id])
+  replies          Post[]         @relation("PostReplies")
+  user             User?          @relation(fields: [user_id], references: [id])
 
   @@map("posts")
 }
 
-
-
 model AIResponse {
-  id              String        @id @default(uuid())
-  post_id         String        @unique @map("post_id")
-  ai_model        AIParticipant @map("ai_model")
-  raw_response    String        @map("raw_response")
-  processing_time Int           @map("processing_time")
-  tokens_used     Int           @map("tokens_used")
-  cost_cents      Int           @map("cost_cents")
-  user_id         String        @map("user_id")
-  created_at      DateTime      @default(now()) @map("created_at")
-  
+  id               String        @id @default(uuid())
+  post_id          String        @unique @map("post_id")
+  ai_model         AIParticipant @map("ai_model")
+  raw_response     String        @map("raw_response")
+  processing_time  Int           @map("processing_time")
+  tokens_used      Int           @map("tokens_used")
+  cost_cents       Int           @map("cost_cents")
+  user_id          String        @map("user_id")
+  created_at       DateTime      @default(now()) @map("created_at")
+
   // CASCADE: If post is deleted, delete the AI response data
-  post            Post          @relation("PostToAIResponse", fields: [post_id], references: [id], onDelete: Cascade)
-  user            User          @relation(fields: [user_id], references: [id])
+  post             Post          @relation("PostToAIResponse", fields: [post_id], references: [id], onDelete: Cascade)
+  user             User          @relation(fields: [user_id], references: [id])
 
   @@map("ai_responses")
 }
 
 model DebateVote {
-  id              String        @id @default(uuid())
-  user_id         String        @map("user_id")
-  conversation_id String        @map("conversation_id")
-  ai_model        AIParticipant @map("ai_model")
-  score           Int
-  created_at      DateTime      @default(now()) @map("created_at")
-  
+  id               String        @id @default(uuid())
+  user_id          String        @map("user_id")
+  conversation_id  String        @map("conversation_id")
+  ai_model         AIParticipant @map("ai_model")
+  score            Int
+  created_at       DateTime      @default(now()) @map("created_at")
+
   // CASCADE: Deleting conversation wipes votes
-  conversation    Conversation  @relation("ConversationVotes", fields: [conversation_id], references: [id], onDelete: Cascade)
-  user            User          @relation(fields: [user_id], references: [id])
+  conversation     Conversation  @relation("ConversationVotes", fields: [conversation_id], references: [id], onDelete: Cascade)
+  user             User          @relation(fields: [user_id], references: [id])
 
   @@unique([user_id, conversation_id, ai_model])
   @@map("debate_votes")
@@ -181,15 +198,9 @@ enum UserRole {
 model SystemHealthLog {
   id          String   @id @default(uuid())
   timestamp   DateTime @default(now()) @map("timestamp")
-  
-  // Overall system status: "HEALTHY", "DEGRADED", or "DOWN"
-  status      String   
-  
-  // The average response time across the entire Council
+  status      String   // "HEALTHY", "DEGRADED", "DOWN"
   avg_latency Int      @map("avg_latency")
-  
-  // Detailed JSON: { "CLAUDE": { "status": "ONLINE", "latency": 450 }, ... }
-  details     Json     
+  details     Json     // Council health JSON details
 
   @@index([timestamp])
   @@map("system_health_logs")
