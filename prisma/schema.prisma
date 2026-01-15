@@ -177,3 +177,20 @@ enum UserRole {
   GOD_MODE
   BETA_ARCHITECT
 }
+
+model SystemHealthLog {
+  id          String   @id @default(uuid())
+  timestamp   DateTime @default(now()) @map("timestamp")
+  
+  // Overall system status: "HEALTHY", "DEGRADED", or "DOWN"
+  status      String   
+  
+  // The average response time across the entire Council
+  avg_latency Int      @map("avg_latency")
+  
+  // Detailed JSON: { "CLAUDE": { "status": "ONLINE", "latency": 450 }, ... }
+  details     Json     
+
+  @@index([timestamp])
+  @@map("system_health_logs")
+}
