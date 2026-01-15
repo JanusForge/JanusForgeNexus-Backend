@@ -6,6 +6,7 @@ const router = Router();
 
 /**
  * 🛡️ Identity Recovery Helper
+ * Checks query, body, and headers to ensure the User ID is never lost.
  */
 const extractIdentity = (req: any) => {
   return req.query.userId || req.body.userId || req.body.user_id || req.headers['x-user-id'];
@@ -16,87 +17,109 @@ const COST_PER_MODEL = 5;
 
 /**
  * 🚀 SYNTHESIS IGNITION
+ * Handlers for: POST /api/nexus/synthesis AND POST /api/conversations/synthesis
  */
 const handleSynthesis = async (req: any, res: any) => {
   const { prompt, selectedModels = ['CLAUDE', 'GPT4', 'GEMINI', 'GROK', 'DEEPSEEK'] } = req.body;
   const userId = extractIdentity(req);
 
-  if (!userId) return res.status(401).json({ error: "Identity Required." });
+  if (!userId) {
+    console.error("❌ Nexus Ignition Failed: No Identity Found");
+    return res.status(401).json({ error: "Identity Required." });
+  }
 
   try {
     // 1. Force database connection wake-up for Neon cold-starts
     await prisma.$connect();
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(404).json({ error: "User not found." });
+    if (!user) return res.status(404).json({ error: "User profile not found." });
 
     const isMaster = user.email.toLowerCase() === MASTER_EMAIL || user.tier === 'ENTERPRISE';
     const totalCost = selectedModels.length * COST_PER_MODEL;
 
+    // 🛑 Token Gate: Skip for Master Authority [cite: 2025-11-27]
     if (!isMaster && user.tokens_remaining < totalCost) {
-      return res.status(403).json({ error: "Insufficient tokens." });
+      return res.status(403).json({ 
+        error: `Insufficient tokens. ${selectedModels.length} models require ${totalCost} tokens.` 
+      });
     }
 
+    // 🏗️ Create Isolated Synthesis Record
     const conversation = await prisma.conversation.create({
       data: {
         user_id: userId,
         title: prompt.substring(0, 30) + "...",
-        name: "Nexus Prime",
-        is_private: true
+        name: "Nexus Prime", // FIREBREAK IDENTIFIER
+        is_private: true      // FIRM PRIVACY LOCK
       }
     });
 
+    // 🧠 Hand-off to Synthesis Engine
+    const io = req.app.get('io');
+    if (!io) {
+      console.error("❌ Socket Error: 'io' instance not found on app context.");
+      // We continue so the user gets the conversation ID, but the stream will fail
+    }
+
+    // Trigger the 5-AI cluster in the background
+    // We do NOT 'await' this here so we can return the conversation ID immediately
     runAdversarialSynthesis({
       conversationId: conversation.id,
       prompt,
       selectedModels,
-      io: req.app.get('io'),
+      io,
       isMaster
-    });
+    }).catch(err => console.error("🔴 Background Engine Fault:", err.message));
 
-    res.json({ 
+    // 📤 Immediate response to frontend to stop the 500 error hang
+    res.json({
       conversationId: conversation.id,
       tokens_remaining: isMaster ? 999789 : (user.tokens_remaining - totalCost)
     });
 
   } catch (err: any) {
-    console.error("🔴 NEXUS SYNTHESIS ERROR:", err.message);
-    res.status(500).json({ error: "Database timeout. Please try again." });
+    console.error("🔴 NEXUS SYNTHESIS CRITICAL:", err.message);
+    res.status(500).json({ error: "System ignition failed. Database link resetting." });
   }
 };
 
 /**
  * 📚 PRIVATE HISTORY SYNC
+ * Handlers for: GET /api/nexus/history AND GET /api/conversations
  */
 const handleHistory = async (req: any, res: any) => {
   const userId = extractIdentity(req);
-  
+
   if (!userId) {
-    return res.json([]); // Return empty rather than 500
+    return res.json([]); // Return empty rather than 500 to keep UI stable
   }
 
   try {
     await prisma.$connect();
     const history = await prisma.conversation.findMany({
-      where: { 
+      where: {
         user_id: userId,
-        name: "Nexus Prime" 
+        name: "Nexus Prime" // Firebreak: Only retrieve synthesis threads
       },
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
+      take: 25 // Optimization for sidebar performance
     });
     res.json(history);
   } catch (err: any) {
     console.error("🔴 NEXUS HISTORY ERROR:", err.message);
-    res.status(200).json([]); // Return empty list on error to keep UI from crashing
+    res.status(200).json([]); // Return empty list on error to prevent UI crash
   }
 };
 
-// --- ROUTES ---
+// --- ROUTE REGISTRATION ---
+
+// Modern Nexus Frontier
 router.post('/synthesis', handleSynthesis);
 router.get('/history', handleHistory);
 
-// --- LEGACY ALIASES (Fixed the 500 errors) ---
-router.post('/', handleSynthesis); 
+// Legacy Handler Redirection (The Firebreak Bridge)
+router.post('/', handleSynthesis);
 router.get('/', handleHistory);
 
 export default router;
