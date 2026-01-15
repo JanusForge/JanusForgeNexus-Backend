@@ -1,128 +1,106 @@
-import prisma from '../../lib/prisma';
 import { aiClients } from '../../server';
+import prisma from '../../lib/prisma';
 
-interface SynthesisOptions {
+interface SynthesisParams {
   conversationId: string;
   prompt: string;
+  selectedModels: string[]; // e.g., ['CLAUDE', 'GPT4', 'GEMINI']
   io: any;
+  isMaster: boolean; // Site owner bypass
 }
 
-/**
- * UNIVERSAL ADAPTER (JAN 2026)
- * Orchestrates the 5-Node Frontier Cluster using Tiered Reasoning for max profit/performance.
- */
-const getModelResponse = async (modelName: string, system: string, prompt: string) => {
-  const client = aiClients[modelName as keyof typeof aiClients];
-  
-  switch (modelName) {
-    case 'CLAUDE':
-      // Using Claude 4.5 Opus: The 2026 Global SOTA for reasoning and ethics.
-      const msg = await client.messages.create({
-        model: "claude-opus-4-5-20251101", 
-        max_tokens: 2048,
-        system,
-        messages: [{ role: "user", content: prompt }]
-      });
-      return msg.content[0].text;
+export const runAdversarialSynthesis = async ({ 
+  conversationId, 
+  prompt, 
+  selectedModels, 
+  io, 
+  isMaster 
+}: SynthesisParams) => {
+  const COST_PER_MODEL = 5;
+  const totalCost = selectedModels.length * COST_PER_MODEL;
 
-    case 'GEMINI':
-      // Using Gemini 3 Flash: Pro-level logic at a fraction of the cost.
-      const genModel = client.getGenerativeModel({ model: "gemini-3-flash-preview" });
-      const result = await genModel.generateContent(`${system}\n\n${prompt}`);
-      return result.response.text();
+  try {
+    // 1. Initial State Broadcast
+    io.to(conversationId).emit('synthesis:status', { message: "Initializing Frontier Cluster..." });
 
-    default: 
-      // GPT-5.2, GROK-4.1, and DEEPSEEK V3.2 (OpenAI-Compatible SDKs)
-      const modelMap: Record<string, string> = {
-        'GPT4': 'gpt-5-2-chat-latest',  // Flagship reasoning node
-        'GROK': 'grok-4-1-fast-reasoning', // High-speed, real-time node
-        'DEEPSEEK': 'deepseek-chat'     // Non-thinking V3.2 for fast analysis
-      };
-      
-      const completion = await client.chat.completions.create({
-        model: modelMap[modelName],
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: prompt }
-        ],
+    // 2. Parallel Adversarial Execution
+    // We trigger all selected models simultaneously to minimize latency
+    const synthesisTasks = selectedModels.map(async (modelKey) => {
+      try {
+        let responseText = "";
+        
+        // --- Model Specific Routing ---
+        if (modelKey === 'CLAUDE') {
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-20240620",
+            max_tokens: 1024,
+            messages: [{ role: "user", content: `ADVERSARIAL SYNTHESIS TASK: ${prompt}` }],
+          });
+          responseText = msg.content[0].type === 'text' ? msg.content[0].text : "";
+        } 
+        else if (modelKey === 'GPT4') {
+          const completion = await aiClients.GPT4.chat.completions.create({
+            model: "gpt-4o",
+            messages: [{ role: "user", content: `ADVERSARIAL SYNTHESIS TASK: ${prompt}` }],
+          });
+          responseText = completion.choices[0].message.content || "";
+        }
+        else if (modelKey === 'GEMINI') {
+          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          const result = await model.generateContent(`ADVERSARIAL SYNTHESIS TASK: ${prompt}`);
+          responseText = result.response.text();
+        }
+        // Add Grok and DeepSeek handlers here using their respective OpenAI-compatible clients
+
+        // Stream the completed expert perspective to the frontend
+        io.to(conversationId).emit('post:incoming', {
+          id: crypto.randomUUID(),
+          name: modelKey,
+          content: responseText,
+          sender: 'ai'
+        });
+
+        return { model: modelKey, content: responseText };
+      } catch (err) {
+        console.error(`Model ${modelKey} failed:`, err);
+        return { model: modelKey, content: "Synthesis segment offline." };
+      }
+    });
+
+    const results = await Promise.all(synthesisTasks);
+
+    // 3. Post-Synthesis Token Economy
+    if (!isMaster) {
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { user_id: true }
       });
-      return completion.choices[0].message.content;
+
+      if (conversation?.user_id) {
+        await prisma.user.update({
+          where: { id: conversation.user_id },
+          data: { tokens_remaining: { decrement: totalCost } }
+        });
+      }
+    }
+
+    // 4. Persistence: Save all responses to the database
+    await prisma.post.createMany({
+      data: results.map(res => ({
+        content: res.content,
+        name: res.model,
+        is_human: false,
+        conversation_id: conversationId
+      }))
+    });
+
+    io.to(conversationId).emit('synthesis:complete', { 
+      status: 'success', 
+      cost: isMaster ? 0 : totalCost 
+    });
+
+  } catch (error) {
+    console.error("CRITICAL ENGINE FAILURE:", error);
+    io.to(conversationId).emit('synthesis:error', { message: "Cluster desynchronized." });
   }
 };
-
-/**
- * ADVERSARIAL SYNTHESIS ENGINE
- * Orchestrates the autonomous adversarial flow between nodes.
- */
-export async function runAdversarialSynthesis({
-  conversationId,
-  prompt,
-  io
-}: SynthesisOptions) {
-  const models = ['CLAUDE', 'GPT4', 'GEMINI', 'GROK', 'DEEPSEEK'];
-  let debateContext = `Initial Directive: ${prompt}\n\n`;
-
-  // 1. GENERATE CINEMATIC TITLE (First Action)
-  try {
-    const title = await getModelResponse(
-      'CLAUDE', 
-      "You are the Janus Forge Title Engine.", 
-      `Synthesize a 3-5 word striking, autonomous title for: "${prompt}". No quotes.`
-    );
-
-    if (title) {
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { title: title.trim().replace(/["']/g, "") }
-      });
-      io.to(conversationId).emit('sidebar:update');
-    }
-  } catch (err) {
-    console.error("Title Node Error:", err);
-  }
-
-  // 2. THE ADVERSARIAL LOOP
-  for (const modelName of models) {
-    try {
-      const systemDirective = `
-        You are node ${modelName} in the Nexus Prime Frontier Cluster.
-        Challenge the consensus of previous nodes. Be incisive, not encyclopedic.
-        Current Cluster Status: Active.
-      `;
-
-      const content = await getModelResponse(modelName, systemDirective, debateContext);
-      if (!content) continue;
-
-      // Save to Database
-      const post = await prisma.post.create({
-        data: {
-          content,
-          is_human: false,
-          name: modelName,
-          conversation_id: conversationId,
-          sender: 'ai'
-        }
-      });
-
-      // Stream to Frontend
-      io.to(conversationId).emit('post:incoming', {
-        id: post.id,
-        name: modelName,
-        content,
-        sender: 'ai',
-        created_at: post.created_at
-      });
-
-      debateContext += `\n[Node ${modelName} Synthesis]: ${content}\n`;
-      
-      // Cinematic Processing Delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-    } catch (err) {
-      console.error(`Node ${modelName} failure:`, err);
-    }
-  }
-
-  // Signal completion
-  io.to(conversationId).emit('synthesis:complete');
-}
