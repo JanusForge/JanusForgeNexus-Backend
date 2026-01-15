@@ -7,12 +7,13 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// 🛡️ Firebreak Imports
+// --- 🛡️ FIREBREAK IMPORTS ---
 import { setupNexusSockets, nexusSocketOptions } from './services/nexus-core/nexus-socket';
 import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
 import nexusRouter from './services/nexus-core/nexus-router';
 import dailyForgeRouter from './routes/dailyForge';
+import supportRoutes from './routes/supportRoutes'; // ✅ Correctly Imported
 
 dotenv.config();
 
@@ -25,42 +26,42 @@ export const aiClients = {
   CLAUDE: new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
   GPT4: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
   GEMINI: new GoogleGenerativeAI(process.env.GEMINI_API_KEY!),
-  // Grok & DeepSeek leverage OpenAI-compatible SDKs via specialized baseURLs
-  GROK: new OpenAI({ 
-    apiKey: process.env.GROK_API_KEY, 
-    baseURL: "https://api.x.ai/v1" 
+  GROK: new OpenAI({
+    apiKey: process.env.GROK_API_KEY,
+    baseURL: "https://api.x.ai/v1"
   }),
-  DEEPSEEK: new OpenAI({ 
-    apiKey: process.env.DEEPSEEK_API_KEY, 
-    baseURL: "https://api.deepseek.com" 
+  DEEPSEEK: new OpenAI({
+    apiKey: process.env.DEEPSEEK_API_KEY,
+    baseURL: "https://api.deepseek.com"
   })
 };
 app.set('aiClients', aiClients);
 
 // --- 2. SECURITY & RESOURCE OPTIMIZATION ---
 const allowedOrigins = [
-  'https://www.janusforge.ai', 
-  'https://janusforge.ai', 
+  'https://www.janusforge.ai',
+  'https://janusforge.ai',
   'http://localhost:3000',
-  'https://janusforgenexus-react.vercel.app' // Added Vercel for the CouncilBuilder build
+  'https://janusforgenexus-react.vercel.app'
 ];
 
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
-  // 🛡️ Explicitly allow the Master Authority header
+  // 🛡️ Explicitly allow the Master Authority header [cite: 2025-11-27]
   allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
-// Increased limit for complex 5-AI synthesis logs and large prompts
-app.use(express.json({ limit: '10mb' })); 
+app.use(express.json({ limit: '10mb' }));
 
 // --- 3. FIREBREAK API GATEWAYS ---
+// Grouped for organizational integrity
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/nexus', nexusRouter);           // Private Frontier Cluster
 app.use('/api/daily-forge', dailyForgeRouter);  // Public Debate Square
+app.use('/api/support', supportRoutes);       // ✅ Integrated Support System
 
 // 🛡️ LEGACY ALIAS: Preserves backward compatibility for the Sidebar logic
 app.use('/api/conversations', nexusRouter);
@@ -75,13 +76,11 @@ const io = new Server(httpServer, {
   }
 });
 
-// Pass 'io' to the app context so routers/engines can broadcast
 app.set('io', io);
 
 /**
  * 🌌 NEXUS PRIME: SECURE NAMESPACE
- * Initializes specialized logic (Heartbeats/Isolation) specifically 
- * for the /nexus-prime firebreak namespace.
+ * Initializes specialized logic (Heartbeats/Isolation)
  */
 setupNexusSockets(io);
 
