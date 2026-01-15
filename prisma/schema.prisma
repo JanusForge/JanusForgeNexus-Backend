@@ -45,6 +45,7 @@ model User {
   token_transactions       TokenTransaction[]
   conversations            Conversation[]     // Relation back to private conversations
   support_tickets          SupportTicket[]    // ✅ Track Architect transmissions
+  broadcasts          Broadcast[]        // ✅ ADD THIS LINE
   
   emailVerified            Boolean            @default(false)
   verificationToken        String?            @unique
@@ -204,4 +205,13 @@ model SystemHealthLog {
 
   @@index([timestamp])
   @@map("system_health_logs")
+}
+
+model Broadcast {
+  id        String   @id @default(uuid())
+  message   String   @db.Text
+  adminId   String
+  createdAt DateTime @default(now())
+  
+  admin     User     @relation(fields: [adminId], references: [id])
 }

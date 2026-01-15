@@ -1,119 +1,167 @@
-import express from 'express';
-import prisma from '../lib/prisma';
+import { Router } from 'express';
+import { prisma } from '../lib/prisma';
 
-const router = express.Router();
-
-/**
- * 🛡️ ADMIN GUARD
- * Enforces Master Authority for Admin-level operations.
- */
-const adminGuard = async (req: any, res: any, next: any) => {
-  try {
-    const userId = req.query.userId || req.body.userId || req.headers['x-user-id'];
-    const MASTER_ID = '550e8400-e29b-41d4-a716-446655440000';
-
-    if (userId === MASTER_ID) return next();
-    if (!userId) return res.status(401).json({ error: "Identification required." });
-
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-
-    if (user?.email === 'admin@janusforge.ai' || user?.tier === 'ENTERPRISE' || user?.role === 'GOD_MODE') {
-      return next();
-    }
-
-    res.status(403).json({ error: "Access Denied. Insufficient Authority." });
-  } catch (error) {
-    res.status(500).json({ error: "Guard failure." });
-  }
-};
+const router = Router();
 
 /**
- * 📡 NEURAL LINK DIAGNOSTICS & LOGGING
- * Verifies connectivity and records heartbeat to SystemHealthLog
+ * 📡 GET /api/admin/tickets
+ * Fetches all support tickets for the Nexus Watch command center.
+ * Restricted to the Master Authority: admin@janusforge.ai.
  */
-router.get('/ping-council', adminGuard, async (req: any, res) => {
-  const aiClients = req.app.get('aiClients');
-
-  const checkModel = async (name: string, fn: () => Promise<any>) => {
-    const start = Date.now();
-    try {
-      await fn();
-      return { name, status: 'ONLINE', latency: Date.now() - start };
-    } catch (err) {
-      console.error(`Diagnostic failed for ${name}:`, err);
-      return { name, status: 'OFFLINE', latency: 0 };
-    }
-  };
+router.get('/tickets', async (req, res) => {
+  const { userId } = req.query;
 
   try {
-    const results = await Promise.all([
-      checkModel('CLAUDE', () => aiClients.CLAUDE.messages.countTokens({
-        model: 'claude-3-sonnet-20240229',
-        messages: [{role:'user', content:'p'}]
-      })),
-      checkModel('GPT4', () => aiClients.GPT4.models.list()),
-      checkModel('GEMINI', () => aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-flash" }).countTokens("p")),
-      checkModel('GROK', () => aiClients.GROK.models.list()),
-      checkModel('DEEPSEEK', () => aiClients.DEEPSEEK.models.list()),
-    ]);
+    // 🛡️ Verify Master Authority Protocol
+    const caller = await prisma.user.findUnique({
+      where: { id: String(userId) }
+    });
 
-    // 📊 Aggregate Metrics
-    const onlineCount = results.filter(r => r.status === 'ONLINE').length;
-    const totalLatency = results.reduce((acc, curr) => acc + curr.latency, 0);
-    const avgLatency = Math.round(totalLatency / results.length);
-    
-    const systemStatus = onlineCount === results.length ? 'HEALTHY' : 
-                        onlineCount > 0 ? 'DEGRADED' : 'DOWN';
+    if (!caller || caller.email !== 'admin@janusforge.ai') {
+      console.warn(`[SECURITY] Unauthorized access attempt to Nexus Watch by: ${userId}`);
+      return res.status(403).json({ error: "Protocol 0 Violation: Unauthorized Access" });
+    }
 
-    // 📝 PERSIST TO SYSTEM LOGS
-    await prisma.systemHealthLog.create({
-      data: {
-        status: systemStatus,
-        avg_latency: avgLatency,
-        details: results.reduce((acc, curr) => ({ ...acc, [curr.name]: curr }), {})
+    // 🏛️ Pull all transmissions from Neon Table #11
+    const tickets = await prisma.supportTicket.findMany({
+      include: {
+        user: {
+          select: {
+            username: true,
+            email: true,
+            tier: true
+          }
+        }
+      },
+      orderBy: {
+        created_at: 'desc'
       }
     });
 
-    // Return human-readable latency for UI display
-    const formattedResults = results.map(r => ({
-      ...r,
-      latency: r.status === 'ONLINE' ? `${r.latency}ms` : 'N/A'
-    }));
-
-    res.json({ systemStatus, avgLatency: `${avgLatency}ms`, results: formattedResults });
+    return res.json(tickets);
   } catch (error) {
-    res.status(500).json({ error: "Diagnostics engine or logging failure." });
+    console.error("Nexus Watch Ticket Sync Error:", error);
+    return res.status(500).json({ error: "Failed to synchronize with Neon clusters." });
   }
 });
 
 /**
- * 📈 HEALTH HISTORY
- * Fetch the last 50 heartbeat logs for the Admin Dashboard
+ * 📊 GET /api/admin/nexus-metrics
+ * Pulls global system health and user consumption data.
  */
-router.get('/health-history', adminGuard, async (req, res) => {
+router.get('/nexus-metrics', async (req, res) => {
+  const { userId } = req.query;
+
   try {
-    const logs = await prisma.systemHealthLog.findMany({
-      take: 50,
-      orderBy: { timestamp: 'desc' }
+    // 🛡️ Verify Authority
+    const caller = await prisma.user.findUnique({ where: { id: String(userId) } });
+    if (!caller || caller.email !== 'admin@janusforge.ai') {
+      return res.status(403).json({ error: "Protocol 0 Violation" });
+    }
+
+    // Aggregate metrics from Neon
+    const [totalUsers, userTokens] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.findMany({
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          tokens_remaining: true,
+          tokens_used: true,
+          role: true
+        }
+      })
+    ]);
+
+    return res.json({
+      totalUsers,
+      userTokens,
+      activeDebates: 0 // Placeholder for real-time socket count
     });
-    res.json(logs);
   } catch (error) {
-    res.status(500).json({ error: "Failed to retrieve health history." });
+    return res.status(500).json({ error: "Metrics synchronization failed." });
   }
 });
 
 /**
- * 🏛️ SYSTEM HISTORY
+ * ⚡ POST /api/admin/update-tokens
+ * Allows Master Authority to override fuel balances.
  */
-router.get('/all-conversations', adminGuard, async (req, res) => {
+router.post('/update-tokens', async (req, res) => {
+  const { userId } = req.query;
+  const { targetUserId, amount } = req.body;
+
   try {
-    const conversations = await prisma.conversation.findMany({
-      orderBy: { created_at: 'desc' },
-      include: { _count: { select: { posts: true } } }
+    const caller = await prisma.user.findUnique({ where: { id: String(userId) } });
+    if (!caller || caller.email !== 'admin@janusforge.ai') return res.sendStatus(403);
+
+    await prisma.user.update({
+      where: { id: targetUserId },
+      data: { tokens_remaining: parseInt(amount) }
     });
-    res.json(conversations);
+
+    return res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: "History sync failed." });
+    return res.status(500).json({ error: "Token override failed." });
+  }
+});
+
+/**
+ * 🚫 POST /api/admin/toggle-status
+ * Execute "Remote Kill" or reactivate accounts.
+ */
+router.post('/toggle-status', async (req, res) => {
+  const { userId } = req.query;
+  const { targetUserId, status } = req.body;
+
+  try {
+    const caller = await prisma.user.findUnique({ where: { id: String(userId) } });
+    if (!caller || caller.email !== 'admin@janusforge.ai') return res.sendStatus(403);
+
+    await prisma.user.update({
+      where: { id: targetUserId },
+      data: { role: status }
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: "Status toggle failed." });
+  }
+});
+
+/**
+ * 📢 POST /api/admin/broadcast
+ * Deploys a system-wide message to all active Neural Links (Sockets).
+ *
+ */
+router.post('/broadcast', async (req, res) => {
+  const { userId } = req.query;
+  const { message } = req.body;
+
+  try {
+    // 🛡️ Verify Authority
+    const caller = await prisma.user.findUnique({ where: { id: String(userId) } });
+    if (!caller || caller.email !== 'admin@janusforge.ai') return res.sendStatus(403);
+
+    // 📡 Access the global Socket.io instance from the app context
+    const io = req.app.get('io');
+    
+    if (io) {
+      // Emit to all connected clients on the 'nexus:broadcast' channel
+      io.emit('nexus:broadcast', {
+        message,
+        timestamp: new Date(),
+        sender: 'MASTER AUTHORITY'
+      });
+      console.log(`[BROADCAST] Protocol 0 message deployed by ${caller.username}: ${message}`);
+      return res.json({ success: true });
+    } else {
+      throw new Error("Socket.io instance not found in application context.");
+    }
+  } catch (error) {
+    console.error("Broadcast failure:", error);
+    return res.status(500).json({ error: "Broadcast failure: Neural link unavailable." });
   }
 });
 
