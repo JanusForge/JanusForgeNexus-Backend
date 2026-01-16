@@ -43,12 +43,16 @@ router.post('/ignite', async (req, res) => {
 
     const results = await Promise.all(requests);
 
+    // 🛡️ PROFESSIONAL RECOMMENDATION: Title Sanitization
+    // Removes newlines and extra spaces, then caps at 45 chars for better sidebar fit
+    const cleanTitle = prompt.trim().replace(/\n/g, ' ').substring(0, 45) + (prompt.length > 45 ? '...' : '');
+
     // PERSISTENCE: Save to MongoDB
     const newConversation = await Conversation.create({
       userId,
       prompt,
       results,
-      title: prompt.length > 30 ? prompt.substring(0, 30) + '...' : prompt,
+      title: cleanTitle,
       type: 'NEXUS_PRIME',
       timestamp: new Date()
     });
@@ -56,12 +60,16 @@ router.post('/ignite', async (req, res) => {
     res.status(200).json({
       success: true,
       conversationId: newConversation._id,
-      results: results
+      results: results,
+      title: cleanTitle
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Nexus Prime Ignition Error:", error);
-    res.status(500).json({ error: "Internal Prime Cluster Failure" });
+    res.status(500).json({ 
+        error: "Internal Prime Cluster Failure",
+        details: error.message 
+    });
   }
 });
 
@@ -119,6 +127,21 @@ router.get('/public/:slug', async (req, res) => {
     res.status(200).json(conversation);
   } catch (error) {
     res.status(500).json({ error: "Retrieval error." });
+  }
+});
+
+/**
+ * 🛰️ NEURAL RETRIEVAL: Fetches a single synthesis by ID
+ */
+router.get('/synthesis/:id', async (req, res) => {
+  try {
+    const conversation = await Conversation.findById(req.params.id);
+    if (!conversation) {
+      return res.status(404).json({ error: "Synthesis not found in the archive." });
+    }
+    res.status(200).json(conversation);
+  } catch (error) {
+    res.status(500).json({ error: "Neural retrieval failed." });
   }
 });
 
