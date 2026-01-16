@@ -11,9 +11,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { setupNexusSockets, nexusSocketOptions } from './services/nexus-core/nexus-socket';
 import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
-import nexusRouter from './services/nexus-core/nexus-router';
+// ✅ UPDATED: Importing the specific Nexus Prime boundary
+import nexusPrimeRouter from './routes/nexusPrime'; 
 import dailyForgeRouter from './routes/dailyForge';
-import supportRoutes from './routes/supportRoutes'; // ✅ Correctly Imported
+import supportRoutes from './routes/supportRoutes'; 
 
 dotenv.config();
 
@@ -48,7 +49,6 @@ const allowedOrigins = [
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
-  // 🛡️ Explicitly allow the Master Authority header [cite: 2025-11-27]
   allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
@@ -59,12 +59,15 @@ app.use(express.json({ limit: '10mb' }));
 // Grouped for organizational integrity
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
-app.use('/api/nexus', nexusRouter);           // Private Frontier Cluster
-app.use('/api/daily-forge', dailyForgeRouter);  // Public Debate Square
-app.use('/api/support', supportRoutes);       // ✅ Integrated Support System
 
-// 🛡️ LEGACY ALIAS: Preserves backward compatibility for the Sidebar logic
-app.use('/api/conversations', nexusRouter);
+// ✅ BOUNDARY LOCK: Pointing to the new Prime Synthesis engine
+app.use('/api/nexus', nexusPrimeRouter);           
+
+app.use('/api/daily-forge', dailyForgeRouter);  // Public Debate Square
+app.use('/api/support', supportRoutes);       
+
+// 🛡️ LEGACY ALIAS: Maintains Sidebar history using the Prime router
+app.use('/api/conversations', nexusPrimeRouter);
 
 // --- 4. NEURAL LINK (SOCKETS) ---
 const io = new Server(httpServer, {
@@ -80,11 +83,9 @@ app.set('io', io);
 
 /**
  * 🌌 NEXUS PRIME: SECURE NAMESPACE
- * Initializes specialized logic (Heartbeats/Isolation)
  */
 setupNexusSockets(io);
 
-// Standard socket fallback (Public Daily Forge)
 io.on('connection', (socket) => {
   socket.on('join:room', (roomId) => {
     socket.join(roomId);
@@ -99,7 +100,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`🚀 JANUS CORE ACTIVE | PORT: ${PORT}`);
+  console.log(`🚀 JANUS FORGE NEXUS ® ACTIVE | PORT: ${PORT}`);
   console.log(`🛡️ AUTHORITY STATUS: admin@janusforge.ai - MASTER UNLOCKED`);
 });
 
