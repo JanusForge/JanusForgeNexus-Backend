@@ -3,12 +3,29 @@ const router = express.Router();
 import crypto from 'crypto';
 import Conversation from '../models/Conversation';
 
+/**
+ * 🎲 UTILITY: Fisher-Yates Shuffle
+ * Ensures an unbiased random order for the AI Council sequence.
+ */
+function shuffleCouncil(array: string[]) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 router.post('/ignite', async (req, res) => {
   try {
     const { prompt, models, userId, parentConversationId } = req.body;
     const aiClients = req.app.get('aiClients');
 
-    // 1. MEMORY ARCHIVE: Load previous thread context if it exists
+    if (!prompt || !prompt.trim()) {
+      return res.status(400).json({ error: "Strategic objective is required." });
+    }
+
+    // 1. MEMORY ARCHIVE: Load previous thread context
     let contextMessages: any[] = [];
     if (parentConversationId) {
       const thread = await Conversation.findById(parentConversationId);
@@ -20,24 +37,25 @@ router.post('/ignite', async (req, res) => {
       }
     }
 
-    // 2. ADVERSARIAL SEQUENCING: Pure Design Parameters
+    // 2. RANDOMIZE SEQUENCE: No single model leads every time
+    const randomizedModels = shuffleCouncil(models);
     const currentSynthesisResults: any[] = [];
     
-    for (const modelName of models) {
-      // Build the peer-context from previous responders in this specific turn
-      const peerContext = currentSynthesisResults.map(r => `[${r.model} Analysis]: ${r.response}`).join('\n\n');
+    // 3. SEQUENTIAL PEER-REVIEW LOOP
+    for (const modelName of randomizedModels) {
+      const peerContext = currentSynthesisResults
+        .map(r => `[${r.model} Analysis]: ${r.response}`)
+        .join('\n\n');
       
-      // Technical Directive: No roleplay, just synthesis.
       const technicalDirective = peerContext 
-        ? `The following analysis has been provided by other models in the cluster. Evaluate these inputs and provide your independent synthesis based on your specific training and knowledge base:\n\n${peerContext}`
-        : `Initiate a high-fidelity analysis based on your core design parameters.`;
+        ? `Review the following peer analyses and provide your independent synthesis or counter-argument based on your unique design parameters:\n\n${peerContext}`
+        : `You have been randomly selected to lead this synthesis. Initiate the analysis based on your core knowledge base.`;
 
       const finalPrompt = `${technicalDirective}\n\nArchitect Objective: ${prompt}`;
 
       try {
         const lowercaseModel = modelName.toLowerCase();
 
-        // --- CLAUDE ---
         if (lowercaseModel.includes('claude')) {
           const msg = await aiClients.CLAUDE.messages.create({
             model: "claude-3-5-sonnet-20240620",
@@ -46,7 +64,6 @@ router.post('/ignite', async (req, res) => {
           });
           currentSynthesisResults.push({ model: modelName, response: msg.content[0].text });
         }
-        // --- GPT-4 ---
         else if (lowercaseModel.includes('gpt')) {
           const completion = await aiClients.GPT4.chat.completions.create({
             model: "gpt-4-turbo",
@@ -54,13 +71,11 @@ router.post('/ignite', async (req, res) => {
           });
           currentSynthesisResults.push({ model: modelName, response: completion.choices[0].message.content });
         }
-        // --- GEMINI ---
         else if (lowercaseModel.includes('gemini')) {
           const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
           const result = await model.generateContent(finalPrompt);
           currentSynthesisResults.push({ model: modelName, response: result.response.text() });
         }
-        // --- GROK / DEEPSEEK ---
         else if (lowercaseModel.includes('grok') || lowercaseModel.includes('deepseek')) {
           const client = lowercaseModel.includes('grok') ? aiClients.GROK : aiClients.DEEPSEEK;
           const completion = await client.chat.completions.create({
@@ -70,17 +85,16 @@ router.post('/ignite', async (req, res) => {
           currentSynthesisResults.push({ model: modelName, response: completion.choices[0].message.content });
         }
       } catch (err) {
-        console.error(`❌ ${modelName} Sync Error:`, err);
         currentSynthesisResults.push({ model: modelName, error: "Protocol Desync: Model unavailable." });
       }
     }
 
-    // 3. PERSISTENCE & RETURN
+    // 4. PERSISTENCE
     const cleanTitle = prompt.trim().replace(/\n/g, ' ').substring(0, 45) + (prompt.length > 45 ? '...' : '');
     const newConversation = await Conversation.create({
       userId,
       prompt,
-      results: currentSynthesisResults,
+      results: currentSynthesisResults, // Saved in the random order they responded
       title: cleanTitle,
       type: 'NEXUS_PRIME',
       parentConversationId
@@ -93,39 +107,48 @@ router.post('/ignite', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Nexus Synthesis Error:", error);
     res.status(500).json({ error: "Internal Synthesis Failure" });
   }
 });
 
 /**
- * 🛰️ NEURAL RETRIEVAL: Fetches a single synthesis by ID
+ * RETRIEVAL & SHARING ROUTES
  */
 router.get('/synthesis/:id', async (req, res) => {
   try {
     const conversation = await Conversation.findById(req.params.id);
-    if (!conversation) return res.status(404).json({ error: "Synthesis not found." });
     res.status(200).json(conversation);
   } catch (error) {
     res.status(500).json({ error: "Retrieval failed." });
   }
 });
 
-/**
- * 📂 HISTORY RETRIEVAL: Specifically for Nexus Prime
- */
 router.get('/history/:userId', async (req, res) => {
   try {
-    const history = await Conversation.find({
-      userId: req.params.userId,
-      type: 'NEXUS_PRIME'
-    }).sort({ timestamp: -1 });
+    const history = await Conversation.find({ userId: req.params.userId, type: 'NEXUS_PRIME' }).sort({ timestamp: -1 });
     res.status(200).json(history);
   } catch (error) {
-    res.status(500).json({ error: "Could not retrieve history." });
+    res.status(500).json({ error: "History sync failed." });
   }
 });
 
-/* (Public Sharing routes remain same as defined earlier) */
+router.post('/share/:id', async (req, res) => {
+  try {
+    const shareSlug = crypto.randomBytes(4).toString('hex');
+    const conversation = await Conversation.findByIdAndUpdate(req.params.id, { isPublic: true, shareSlug }, { new: true });
+    res.status(200).json({ success: true, shareUrl: `https://janusforgenexus-react.vercel.app/share/${shareSlug}` });
+  } catch (error) {
+    res.status(500).json({ error: "Sharing failed." });
+  }
+});
+
+router.get('/public/:slug', async (req, res) => {
+  try {
+    const conversation = await Conversation.findOne({ shareSlug: req.params.slug, isPublic: true });
+    res.status(200).json(conversation);
+  } catch (error) {
+    res.status(500).json({ error: "Public link error." });
+  }
+});
 
 export default router;
