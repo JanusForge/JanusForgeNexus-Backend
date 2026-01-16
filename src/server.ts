@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose'; // ✅ Added for Nexus Prime persistence
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -11,10 +12,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { setupNexusSockets, nexusSocketOptions } from './services/nexus-core/nexus-socket';
 import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
-// ✅ UPDATED: Importing the specific Nexus Prime boundary
-import nexusPrimeRouter from './routes/nexusPrime'; 
+import nexusPrimeRouter from './routes/nexusPrime';
 import dailyForgeRouter from './routes/dailyForge';
-import supportRoutes from './routes/supportRoutes'; 
+import supportRoutes from './routes/supportRoutes';
 
 dotenv.config();
 
@@ -55,21 +55,31 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// --- 3. FIREBREAK API GATEWAYS ---
-// Grouped for organizational integrity
+// --- 3. NEURAL PERSISTENCE (MONGODB HANDSHAKE) ---
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  console.error("❌ CRITICAL: MONGODB_URI is not defined in environment variables.");
+} else {
+  mongoose.connect(MONGODB_URI)
+    .then(() => console.log("🟢 NEURAL LINK: MongoDB Atlas Connected"))
+    .catch((err) => console.error("❌ NEURAL LINK ERROR:", err));
+}
+
+// --- 4. FIREBREAK API GATEWAYS ---
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
 
-// ✅ BOUNDARY LOCK: Pointing to the new Prime Synthesis engine
-app.use('/api/nexus', nexusPrimeRouter);           
+// ✅ BOUNDARY LOCK: The Prime Synthesis Engine
+app.use('/api/nexus', nexusPrimeRouter);
 
-app.use('/api/daily-forge', dailyForgeRouter);  // Public Debate Square
-app.use('/api/support', supportRoutes);       
+app.use('/api/daily-forge', dailyForgeRouter);
+app.use('/api/support', supportRoutes);
 
 // 🛡️ LEGACY ALIAS: Maintains Sidebar history using the Prime router
 app.use('/api/conversations', nexusPrimeRouter);
 
-// --- 4. NEURAL LINK (SOCKETS) ---
+// --- 5. NEURAL LINK (SOCKETS) ---
 const io = new Server(httpServer, {
   ...nexusSocketOptions,
   cors: {
@@ -80,10 +90,6 @@ const io = new Server(httpServer, {
 });
 
 app.set('io', io);
-
-/**
- * 🌌 NEXUS PRIME: SECURE NAMESPACE
- */
 setupNexusSockets(io);
 
 io.on('connection', (socket) => {
@@ -93,7 +99,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// --- 5. RESILIENCE LAYER ---
+// --- 6. RESILIENCE LAYER ---
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error("🚀 CRITICAL SYSTEM FAULT:", err.stack);
   res.status(500).json({ error: "Neural link desynchronized. System rebooting." });
