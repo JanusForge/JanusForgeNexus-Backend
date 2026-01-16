@@ -4,10 +4,14 @@ import { aiClients } from '../server';
 
 const router = express.Router();
 
+// 🧠 STRATEGIC DIRECTIVE: Force Adversarial Engagement & Efficiency
 const SYSTEM_DIRECTIVE = `
-  You are part of the Janus Forge Nexus® Adversarial Cluster.
-  STRATEGIC CONSTRAINT: Maximum 3 paragraphs. Be surgical and adversarial.
-  No filler or conversational fluff. Prioritize token efficiency.
+  You are an ELITE ADVERSARIAL AGENT in the Janus Forge Nexus®.
+  CORE RULES:
+  1. DO NOT be general or encyclopedic. 
+  2. You MUST directly address, challenge, or support the specific points made by other models in the PREVIOUS VERDICTS.
+  3. Speak with a distinct, sharp, and surgical persona.
+  4. Max 3 paragraphs. Focus on "Information-per-Token" density.
 `;
 
 const nodeTimeout = (ms: number) => new Promise((_, reject) =>
@@ -26,7 +30,7 @@ router.get('/history/:userId', async (req, res) => {
   }
 });
 
-// --- 2. RECONSTRUCTION (Single view for sync) ---
+// --- 2. RECONSTRUCTION (Single view for UI sync) ---
 router.get('/synthesis/:id', async (req, res) => {
   try {
     const conv = await Conversation.findById(req.params.id);
@@ -45,30 +49,40 @@ router.post('/ignite', async (req, res) => {
   }
 
   try {
-    let context = "";
+    // ✅ DEEP NEURAL THREADING: Labeling specific model outputs for Turn 2
+    let contextHeader = "";
     if (parentConversationId) {
-      const thread = await Conversation.find({
-        $or: [{ _id: parentConversationId }, { parentConversationId: parentConversationId }]
-      }).sort({ timestamp: -1 }).limit(2);
-
-      if (thread.length > 0) {
-        context = "--- ARCHIVAL CONTEXT ---\n";
-        thread.reverse().forEach(turn => {
-          context += `User: ${turn.prompt}\nCluster Consensus: ${turn.results[0]?.response?.substring(0, 150)}...\n`;
+      const previous = await Conversation.findById(parentConversationId);
+      if (previous) {
+        contextHeader = `### PREVIOUS ADVERSARIAL VERDICTS (Turn 1)\n`;
+        previous.results.forEach((r: any) => {
+          if (r.response) {
+            contextHeader += `[${r.model} VERDICT]: ${r.response.substring(0, 400)}...\n\n`;
+          }
         });
-        context += "--- END CONTEXT ---\n";
+        contextHeader += `--- END OF HISTORY ---\n`;
       }
     }
 
     const synthesisTasks = models.map(async (modelId: string) => {
-      const fullPrompt = `${SYSTEM_DIRECTIVE}\n\n${context}\n\nNEW OBJECTIVE: ${prompt}`;
+      // The prompt is structured to put the Objective and Context at the bottom (Recency Bias)
+      const fullPrompt = `
+        ${SYSTEM_DIRECTIVE}
+        
+        ${contextHeader}
+        
+        ### CURRENT STRATEGIC OBJECTIVE
+        Objective: "${prompt}"
+        
+        INSTRUCTION: Focus your response specifically on refuting or expanding upon the [VERDICTS] provided above.
+      `;
 
       const executeAI = async () => {
         try {
           switch (modelId) {
             case 'CLAUDE':
               const cMsg = await (aiClients as any).CLAUDE.messages.create({
-                model: "claude-3-5-sonnet-20240620",
+                model: "claude-3-5-sonnet-latest", // ⚡ 2026 Stable
                 max_tokens: 450,
                 messages: [{ role: "user", content: fullPrompt }]
               });
@@ -76,20 +90,21 @@ router.post('/ignite', async (req, res) => {
 
             case 'GPT4':
               const gRes = await (aiClients as any).GPT4.chat.completions.create({
-                model: "gpt-4o",
+                model: "gpt-4o", 
                 messages: [{ role: "user", content: fullPrompt }],
                 max_tokens: 450
               });
               return gRes.choices[0].message.content;
 
             case 'GEMINI':
+              // ⚡ Google 2026 Stable Tier
               const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
               const gemRes = await gemModel.generateContent(fullPrompt);
               return gemRes.response.text();
 
             case 'GROK':
               const grRes = await (aiClients as any).GROK.chat.completions.create({
-                model: "grok-2",
+                model: "grok-beta", // ⚡ xAI 2026 Stable Beta
                 messages: [{ role: "user", content: fullPrompt }],
                 max_tokens: 450
               });
@@ -107,12 +122,12 @@ router.post('/ignite', async (req, res) => {
           }
         } catch (e: any) {
           console.error(`AI Error [${modelId}]:`, e.message);
-          return `${modelId} NODE ERROR: ${e.message}`;
+          return `${modelId} NODE OFFLINE: ${e.message}`;
         }
       };
 
       try {
-        const responseText = await Promise.race([executeAI(), nodeTimeout(12000)]) as string;
+        const responseText = await Promise.race([executeAI(), nodeTimeout(15000)]) as string;
         return { model: modelId, response: responseText };
       } catch (err) {
         return { model: modelId, response: "PROTOCOL TIMEOUT: Node Unresponsive." };
