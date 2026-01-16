@@ -1,22 +1,20 @@
-import express from 'express';
+\import express from 'express';
 import Conversation from '../models/Conversation';
 import { aiClients } from '../server';
 
 const router = express.Router();
 
-// 🧠 SURGICAL DIRECTIVE: Max Efficiency & Minimal Latency
 const SYSTEM_DIRECTIVE = `
   You are part of the Janus Forge Nexus® Adversarial Cluster.
-  STRATEGIC CONSTRAINT: Maximum 3 paragraphs. Be surgical, precise, and adversarial. 
-  No filler. No "Certainly!" or "I can help with that." Just raw intelligence.
+  STRATEGIC CONSTRAINT: Maximum 3 paragraphs. Be surgical and adversarial.
+  No filler or conversational fluff. Prioritize token efficiency.
 `;
 
-// Helper: Timeout Race (Prevents one slow API from hanging the UI)
-const nodeTimeout = (ms: number) => new Promise((_, reject) => 
+const nodeTimeout = (ms: number) => new Promise((_, reject) =>
   setTimeout(() => reject(new Error("Node Latency Timeout")), ms)
 );
 
-// --- 1. NEURAL HISTORY ---
+// --- 1. NEURAL HISTORY (List view) ---
 router.get('/history/:userId', async (req, res) => {
   try {
     const history = await Conversation.find({ userId: req.params.userId })
@@ -28,7 +26,17 @@ router.get('/history/:userId', async (req, res) => {
   }
 });
 
-// --- 2. IGNITION (Hyper-Drive Version) ---
+// --- 2. RECONSTRUCTION (Single view for sync) ---
+router.get('/synthesis/:id', async (req, res) => {
+  try {
+    const conv = await Conversation.findById(req.params.id);
+    res.json(conv);
+  } catch (err) {
+    res.status(404).json({ error: "Synthesis Not Found" });
+  }
+});
+
+// --- 3. IGNITION ---
 router.post('/ignite', async (req, res) => {
   const { prompt, models, userId, parentConversationId } = req.body;
 
@@ -37,76 +45,83 @@ router.post('/ignite', async (req, res) => {
   }
 
   try {
-    // A. NEURAL RECALL (Truncated to save time/tokens)
+    // ✅ NEURAL THREADING: Fetch previous context
     let context = "";
     if (parentConversationId) {
-      const previous = await Conversation.findById(parentConversationId);
-      if (previous) {
-        // Only grab the last 300 characters of each to keep the prompt lean
-        context = `CONTEXT: User asked "${previous.prompt}". `;
-        context += previous.results.map((r: any) => `${r.model}: ${r.response?.substring(0, 150)}...`).join(" ");
+      const thread = await Conversation.find({
+        $or: [{ _id: parentConversationId }, { parentConversationId: parentConversationId }]
+      }).sort({ timestamp: -1 }).limit(2);
+
+      if (thread.length > 0) {
+        context = "--- ARCHIVAL CONTEXT ---\n";
+        thread.reverse().forEach(turn => {
+          context += `User: ${turn.prompt}\nCluster Consensus: ${turn.results[0]?.response?.substring(0, 150)}...\n`;
+        });
+        context += "--- END CONTEXT ---\n";
       }
     }
 
-    // B. DISPATCH (Simultaneous Cluster Race)
     const synthesisTasks = models.map(async (modelId: string) => {
-      const fullPrompt = `${SYSTEM_DIRECTIVE}\n\n${context}\n\nOBJECTIVE: ${prompt}`;
-      
+      const fullPrompt = `${SYSTEM_DIRECTIVE}\n\n${context}\n\nNEW OBJECTIVE: ${prompt}`;
+
       const executeAI = async () => {
-        switch (modelId) {
-          case 'CLAUDE':
-            const cMsg = await (aiClients as any).CLAUDE.messages.create({
-              model: "claude-3-5-sonnet-20240620",
-              max_tokens: 450, // ⚡ Capped for speed
-              messages: [{ role: "user", content: fullPrompt }]
-            });
-            return cMsg.content[0].text;
+        try {
+          switch (modelId) {
+            case 'CLAUDE':
+              const cMsg = await (aiClients as any).CLAUDE.messages.create({
+                model: "claude-3-5-sonnet-20240620",
+                max_tokens: 450,
+                messages: [{ role: "user", content: fullPrompt }]
+              });
+              return cMsg.content[0].text;
 
-          case 'GPT4':
-            const gRes = await (aiClients as any).GPT4.chat.completions.create({
-              model: "gpt-4o",
-              messages: [{ role: "user", content: fullPrompt }],
-              max_tokens: 450 // ⚡ Capped for speed
-            });
-            return gRes.choices[0].message.content;
+            case 'GPT4':
+              const gRes = await (aiClients as any).GPT4.chat.completions.create({
+                model: "gpt-4o",
+                messages: [{ role: "user", content: fullPrompt }],
+                max_tokens: 450
+              });
+              return gRes.choices[0].message.content;
 
-          case 'GEMINI':
-            const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const gemRes = await gemModel.generateContent(fullPrompt);
-            return gemRes.response.text();
+            case 'GEMINI':
+              const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
+              const gemRes = await gemModel.generateContent(fullPrompt);
+              return gemRes.response.text();
 
-          case 'GROK':
-            const grRes = await (aiClients as any).GROK.chat.completions.create({
-              model: "grok-2",
-              messages: [{ role: "user", content: fullPrompt }],
-              max_tokens: 450
-            });
-            return grRes.choices[0].message.content;
+            case 'GROK':
+              const grRes = await (aiClients as any).GROK.chat.completions.create({
+                model: "grok-2",
+                messages: [{ role: "user", content: fullPrompt }],
+                max_tokens: 450
+              });
+              return grRes.choices[0].message.content;
 
-          case 'DEEPSEEK':
-            const dRes = await (aiClients as any).DEEPSEEK.chat.completions.create({
-              model: "deepseek-chat",
-              messages: [{ role: "user", content: fullPrompt }],
-              max_tokens: 450
-            });
-            return dRes.choices[0].message.content;
-            
-          default: return "Unknown Protocol";
+            case 'DEEPSEEK':
+              const dRes = await (aiClients as any).DEEPSEEK.chat.completions.create({
+                model: "deepseek-chat",
+                messages: [{ role: "user", content: fullPrompt }],
+                max_tokens: 450
+              });
+              return dRes.choices[0].message.content;
+
+            default: return "Unknown Protocol";
+          }
+        } catch (e: any) {
+          console.error(`AI Error [${modelId}]:`, e.message);
+          return `${modelId} NODE ERROR: ${e.message}`;
         }
       };
 
       try {
-        // ⏱️ 10-Second Race: If a model is slower than 10s, it gets dropped
-        const responseText = await Promise.race([executeAI(), nodeTimeout(10000)]) as string;
+        const responseText = await Promise.race([executeAI(), nodeTimeout(12000)]) as string;
         return { model: modelId, response: responseText };
-      } catch (err: any) {
-        return { model: modelId, response: "PROTOCOL TIMEOUT: Node Latency Exceeded 10s." };
+      } catch (err) {
+        return { model: modelId, response: "PROTOCOL TIMEOUT: Node Unresponsive." };
       }
     });
 
     const results = await Promise.all(synthesisTasks);
 
-    // C. PERSISTENCE
     const newConversation = new Conversation({
       userId,
       prompt,
