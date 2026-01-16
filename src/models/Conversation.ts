@@ -2,13 +2,15 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 /**
  * 🛰️ NEURAL HISTORY SCHEMA: JANUS FORGE NEXUS ®
- * Designed to store parallel AI responses for archival retrieval.
+ * Updated to support UUID string formats.
  */
 export interface IConversation extends Document {
-  userId: mongoose.Types.ObjectId;
+  userId: string; // ✅ Changed from mongoose.Types.ObjectId to string
   prompt: string;
   title: string;
   type: 'NEXUS_PRIME' | 'DAILY_FORGE';
+  isPublic?: boolean; // Added for the sharing feature
+  shareSlug?: string; // Added for the sharing feature
   results: Array<{
     model: string;
     response?: string;
@@ -18,35 +20,36 @@ export interface IConversation extends Document {
 }
 
 const ConversationSchema: Schema = new Schema({
-  userId: { 
-    type: Schema.Types.ObjectId, 
-    ref: 'User', 
+  userId: {
+    type: String, // ✅ Changed from Schema.Types.ObjectId to String
     required: true,
-    index: true // Optimized for Neural History lookups
+    index: true 
   },
-  prompt: { 
-    type: String, 
-    required: true 
+  prompt: {
+    type: String,
+    required: true
   },
-  title: { 
-    type: String, 
-    required: true 
+  title: {
+    type: String,
+    required: true
   },
-  // ✅ THE BOUNDARY: Distinguishes between feature sets
-  type: { 
-    type: String, 
-    enum: ['NEXUS_PRIME', 'DAILY_FORGE'], 
-    default: 'NEXUS_PRIME' 
+  type: {
+    type: String,
+    enum: ['NEXUS_PRIME', 'DAILY_FORGE'],
+    default: 'NEXUS_PRIME'
   },
-  // ✅ THE COUNCIL: Stores the adversarial showdown results
   results: [{
     model: String,
     response: String,
     error: String
   }],
-  timestamp: { 
-    type: Date, 
-    default: Date.now 
+  // ✅ ADDED: Supporting fields for the Public Sharing protocol
+  isPublic: { type: Boolean, default: false },
+  shareSlug: { type: String, unique: true, sparse: true },
+  
+  timestamp: {
+    type: Date,
+    default: Date.now
   }
 });
 
