@@ -1,4 +1,4 @@
-\import express from 'express';
+import express from 'express';
 import Conversation from '../models/Conversation';
 import { aiClients } from '../server';
 
@@ -45,7 +45,6 @@ router.post('/ignite', async (req, res) => {
   }
 
   try {
-    // ✅ NEURAL THREADING: Fetch previous context
     let context = "";
     if (parentConversationId) {
       const thread = await Conversation.find({
