@@ -1,4 +1,4 @@
-// src/routes/auth/index.ts - FULL UPDATED VERSION FOR NEXUS PRIME
+// src/routes/auth/index.ts - PIVOTED FOR TIME-BASED SOVEREIGNTY
 import { Router } from 'express';
 import prisma from '../../lib/prisma';
 import bcrypt from 'bcrypt';
@@ -10,7 +10,6 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Helper: Send verification email
 async function sendVerificationEmail(email: string, token: string) {
-  // ✅ FIX: Point to Frontend UI page instead of API to avoid 404
   const verificationUrl = `https://janusforge.ai/verify-email?token=${token}`;
 
   await resend.emails.send({
@@ -33,7 +32,7 @@ async function sendVerificationEmail(email: string, token: string) {
   });
 }
 
-// REGISTER - Creates unverified user + sends verification email
+// --- 1. REGISTER: Creates unverified user with a Sovereignty Trial ---
 router.post('/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
 
@@ -50,10 +49,15 @@ router.post('/register', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // 🛡️ Master Authority Protection [cite: 2025-11-27]
+
+    // 🛡️ Master Authority Protection
     const isAdmin = email.toLowerCase() === 'admin@janusforge.ai';
     const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
+
+    // ⏱️ PIVOT: Calculate Initial Access Window
+    // Admins get 100 years, Beta get 24 hours, Standard get 1 hour trial
+    const trialHours = isAdmin ? 100 * 365 * 24 : (isBeta ? 24 : 1);
+    const initialExpiry = new Date(Date.now() + trialHours * 60 * 60 * 1000);
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
@@ -64,8 +68,15 @@ router.post('/register', async (req, res) => {
         email: email.toLowerCase(),
         password_hash: hashedPassword,
         role: isAdmin ? 'GOD_MODE' : (isBeta ? 'BETA_ARCHITECT' : 'USER'),
-        tokens_remaining: isAdmin ? 999999 : (isBeta ? 50 : 10),
-        token_balance: isAdmin ? 999999 : (isBeta ? 50 : 10),
+        
+        // --- 🛡️ SOVEREIGNTY PIVOT ---
+        access_expiry: initialExpiry,
+        is_sovereign: true, // Initially true for the trial duration
+        
+        // Legacy support
+        tokens_remaining: 0,
+        token_balance: 0,
+        
         emailVerified: false,
         verificationToken,
         verificationTokenExpires,
@@ -75,8 +86,13 @@ router.post('/register', async (req, res) => {
     await sendVerificationEmail(email, verificationToken);
 
     res.status(201).json({
-      message: "Registration successful! Please check your email to verify your account.",
-      user: { id: user.id, username: user.username, email: user.email }
+      message: "Registration successful! Please check your email to verify your trial sovereignty.",
+      user: { 
+        id: user.id, 
+        username: user.username, 
+        email: user.email,
+        access_expiry: user.access_expiry 
+      }
     });
   } catch (error: any) {
     console.error("Registration error:", error);
@@ -84,7 +100,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// VERIFY EMAIL ENDPOINT (Handshake with Frontend)
+// --- 2. VERIFY EMAIL ---
 router.get('/verify-email', async (req, res) => {
   const { token } = req.query;
 
@@ -114,7 +130,6 @@ router.get('/verify-email', async (req, res) => {
       }
     });
 
-    // ✅ Clean return for the Frontend Fetch
     return res.status(200).json({ message: "Identity confirmed." });
   } catch (error) {
     console.error("Verification error:", error);
@@ -122,7 +137,7 @@ router.get('/verify-email', async (req, res) => {
   }
 });
 
-// RESEND VERIFICATION
+// --- 3. RESEND VERIFICATION ---
 router.post('/resend-verification', async (req, res) => {
   const { email } = req.body;
 
@@ -153,7 +168,7 @@ router.post('/resend-verification', async (req, res) => {
   }
 });
 
-// LOGIN - Blocks unverified users
+// --- 4. LOGIN: Returns full Sovereignty context ---
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -175,7 +190,16 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    res.json(user);
+    // ✅ Clean return for the Frontend useAuth Hook
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      access_expiry: user.access_expiry,
+      is_sovereign: user.is_sovereign,
+      token_balance: user.token_balance // Legacy support
+    });
   } catch (error: any) {
     console.error("Login error:", error);
     res.status(500).json({ error: "Login failed" });

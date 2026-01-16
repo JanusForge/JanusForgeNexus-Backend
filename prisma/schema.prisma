@@ -20,11 +20,18 @@ model Purchase {
 }
 
 model User {
-  id                       String             @id @default(uuid())
-  email                    String             @unique
-  username                 String             @unique
-  password_hash            String             @map("password_hash")
-  tier                     String             @default("FREE")
+  id                String             @id @default(uuid())
+  email             String             @unique
+  username          String             @unique
+  password_hash     String             @map("password_hash")
+  tier              String             @default("FREE")
+  
+  // --- 🛡️ SOVEREIGNTY ACCESS FIELDS ---
+  // This stores when their 24h, 7d, or 30d pass ends
+  access_expiry     DateTime?          @map("access_expiry")
+  
+  // A quick flag for the UI to show the "Sovereign" badge
+  is_sovereign      Boolean            @default(false) @map("is_sovereign")
   token_balance            Int                @default(0) @map("token_balance")
   tokens_used              Int                @default(0) @map("tokens_used")
   tokens_remaining         Int                @default(0) @map("tokens_remaining")
