@@ -1,153 +1,131 @@
 import express from 'express';
-const router = express.Router();
-import crypto from 'crypto';
 import Conversation from '../models/Conversation';
+import { aiClients } from '../server'; // Accessing cluster from server
 
-/**
- * 🎲 UTILITY: Fisher-Yates Shuffle
- * Ensures an unbiased random order for the AI Council sequence.
- */
-function shuffleCouncil(array: string[]) {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
+const router = express.Router();
 
-router.post('/ignite', async (req, res) => {
-  try {
-    const { prompt, models, userId, parentConversationId } = req.body;
-    const aiClients = req.app.get('aiClients');
+// 🧠 STRATEGIC DIRECTIVE: Token Conservation & Style
+const SYSTEM_DIRECTIVE = `
+  You are part of the Janus Forge Nexus® Adversarial Cluster.
+  STRATEGIC CONSTRAINT: Provide high-density, precise, and surgical responses. 
+  Avoid encyclopedic fluff, redundant introductions, or filler text.
+  Speak as your distinct persona, but prioritize "Information-per-Token" efficiency to conserve platform resources.
+`;
 
-    if (!prompt || !prompt.trim()) {
-      return res.status(400).json({ error: "Strategic objective is required." });
-    }
-
-    // 1. MEMORY ARCHIVE: Load previous thread context
-    let contextMessages: any[] = [];
-    if (parentConversationId) {
-      const thread = await Conversation.findById(parentConversationId);
-      if (thread) {
-        contextMessages.push({ role: "user", content: thread.prompt });
-        thread.results.forEach((r: any) => {
-          contextMessages.push({ role: "assistant", content: `${r.model} Output: ${r.response}` });
-        });
-      }
-    }
-
-    // 2. RANDOMIZE SEQUENCE: No single model leads every time
-    const randomizedModels = shuffleCouncil(models);
-    const currentSynthesisResults: any[] = [];
-    
-    // 3. SEQUENTIAL PEER-REVIEW LOOP
-    for (const modelName of randomizedModels) {
-      const peerContext = currentSynthesisResults
-        .map(r => `[${r.model} Analysis]: ${r.response}`)
-        .join('\n\n');
-      
-      const technicalDirective = peerContext 
-        ? `Review the following peer analyses and provide your independent synthesis or counter-argument based on your unique design parameters:\n\n${peerContext}`
-        : `You have been randomly selected to lead this synthesis. Initiate the analysis based on your core knowledge base.`;
-
-      const finalPrompt = `${technicalDirective}\n\nArchitect Objective: ${prompt}`;
-
-      try {
-        const lowercaseModel = modelName.toLowerCase();
-
-        if (lowercaseModel.includes('claude')) {
-          const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-5-sonnet-20240620",
-            max_tokens: 1024,
-            messages: [...contextMessages, { role: "user", content: finalPrompt }],
-          });
-          currentSynthesisResults.push({ model: modelName, response: msg.content[0].text });
-        }
-        else if (lowercaseModel.includes('gpt')) {
-          const completion = await aiClients.GPT4.chat.completions.create({
-            model: "gpt-4-turbo",
-            messages: [...contextMessages, { role: "user", content: finalPrompt }],
-          });
-          currentSynthesisResults.push({ model: modelName, response: completion.choices[0].message.content });
-        }
-        else if (lowercaseModel.includes('gemini')) {
-          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
-          const result = await model.generateContent(finalPrompt);
-          currentSynthesisResults.push({ model: modelName, response: result.response.text() });
-        }
-        else if (lowercaseModel.includes('grok') || lowercaseModel.includes('deepseek')) {
-          const client = lowercaseModel.includes('grok') ? aiClients.GROK : aiClients.DEEPSEEK;
-          const completion = await client.chat.completions.create({
-            model: lowercaseModel.includes('grok') ? "grok-beta" : "deepseek-chat",
-            messages: [...contextMessages, { role: "user", content: finalPrompt }],
-          });
-          currentSynthesisResults.push({ model: modelName, response: completion.choices[0].message.content });
-        }
-      } catch (err) {
-        currentSynthesisResults.push({ model: modelName, error: "Protocol Desync: Model unavailable." });
-      }
-    }
-
-    // 4. PERSISTENCE
-    const cleanTitle = prompt.trim().replace(/\n/g, ' ').substring(0, 45) + (prompt.length > 45 ? '...' : '');
-    const newConversation = await Conversation.create({
-      userId,
-      prompt,
-      results: currentSynthesisResults, // Saved in the random order they responded
-      title: cleanTitle,
-      type: 'NEXUS_PRIME',
-      parentConversationId
-    });
-
-    res.status(200).json({ 
-      success: true, 
-      conversationId: newConversation._id, 
-      results: currentSynthesisResults 
-    });
-
-  } catch (error) {
-    res.status(500).json({ error: "Internal Synthesis Failure" });
-  }
-});
-
-/**
- * RETRIEVAL & SHARING ROUTES
- */
-router.get('/synthesis/:id', async (req, res) => {
-  try {
-    const conversation = await Conversation.findById(req.params.id);
-    res.status(200).json(conversation);
-  } catch (error) {
-    res.status(500).json({ error: "Retrieval failed." });
-  }
-});
-
+// --- 1. NEURAL HISTORY: Fetch past syntheses ---
 router.get('/history/:userId', async (req, res) => {
   try {
-    const history = await Conversation.find({ userId: req.params.userId, type: 'NEXUS_PRIME' }).sort({ timestamp: -1 });
-    res.status(200).json(history);
-  } catch (error) {
-    res.status(500).json({ error: "History sync failed." });
+    const history = await Conversation.find({ userId: req.params.userId })
+      .sort({ timestamp: -1 })
+      .limit(20);
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to retrieve neural history" });
   }
 });
 
-router.post('/share/:id', async (req, res) => {
+// --- 2. RECONSTRUCTION: Fetch a single synthesis ---
+router.get('/synthesis/:id', async (req, res) => {
   try {
-    const shareSlug = crypto.randomBytes(4).toString('hex');
-    const conversation = await Conversation.findByIdAndUpdate(req.params.id, { isPublic: true, shareSlug }, { new: true });
-    res.status(200).json({ success: true, shareUrl: `https://janusforgenexus-react.vercel.app/share/${shareSlug}` });
-  } catch (error) {
-    res.status(500).json({ error: "Sharing failed." });
+    const conv = await Conversation.findById(req.params.id);
+    res.json(conv);
+  } catch (err) {
+    res.status(404).json({ error: "Synthesis not found" });
   }
 });
 
-router.get('/public/:slug', async (req, res) => {
+// --- 3. IGNITION: The Adversarial Synthesis Sequence ---
+router.post('/ignite', async (req, res) => {
+  const { prompt, models, userId, parentConversationId } = req.body;
+
+  if (!prompt || !models || models.length === 0) {
+    return res.status(400).json({ error: "Incomplete ignition parameters." });
+  }
+
   try {
-    const conversation = await Conversation.findOne({ shareSlug: req.params.slug, isPublic: true });
-    res.status(200).json(conversation);
+    // A. RECALL: Fetch context if this is a follow-up
+    let context = "";
+    if (parentConversationId) {
+      const previous = await Conversation.findById(parentConversationId);
+      if (previous) {
+        // Build a short summary of the previous turn for context
+        context = `PREVIOUS CONTEXT: User asked: "${previous.prompt}". `;
+        context += previous.results.map((r: any) => `${r.model} said: ${r.response.substring(0, 200)}...`).join(" ");
+      }
+    }
+
+    // B. DISPATCH: Simultaneous Cluster Request
+    const synthesisTasks = models.map(async (modelId: string) => {
+      try {
+        const fullPrompt = `${SYSTEM_DIRECTIVE}\n\n${context}\n\nCURRENT OBJECTIVE: ${prompt}`;
+        let responseText = "";
+
+        switch (modelId) {
+          case 'CLAUDE':
+            const msg = await (aiClients as any).CLAUDE.messages.create({
+              model: "claude-3-5-sonnet-20240620",
+              max_tokens: 1024,
+              messages: [{ role: "user", content: fullPrompt }]
+            });
+            responseText = msg.content[0].text;
+            break;
+          case 'GPT4':
+            const gptRes = await (aiClients as any).GPT4.chat.completions.create({
+              model: "gpt-4o",
+              messages: [{ role: "user", content: fullPrompt }],
+              max_tokens: 1000
+            });
+            responseText = gptRes.choices[0].message.content;
+            break;
+          case 'GEMINI':
+            const geminiModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const geminiRes = await geminiModel.generateContent(fullPrompt);
+            responseText = geminiRes.response.text();
+            break;
+          case 'GROK':
+            const grokRes = await (aiClients as any).GROK.chat.completions.create({
+              model: "grok-2",
+              messages: [{ role: "user", content: fullPrompt }]
+            });
+            responseText = grokRes.choices[0].message.content;
+            break;
+          case 'DEEPSEEK':
+            const dsRes = await (aiClients as any).DEEPSEEK.chat.completions.create({
+              model: "deepseek-chat",
+              messages: [{ role: "user", content: fullPrompt }]
+            });
+            responseText = dsRes.choices[0].message.content;
+            break;
+        }
+
+        return { model: modelId, response: responseText };
+      } catch (err: any) {
+        console.error(`Error in ${modelId}:`, err.message);
+        return { model: modelId, response: null, error: "Protocol Desync" };
+      }
+    });
+
+    const results = await Promise.all(synthesisTasks);
+
+    // C. PERSISTENCE: Save to MongoDB
+    const newConversation = new Conversation({
+      userId,
+      prompt,
+      results,
+      parentConversationId: parentConversationId || null,
+      title: prompt.substring(0, 40) + "..."
+    });
+
+    await newConversation.save();
+
+    res.json({
+      conversationId: newConversation._id,
+      results: newConversation.results
+    });
+
   } catch (error) {
-    res.status(500).json({ error: "Public link error." });
+    console.error("Critical Synthesis Failure:", error);
+    res.status(500).json({ error: "System-wide ignition failure." });
   }
 });
 

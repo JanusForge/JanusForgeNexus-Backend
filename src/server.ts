@@ -3,18 +3,17 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import mongoose from 'mongoose'; // ✅ Added for Nexus Prime persistence
+import mongoose from 'mongoose';
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// --- 🛡️ FIREBREAK IMPORTS ---
+// --- 🛡️ SOVEREIGN IMPORTS ---
+// We only import active, high-authority logic. Legacy ghosts are exiled.
 import { setupNexusSockets, nexusSocketOptions } from './services/nexus-core/nexus-socket';
 import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
 import nexusPrimeRouter from './routes/nexusPrime';
-import dailyForgeRouter from './routes/dailyForge';
-import supportRoutes from './routes/supportRoutes';
 
 dotenv.config();
 
@@ -59,7 +58,7 @@ app.use(express.json({ limit: '10mb' }));
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  console.error("❌ CRITICAL: MONGODB_URI is not defined in environment variables.");
+  console.error("❌ CRITICAL: MONGODB_URI is not defined. Neural Memory Offline.");
 } else {
   mongoose.connect(MONGODB_URI)
     .then(() => console.log("🟢 NEURAL LINK: MongoDB Atlas Connected"))
@@ -71,12 +70,10 @@ app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
 
 // ✅ BOUNDARY LOCK: The Prime Synthesis Engine
+// All adversarial logic and conversation history flows through here.
 app.use('/api/nexus', nexusPrimeRouter);
 
-app.use('/api/daily-forge', dailyForgeRouter);
-app.use('/api/support', supportRoutes);
-
-// 🛡️ LEGACY ALIAS: Maintains Sidebar history using the Prime router
+// 🛡️ LEGACY ALIAS: Maintains Sidebar history link to the Prime router
 app.use('/api/conversations', nexusPrimeRouter);
 
 // --- 5. NEURAL LINK (SOCKETS) ---
@@ -105,8 +102,9 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ error: "Neural link desynchronized. System rebooting." });
 });
 
+// --- 7. AUTHORITY INITIALIZATION ---
 httpServer.listen(PORT, () => {
-  console.log(`🚀 JANUS FORGE NEXUS ® ACTIVE | PORT: ${PORT}`);
+  console.log(`🚀 JANUS FORGE NEXUS® ACTIVE | PORT: ${PORT}`);
   console.log(`🛡️ AUTHORITY STATUS: admin@janusforge.ai - MASTER UNLOCKED`);
 });
 
