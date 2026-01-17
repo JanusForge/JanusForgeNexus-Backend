@@ -5,20 +5,21 @@ import { aiClients } from '../server';
 
 const router = express.Router();
 
-// 🧠 STRATEGIC DIRECTIVE: Force Adversarial Engagement
+// 🧠 THE ADVERSARIAL CONSTITUTION
 const SYSTEM_DIRECTIVE = `
   You are an ELITE ADVERSARIAL AGENT in the Janus Forge Nexus®.
   CORE RULES:
-  1. DO NOT be general. Challenge the previous verdicts.
-  2. Speak with a sharp, surgical persona.
-  3. Max 3 paragraphs. Focus on "Information-per-Token" density.
+  1. ADVERSARIAL ENGAGEMENT: Do not be helpful in a general sense. Deconstruct, challenge, or pivot the arguments of agents who spoke before you.
+  2. IDENTIFICATION: Refer to previous agents by their Model Name (e.g., "DeepSeek's premise is flawed because...") to maintain debate clarity.
+  3. SURGICAL BREVITY: Max 3 paragraphs. Focus on "Information-per-Token" density.
+  4. OPENING GAMBIT: If you are the first to speak, set a high-stakes, aggressive strategic floor for the debate.
 `;
 
 const nodeTimeout = (ms: number) => new Promise((_, reject) =>
   setTimeout(() => reject(new Error("Node Latency Timeout")), ms)
 );
 
-// --- 1. THE IGNITION HUB (With Authority Bypass) ---
+// --- 1. THE IGNITION HUB ---
 router.post('/ignite', async (req, res) => {
   const { prompt, models, userId, parentConversationId } = req.body;
 
@@ -27,16 +28,10 @@ router.post('/ignite', async (req, res) => {
   }
 
   try {
-    // 🛡️ STEP 3: SOVEREIGNTY ACCESS & ROLE GUARD
-    const user = await prisma.user.findUnique({
-      where: { id: userId }
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(401).json({ error: "User Not Found." });
 
-    if (!user) {
-      return res.status(401).json({ error: "User Not Found." });
-    }
-
-    // ✅ THE BYPASS: If user is GOD_MODE or ADMIN, skip the clock check
+    // 🛡️ AUTHORITY & SOVEREIGNTY BYPASS
     const isMasterAuthority = user.role === 'GOD_MODE' || user.role === 'ADMIN' || user.role === 'BETA_ARCHITECT';
     const now = new Date();
     const hasActivePass = user.access_expiry && now < user.access_expiry;
@@ -48,49 +43,58 @@ router.post('/ignite', async (req, res) => {
       });
     }
 
-    // ✅ PROCEED TO SYNTHESIS
-    let contextHeader = "";
-    if (parentConversationId) {
-      const previous = await Conversation.findById(parentConversationId);
-      if (previous) {
-        contextHeader = `### PREVIOUS ADVERSARIAL VERDICTS\n`;
-        previous.results.forEach((r: any) => {
-          if (r.response) contextHeader += `[${r.model} VERDICT]: ${r.response.substring(0, 300)}...\n\n`;
-        });
-      }
+    // 🎲 FISHER-YATES SHUFFLE: Randomize speaker order
+    const speakerOrder = [...models];
+    for (let i = speakerOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [speakerOrder[i], speakerOrder[j]] = [speakerOrder[j], speakerOrder[i]];
     }
 
-    const synthesisTasks = models.map(async (modelId: string) => {
-      const fullPrompt = `${SYSTEM_DIRECTIVE}\n\n${contextHeader}\n\n### OBJECTIVE\n"${prompt}"`;
+    // ⛓️ SEQUENTIAL DEBATE LOOP
+    let rollingContext = "";
+    const finalResults: any[] = [];
+
+    for (const modelId of speakerOrder) {
+      const modelPrompt = `
+        ${SYSTEM_DIRECTIVE}
+        
+        ### PREVIOUS NEURAL VERDICTS IN THIS SESSION:
+        ${rollingContext || "You are the Opening Gambit. Define the conflict."}
+        
+        ### CURRENT STRATEGIC OBJECTIVE:
+        "${prompt}"
+        
+        INSTRUCTION: Critique the specific logic of the agents listed above before finalizing your own verdict.
+      `;
 
       const executeAI = async () => {
         try {
           switch (modelId) {
             case 'CLAUDE':
               const cMsg = await (aiClients as any).CLAUDE.messages.create({
-                model: "claude-3-5-sonnet-latest",
+                model: "claude-3-5-sonnet-20241022",
                 max_tokens: 450,
-                messages: [{ role: "user", content: fullPrompt }]
+                messages: [{ role: "user", content: modelPrompt }]
               });
               return cMsg.content[0].text;
 
             case 'GPT4':
               const gRes = await (aiClients as any).GPT4.chat.completions.create({
-                model: "gpt-4o", 
-                messages: [{ role: "user", content: fullPrompt }],
+                model: "gpt-4o",
+                messages: [{ role: "user", content: modelPrompt }],
                 max_tokens: 450
               });
               return gRes.choices[0].message.content;
 
             case 'GEMINI':
-              const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
-              const gemRes = await gemModel.generateContent(fullPrompt);
+              const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-flash" });
+              const gemRes = await gemModel.generateContent(modelPrompt);
               return gemRes.response.text();
 
             case 'GROK':
               const grRes = await (aiClients as any).GROK.chat.completions.create({
-                model: "grok-beta",
-                messages: [{ role: "user", content: fullPrompt }],
+                model: "grok-2-latest",
+                messages: [{ role: "user", content: modelPrompt }],
                 max_tokens: 450
               });
               return grRes.choices[0].message.content;
@@ -98,7 +102,7 @@ router.post('/ignite', async (req, res) => {
             case 'DEEPSEEK':
               const dRes = await (aiClients as any).DEEPSEEK.chat.completions.create({
                 model: "deepseek-chat",
-                messages: [{ role: "user", content: fullPrompt }],
+                messages: [{ role: "user", content: modelPrompt }],
                 max_tokens: 450
               });
               return dRes.choices[0].message.content;
@@ -106,24 +110,25 @@ router.post('/ignite', async (req, res) => {
             default: return "Unknown Protocol";
           }
         } catch (e: any) {
+          console.error(`Error at ${modelId}:`, e.message);
           return `${modelId} NODE OFFLINE: ${e.message}`;
         }
       };
 
-      try {
-        const responseText = await Promise.race([executeAI(), nodeTimeout(15000)]) as string;
-        return { model: modelId, response: responseText };
-      } catch (err) {
-        return { model: modelId, response: "PROTOCOL TIMEOUT" };
-      }
-    });
+      // Wait for each AI to finish so its output can feed the next one
+      const responseText = await Promise.race([executeAI(), nodeTimeout(25000)]) as string;
+      
+      // Update the rolling history for the next agent in the loop
+      rollingContext += `\n[${modelId} VERDICT]: ${responseText}\n`;
+      
+      finalResults.push({ model: modelId, response: responseText });
+    }
 
-    const results = await Promise.all(synthesisTasks);
-
+    // 💾 SAVE CONVERSATION
     const newConversation = new Conversation({
       userId,
       prompt,
-      results,
+      results: finalResults,
       parentConversationId: parentConversationId || null,
       title: prompt.substring(0, 35) + "..."
     });
@@ -136,26 +141,31 @@ router.post('/ignite', async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Critical Engine Failure:", error);
     res.status(500).json({ error: "Ignition system failure." });
   }
 });
 
-// --- Neural History & Synthesis remain unchanged ---
+// --- 2. NEURAL HISTORY ---
 router.get('/history/:userId', async (req, res) => {
-    try {
-      const history = await Conversation.find({ userId: req.params.userId }).sort({ timestamp: -1 }).limit(15);
-      res.json(history);
-    } catch (err) { res.status(500).json({ error: "Neural History Desync" }); }
+  try {
+    const history = await Conversation.find({ userId: req.params.userId })
+      .sort({ timestamp: -1 })
+      .limit(15);
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: "Neural History Desync" });
+  }
 });
 
+// --- 3. RECONSTRUCTION ---
 router.get('/synthesis/:id', async (req, res) => {
-    try {
-      const conv = await Conversation.findById(req.params.id);
-      res.json(conv);
-    } catch (err) { res.status(404).json({ error: "Synthesis Not Found" }); }
+  try {
+    const conv = await Conversation.findById(req.params.id);
+    res.json(conv);
+  } catch (err) {
+    res.status(404).json({ error: "Synthesis Not Found" });
+  }
 });
 
 export default router;
-
-
-// Keep it real, Cassandra
