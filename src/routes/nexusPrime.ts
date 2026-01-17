@@ -1,4 +1,5 @@
 import express from 'express';
+import prisma from '../lib/prisma'; // Ensure this points to your Prisma client instance
 import Conversation from '../models/Conversation';
 import { aiClients } from '../server';
 
@@ -40,21 +41,34 @@ router.get('/synthesis/:id', async (req, res) => {
   }
 });
 
-// --- 3. IGNITION ---
+// --- 3. THE IGNITION HUB (With Sovereignty Guard) ---
 router.post('/ignite', async (req, res) => {
   const { prompt, models, userId, parentConversationId } = req.body;
 
-  if (!prompt || !models || models.length === 0) {
+  if (!prompt || !models || models.length === 0 || !userId) {
     return res.status(400).json({ error: "Ignition parameters missing." });
   }
 
   try {
-    // ✅ DEEP NEURAL THREADING: Labeling specific model outputs for Turn 2
+    // 🛡️ STEP 3: SOVEREIGNTY ACCESS GUARD
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    const now = new Date();
+    if (!user || !user.access_expiry || now > user.access_expiry) {
+      return res.status(403).json({ 
+        error: "Sovereignty Expired",
+        message: "Your access window has closed. Refuel at the Council Portal to resume synthesis."
+      });
+    }
+
+    // ✅ DEEP NEURAL THREADING: Labeling specific model outputs for Context
     let contextHeader = "";
     if (parentConversationId) {
       const previous = await Conversation.findById(parentConversationId);
       if (previous) {
-        contextHeader = `### PREVIOUS ADVERSARIAL VERDICTS (Turn 1)\n`;
+        contextHeader = `### PREVIOUS ADVERSARIAL VERDICTS\n`;
         previous.results.forEach((r: any) => {
           if (r.response) {
             contextHeader += `[${r.model} VERDICT]: ${r.response.substring(0, 400)}...\n\n`;
@@ -65,7 +79,6 @@ router.post('/ignite', async (req, res) => {
     }
 
     const synthesisTasks = models.map(async (modelId: string) => {
-      // The prompt is structured to put the Objective and Context at the bottom (Recency Bias)
       const fullPrompt = `
         ${SYSTEM_DIRECTIVE}
         
@@ -97,14 +110,14 @@ router.post('/ignite', async (req, res) => {
               return gRes.choices[0].message.content;
 
             case 'GEMINI':
-              // ⚡ Google 2026 Stable Tier
+              // ⚡ Google 2026 Tier
               const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
               const gemRes = await gemModel.generateContent(fullPrompt);
               return gemRes.response.text();
 
             case 'GROK':
               const grRes = await (aiClients as any).GROK.chat.completions.create({
-                model: "grok-beta", // ⚡ xAI 2026 Stable Beta
+                model: "grok-beta", // ⚡ xAI 2026 Tier
                 messages: [{ role: "user", content: fullPrompt }],
                 max_tokens: 450
               });
