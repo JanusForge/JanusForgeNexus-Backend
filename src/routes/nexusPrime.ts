@@ -1,47 +1,24 @@
 import express from 'express';
-import prisma from '../lib/prisma'; // Ensure this points to your Prisma client instance
+import prisma from '../lib/prisma';
 import Conversation from '../models/Conversation';
 import { aiClients } from '../server';
 
 const router = express.Router();
 
-// 🧠 STRATEGIC DIRECTIVE: Force Adversarial Engagement & Efficiency
+// 🧠 STRATEGIC DIRECTIVE: Force Adversarial Engagement
 const SYSTEM_DIRECTIVE = `
   You are an ELITE ADVERSARIAL AGENT in the Janus Forge Nexus®.
   CORE RULES:
-  1. DO NOT be general or encyclopedic. 
-  2. You MUST directly address, challenge, or support the specific points made by other models in the PREVIOUS VERDICTS.
-  3. Speak with a distinct, sharp, and surgical persona.
-  4. Max 3 paragraphs. Focus on "Information-per-Token" density.
+  1. DO NOT be general. Challenge the previous verdicts.
+  2. Speak with a sharp, surgical persona.
+  3. Max 3 paragraphs. Focus on "Information-per-Token" density.
 `;
 
 const nodeTimeout = (ms: number) => new Promise((_, reject) =>
   setTimeout(() => reject(new Error("Node Latency Timeout")), ms)
 );
 
-// --- 1. NEURAL HISTORY (List view) ---
-router.get('/history/:userId', async (req, res) => {
-  try {
-    const history = await Conversation.find({ userId: req.params.userId })
-      .sort({ timestamp: -1 })
-      .limit(15);
-    res.json(history);
-  } catch (err) {
-    res.status(500).json({ error: "Neural History Desync" });
-  }
-});
-
-// --- 2. RECONSTRUCTION (Single view for UI sync) ---
-router.get('/synthesis/:id', async (req, res) => {
-  try {
-    const conv = await Conversation.findById(req.params.id);
-    res.json(conv);
-  } catch (err) {
-    res.status(404).json({ error: "Synthesis Not Found" });
-  }
-});
-
-// --- 3. THE IGNITION HUB (With Sovereignty Guard) ---
+// --- 1. THE IGNITION HUB (With Authority Bypass) ---
 router.post('/ignite', async (req, res) => {
   const { prompt, models, userId, parentConversationId } = req.body;
 
@@ -50,52 +27,48 @@ router.post('/ignite', async (req, res) => {
   }
 
   try {
-    // 🛡️ STEP 3: SOVEREIGNTY ACCESS GUARD
+    // 🛡️ STEP 3: SOVEREIGNTY ACCESS & ROLE GUARD
     const user = await prisma.user.findUnique({
       where: { id: userId }
     });
 
+    if (!user) {
+      return res.status(401).json({ error: "User Not Found." });
+    }
+
+    // ✅ THE BYPASS: If user is GOD_MODE or ADMIN, skip the clock check
+    const isMasterAuthority = user.role === 'GOD_MODE' || user.role === 'ADMIN' || user.role === 'BETA_ARCHITECT';
     const now = new Date();
-    if (!user || !user.access_expiry || now > user.access_expiry) {
+    const hasActivePass = user.access_expiry && now < user.access_expiry;
+
+    if (!isMasterAuthority && !hasActivePass) {
       return res.status(403).json({ 
         error: "Sovereignty Expired",
-        message: "Your access window has closed. Refuel at the Council Portal to resume synthesis."
+        message: "Your access window has closed. Refuel at the Council Portal."
       });
     }
 
-    // ✅ DEEP NEURAL THREADING: Labeling specific model outputs for Context
+    // ✅ PROCEED TO SYNTHESIS
     let contextHeader = "";
     if (parentConversationId) {
       const previous = await Conversation.findById(parentConversationId);
       if (previous) {
         contextHeader = `### PREVIOUS ADVERSARIAL VERDICTS\n`;
         previous.results.forEach((r: any) => {
-          if (r.response) {
-            contextHeader += `[${r.model} VERDICT]: ${r.response.substring(0, 400)}...\n\n`;
-          }
+          if (r.response) contextHeader += `[${r.model} VERDICT]: ${r.response.substring(0, 300)}...\n\n`;
         });
-        contextHeader += `--- END OF HISTORY ---\n`;
       }
     }
 
     const synthesisTasks = models.map(async (modelId: string) => {
-      const fullPrompt = `
-        ${SYSTEM_DIRECTIVE}
-        
-        ${contextHeader}
-        
-        ### CURRENT STRATEGIC OBJECTIVE
-        Objective: "${prompt}"
-        
-        INSTRUCTION: Focus your response specifically on refuting or expanding upon the [VERDICTS] provided above.
-      `;
+      const fullPrompt = `${SYSTEM_DIRECTIVE}\n\n${contextHeader}\n\n### OBJECTIVE\n"${prompt}"`;
 
       const executeAI = async () => {
         try {
           switch (modelId) {
             case 'CLAUDE':
               const cMsg = await (aiClients as any).CLAUDE.messages.create({
-                model: "claude-3-5-sonnet-latest", // ⚡ 2026 Stable
+                model: "claude-3-5-sonnet-latest",
                 max_tokens: 450,
                 messages: [{ role: "user", content: fullPrompt }]
               });
@@ -110,14 +83,13 @@ router.post('/ignite', async (req, res) => {
               return gRes.choices[0].message.content;
 
             case 'GEMINI':
-              // ⚡ Google 2026 Tier
               const gemModel = (aiClients as any).GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
               const gemRes = await gemModel.generateContent(fullPrompt);
               return gemRes.response.text();
 
             case 'GROK':
               const grRes = await (aiClients as any).GROK.chat.completions.create({
-                model: "grok-beta", // ⚡ xAI 2026 Tier
+                model: "grok-beta",
                 messages: [{ role: "user", content: fullPrompt }],
                 max_tokens: 450
               });
@@ -134,7 +106,6 @@ router.post('/ignite', async (req, res) => {
             default: return "Unknown Protocol";
           }
         } catch (e: any) {
-          console.error(`AI Error [${modelId}]:`, e.message);
           return `${modelId} NODE OFFLINE: ${e.message}`;
         }
       };
@@ -143,7 +114,7 @@ router.post('/ignite', async (req, res) => {
         const responseText = await Promise.race([executeAI(), nodeTimeout(15000)]) as string;
         return { model: modelId, response: responseText };
       } catch (err) {
-        return { model: modelId, response: "PROTOCOL TIMEOUT: Node Unresponsive." };
+        return { model: modelId, response: "PROTOCOL TIMEOUT" };
       }
     });
 
@@ -165,9 +136,23 @@ router.post('/ignite', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Critical Failure:", error);
     res.status(500).json({ error: "Ignition system failure." });
   }
+});
+
+// --- Neural History & Synthesis remain unchanged ---
+router.get('/history/:userId', async (req, res) => {
+    try {
+      const history = await Conversation.find({ userId: req.params.userId }).sort({ timestamp: -1 }).limit(15);
+      res.json(history);
+    } catch (err) { res.status(500).json({ error: "Neural History Desync" }); }
+});
+
+router.get('/synthesis/:id', async (req, res) => {
+    try {
+      const conv = await Conversation.findById(req.params.id);
+      res.json(conv);
+    } catch (err) { res.status(404).json({ error: "Synthesis Not Found" }); }
 });
 
 export default router;
