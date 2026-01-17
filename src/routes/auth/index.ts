@@ -1,4 +1,4 @@
-// src/routes/auth/index.ts - PIVOTED FOR TIME-BASED SOVEREIGNTY
+// src/routes/auth/index.ts - SOVEREIGNTY VERSION
 import { Router } from 'express';
 import prisma from '../../lib/prisma';
 import bcrypt from 'bcrypt';
@@ -8,59 +8,33 @@ import { Resend } from 'resend';
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Helper: Send verification email
 async function sendVerificationEmail(email: string, token: string) {
   const verificationUrl = `https://janusforge.ai/verify-email?token=${token}`;
-
   await resend.emails.send({
     from: 'Janus Forge <no-reply@janusforge.ai>',
     to: email,
     subject: 'Verify Your Janus Forge Account',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; background: #000; color: #fff;">
-        <h2 style="color: #9f7aea; text-transform: uppercase;">Welcome to Janus Forge</h2>
-        <p>Thank you for joining the council. Please verify your identity to activate your neural link and begin interjecting in the Daily Forge debates.</p>
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${verificationUrl}" style="background-color: #9f7aea; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 18px;">Verify Identity Now</a>
-        </div>
-        <p>Or copy and paste this link:<br><small style="color: #888;">${verificationUrl}</small></p>
-        <p>This link expires in 1 hour.</p>
-        <hr style="border-color: #333;">
-        <p style="color: #666; font-size: 12px;">Protocol 0 Security measure. If you didn't register at Janus Forge, please ignore this email.</p>
-      </div>
-    `,
+    html: `<div style="background: #000; color: #fff; padding: 20px; border-radius: 10px;">
+        <h2 style="color: #9f7aea;">Welcome to Janus Forge</h2>
+        <p>Verify your identity to activate your neural link.</p>
+        <a href="${verificationUrl}" style="background: #9f7aea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Verify Now</a>
+      </div>`
   });
 }
 
-// --- 1. REGISTER: Creates unverified user with a Sovereignty Trial ---
+// REGISTER
 router.post('/register', async (req, res) => {
   const { username, email, password, referralCode = "" } = req.body;
-
-  if (!username || !email || !password) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
   try {
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-    if (existingUser) {
-      return res.status(400).json({ error: "Email already registered" });
-    }
+    const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (existingUser) return res.status(400).json({ error: "Email registered" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 🛡️ Master Authority Protection
     const isAdmin = email.toLowerCase() === 'admin@janusforge.ai';
     const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
 
-    // ⏱️ PIVOT: Calculate Initial Access Window
-    // Admins get 100 years, Beta get 24 hours, Standard get 1 hour trial
-    const trialHours = isAdmin ? 100 * 365 * 24 : (isBeta ? 24 : 1);
+    const trialHours = isAdmin ? 876000 : (isBeta ? 24 : 1);
     const initialExpiry = new Date(Date.now() + trialHours * 60 * 60 * 1000);
-
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     const user = await prisma.user.create({
       data: {
@@ -68,142 +42,51 @@ router.post('/register', async (req, res) => {
         email: email.toLowerCase(),
         password_hash: hashedPassword,
         role: isAdmin ? 'GOD_MODE' : (isBeta ? 'BETA_ARCHITECT' : 'USER'),
-        
-        // --- 🛡️ SOVEREIGNTY PIVOT ---
         access_expiry: initialExpiry,
-        is_sovereign: true, // Initially true for the trial duration
-        
-        // Legacy support
-        tokens_remaining: 0,
-        token_balance: 0,
-        
+        is_sovereign: true,
         emailVerified: false,
-        verificationToken,
-        verificationTokenExpires,
+        verificationToken: crypto.randomBytes(32).toString('hex'),
+        verificationTokenExpires: new Date(Date.now() + 3600000)
       }
     });
 
-    await sendVerificationEmail(email, verificationToken);
-
-    res.status(201).json({
-      message: "Registration successful! Please check your email to verify your trial sovereignty.",
-      user: { 
-        id: user.id, 
-        username: user.username, 
-        email: user.email,
-        access_expiry: user.access_expiry 
-      }
-    });
-  } catch (error: any) {
-    console.error("Registration error:", error);
-    res.status(500).json({ error: "Registration failed" });
-  }
+    await sendVerificationEmail(email, user.verificationToken!);
+    res.status(201).json({ message: "Check email.", user: { id: user.id, access_expiry: user.access_expiry } });
+  } catch (error) { res.status(500).json({ error: "Registration failed" }); }
 });
 
-// --- 2. VERIFY EMAIL ---
-router.get('/verify-email', async (req, res) => {
-  const { token } = req.query;
-
-  if (!token || typeof token !== 'string') {
-    return res.status(400).json({ error: 'Invalid verification link' });
-  }
-
-  try {
-    const user = await prisma.user.findFirst({
-      where: {
-        verificationToken: token,
-        verificationTokenExpires: { gt: new Date() },
-        emailVerified: false
-      }
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired verification link' });
-    }
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        emailVerified: true,
-        verificationToken: null,
-        verificationTokenExpires: null
-      }
-    });
-
-    return res.status(200).json({ message: "Identity confirmed." });
-  } catch (error) {
-    console.error("Verification error:", error);
-    res.status(500).json({ error: 'Verification failed' });
-  }
-});
-
-// --- 3. RESEND VERIFICATION ---
-router.post('/resend-verification', async (req, res) => {
-  const { email } = req.body;
-
-  try {
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-
-    if (!user) return res.status(404).json({ error: "User not found" });
-    if (user.emailVerified) return res.status(400).json({ error: "Email already verified" });
-
-    const newToken = crypto.randomBytes(32).toString('hex');
-    const newExpires = new Date(Date.now() + 60 * 60 * 1000);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        verificationToken: newToken,
-        verificationTokenExpires: newExpires
-      }
-    });
-
-    await sendVerificationEmail(email, newToken);
-
-    res.json({ message: "Verification email resent" });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to resend" });
-  }
-});
-
-// --- 4. LOGIN: Returns full Sovereignty context ---
+// LOGIN
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-
   try {
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-
-    if (!user || !user.password_hash) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    if (!user.emailVerified) {
-      return res.status(403).json({ error: "Please verify your email before logging in" });
-    }
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user || !user.password_hash || !user.emailVerified) return res.status(401).json({ error: "Invalid or unverified" });
 
     const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+    if (!isValid) return res.status(401).json({ error: "Invalid credentials" });
 
-    // ✅ Clean return for the Frontend useAuth Hook
     res.json({
       id: user.id,
       username: user.username,
       email: user.email,
       role: user.role,
       access_expiry: user.access_expiry,
-      is_sovereign: user.is_sovereign,
-      token_balance: user.token_balance // Legacy support
+      is_sovereign: user.is_sovereign
     });
-  } catch (error: any) {
-    console.error("Login error:", error);
-    res.status(500).json({ error: "Login failed" });
-  }
+  } catch (error) { res.status(500).json({ error: "Login failed" }); }
+});
+
+// TEST REFUEL - MOCK PAYMENT SUCCESS
+router.post('/test-refuel', async (req, res) => {
+  const { userId, hours } = req.body;
+  try {
+    const newExpiry = new Date(Date.now() + hours * 60 * 60 * 1000);
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { access_expiry: newExpiry, is_sovereign: true }
+    });
+    res.json({ message: "Refueled", access_expiry: updatedUser.access_expiry });
+  } catch (error) { res.status(500).json({ error: "Refuel failed" }); }
 });
 
 export default router;
