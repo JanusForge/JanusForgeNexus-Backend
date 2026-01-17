@@ -9,11 +9,12 @@ import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // --- 🛡️ SOVEREIGN IMPORTS ---
-// We only import active, high-authority logic. Legacy ghosts are exiled.
 import { setupNexusSockets, nexusSocketOptions } from './services/nexus-core/nexus-socket';
 import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
 import nexusPrimeRouter from './routes/nexusPrime';
+import stripeRouter from './routes/stripe';
+import webhookRouter from './routes/webhooks'; 
 
 dotenv.config();
 
@@ -52,31 +53,30 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
+// --- ⚡ CRITICAL: WEBHOOK PRIORITY ZONE ⚡ ---
+// This MUST come before app.use(express.json())
+// Because the webhook needs the RAW body to verify Stripe's signature.
+app.use('/api/webhooks', webhookRouter); 
+
+// --- 3. STANDARD MIDDLEWARE (Runs for everything else) ---
 app.use(express.json({ limit: '10mb' }));
 
-// --- 3. NEURAL PERSISTENCE (MONGODB HANDSHAKE) ---
+// --- 4. NEURAL PERSISTENCE (MONGODB) ---
 const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  console.error("❌ CRITICAL: MONGODB_URI is not defined. Neural Memory Offline.");
-} else {
+if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI)
     .then(() => console.log("🟢 NEURAL LINK: MongoDB Atlas Connected"))
     .catch((err) => console.error("❌ NEURAL LINK ERROR:", err));
 }
 
-// --- 4. FIREBREAK API GATEWAYS ---
+// --- 5. FIREBREAK API GATEWAYS ---
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
-
-// ✅ BOUNDARY LOCK: The Prime Synthesis Engine
-// All adversarial logic and conversation history flows through here.
 app.use('/api/nexus', nexusPrimeRouter);
-
-// 🛡️ LEGACY ALIAS: Maintains Sidebar history link to the Prime router
 app.use('/api/conversations', nexusPrimeRouter);
+app.use('/api/stripe', stripeRouter);
 
-// --- 5. NEURAL LINK (SOCKETS) ---
+// --- 6. NEURAL LINK (SOCKETS) ---
 const io = new Server(httpServer, {
   ...nexusSocketOptions,
   cors: {
@@ -89,23 +89,26 @@ const io = new Server(httpServer, {
 app.set('io', io);
 setupNexusSockets(io);
 
+let liveWatchers = 0;
 io.on('connection', (socket) => {
-  socket.on('join:room', (roomId) => {
-    socket.join(roomId);
-    console.log(`🔌 Public Neural Link: Room ${roomId}`);
+  liveWatchers++;
+  io.emit('pulse-update', { count: liveWatchers });
+
+  socket.on('disconnect', () => {
+    liveWatchers = Math.max(0, liveWatchers - 1);
+    io.emit('pulse-update', { count: liveWatchers });
   });
 });
 
-// --- 6. RESILIENCE LAYER ---
+// --- 7. RESILIENCE LAYER ---
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error("🚀 CRITICAL SYSTEM FAULT:", err.stack);
-  res.status(500).json({ error: "Neural link desynchronized. System rebooting." });
+  res.status(500).json({ error: "Neural link desynchronized." });
 });
 
-// --- 7. AUTHORITY INITIALIZATION ---
+// --- 8. AUTHORITY INITIALIZATION ---
 httpServer.listen(PORT, () => {
   console.log(`🚀 JANUS FORGE NEXUS® ACTIVE | PORT: ${PORT}`);
-  console.log(`🛡️ AUTHORITY STATUS: admin@janusforge.ai - MASTER UNLOCKED`);
 });
 
 export { io };
