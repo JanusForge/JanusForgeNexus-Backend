@@ -2,8 +2,6 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// ⚓ THE ANCHOR: We force 2023-10-16. 
-// Even though it is 2026, this tells the SDK NOT to use the 2025 version.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16' as any 
 });
@@ -25,7 +23,8 @@ const HOURS_MAP: Record<string, number> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 [2026-ANCHOR] Forcing 2023 rules for User: ${userId}`);
+  // 🛡️ PROTOCOL FALLBACK: If the env var is missing, we hard-code the Janus Forge production URL
+  const frontendBaseUrl = process.env.FRONTEND_URL || 'https://janusforge.ai';
 
   try {
     if (!tier || !PRICE_IDS[tier]) {
@@ -44,13 +43,15 @@ router.post('/create-session', async (req, res) => {
         tier: String(tier),
         hours: String(hours)
       },
-      success_url: `${process.env.FRONTEND_URL}/nexus?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/pricing?canceled=true`,
+      // 🔗 URL Construction: Ensuring the scheme is always explicit
+      success_url: `${frontendBaseUrl}/nexus?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendBaseUrl}/pricing?canceled=true`,
     });
 
+    console.log(`✅ [2026-ANCHOR] Redirecting to Stripe: ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE VERSION REJECTION:", error.message);
+    console.error("❌ STRIPE URL FAILURE:", error.message);
     res.status(400).json({ error: error.message });
   }
 });
