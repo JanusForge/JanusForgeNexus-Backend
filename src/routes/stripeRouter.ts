@@ -15,23 +15,24 @@ router.post('/create-session', async (req, res) => {
 
     console.log(`📡 [2026-BYPASS] Handshake Received - Tier: ${tier}, UserID: ${userId}`);
 
-    // Check if tier exists in our mapping
+    // Ensure tier is valid before proceeding
     if (!tier || !PRICE_IDS[tier]) {
       return res.status(400).json({ error: "Access tier invalid or missing." });
     }
 
     // 🛡️ SANITIZATION: URLSearchParams.append strictly requires strings. 
-    // This prevents the 'toString' crash on undefined values.
+    // wrapping in String() prevents the 'toString' crash on undefined values.
     const params = new URLSearchParams();
     params.append('mode', 'payment');
     params.append('line_items[0][price]', String(PRICE_IDS[tier]));
     params.append('line_items[0][quantity]', '1');
     
+    // Fallback for environment variables
     const frontendUrl = process.env.FRONTEND_URL || 'https://janusforge.ai';
     params.append('success_url', `${frontendUrl}/nexus?session_id={CHECKOUT_SESSION_ID}`);
     params.append('cancel_url', `${frontendUrl}/nexus/pricing?canceled=true`);
     
-    // Fallback to 'anonymous' if userId is missing to prevent the process from crashing
+    // Metadata protection: Fallback to 'anonymous' if userId is missing
     params.append('metadata[userId]', String(userId || 'anonymous'));
     params.append('metadata[tier]', String(tier));
     params.append('payment_method_types[0]', 'card');
@@ -57,7 +58,7 @@ router.post('/create-session', async (req, res) => {
     res.json({ url: session.url });
 
   } catch (error: any) {
-    // 🧱 CATCH ALL: Prevents the server from hanging or throwing unhandled errors
+    // 🧱 CATCH ALL: Prevents the server from hanging
     console.error("❌ CRITICAL BACKEND ERROR:", error.message);
     res.status(500).json({ error: `Internal Server Error: ${error.message}` });
   }
