@@ -2,12 +2,13 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { 
-  apiVersion: '2023-10-16' as any 
-});
+// 🛠️ REFINEMENT: Removed hard-coded apiVersion to allow Stripe to auto-negotiate 
+// with your account's default settings, resolving the 'Invalid version' error.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
 const router = express.Router();
 
-// 🎟️ THE ACCESS REGISTRY: Hard-coded with your Stripe Price IDs
+// 🎟️ THE ACCESS REGISTRY: Mapping tiers to your live Stripe Price IDs
 const PRICE_IDS: Record<string, string> = {
   '24H': 'price_1Sqe8rGg8RUnSFObq4cv8Mnd', // 24H PASS
   '7D':  'price_1SqeAhGg8RUnSFObRUOFFNH7', // 7D SPRINT
@@ -17,7 +18,11 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
+  // Log the attempt for diagnostic clarity in Render Logs
+  console.log(`📡 STRIPE ATTEMPT: Tier [${tier}] for User [${userId}]`);
+
   if (!PRICE_IDS[tier]) {
+    console.error(`❌ REGISTRY ERROR: Tier [${tier}] not found.`);
     return res.status(400).json({ error: "Access tier not found in registry." });
   }
 
@@ -31,7 +36,7 @@ router.post('/create-session', async (req, res) => {
       mode: 'payment', 
       // Ensure FRONTEND_URL in Render is set to https://www.janusforge.ai
       success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/nexus`,
+      cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
       metadata: { 
         userId: userId, 
         tier: tier 
@@ -40,8 +45,8 @@ router.post('/create-session', async (req, res) => {
 
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE IGNITION FAULT:", error.message);
-    res.status(500).json({ error: "Checkout link failed to generate." });
+    console.error("❌ STRIPE SESSION ERROR:", error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
