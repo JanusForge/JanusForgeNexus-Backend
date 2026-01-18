@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 
 const router = express.Router();
 
+// 🎟️ THE ACCESS REGISTRY: Mapping tiers to your live Stripe Price IDs
 const PRICE_IDS: Record<string, string> = {
   '24H': 'price_1Sqe8rGg8RUnSFObq4cv8Mnd',
   '7D':  'price_1SqeAhGg8RUnSFObRUOFFNH7',
@@ -15,10 +16,12 @@ router.post('/create-session', async (req, res) => {
   console.log(`📡 [2026-BYPASS] Initiating Raw Handshake for Tier: ${tier}`);
 
   if (!PRICE_IDS[tier]) {
+    console.error(`❌ REGISTRY ERROR: Tier [${tier}] not recognized.`);
     return res.status(400).json({ error: "Access tier invalid." });
   }
 
   try {
+    // We use standard URLSearchParams for the raw Stripe API call
     const params = new URLSearchParams();
     params.append('mode', 'payment');
     params.append('line_items[0][price]', PRICE_IDS[tier]);
@@ -27,13 +30,14 @@ router.post('/create-session', async (req, res) => {
     params.append('cancel_url', `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`);
     params.append('metadata[userId]', userId);
     params.append('metadata[tier]', tier);
+    params.append('payment_method_types[0]', 'card');
 
     const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Stripe-Version': '2023-10-16' // 🔒 Hard-coded for the 2026 timeline
+        'Stripe-Version': '2023-10-16' // 🔒 Hard-coded stable version
       },
       body: params
     });
@@ -49,7 +53,7 @@ router.post('/create-session', async (req, res) => {
     res.json({ url: session.url });
   } catch (error: any) {
     console.error("❌ NETWORK CRITICAL:", error.message);
-    res.status(500).json({ error: "Neural link timeout." });
+    res.status(500).json({ error: "Nexus payment gateway timed out." });
   }
 });
 
