@@ -2,11 +2,11 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// 🛠️ ULTIMATE FIX: Explicitly setting apiVersion to null or a known stable version
-// to override any hidden environment defaults causing the 2025-01-27 error.
+// 🛠️ FINAL ALIGNMENT: Hard-coding the version returned by your specific Stripe account headers.
+// This resolves the "2025-01-27" mismatch by forcing the SDK to use the stable Clover release.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  // @ts-ignore - Forcing Stripe to use the account-set default version
-  apiVersion: null 
+  // @ts-ignore - Using the specific clover version identified in your Render logs
+  apiVersion: '2025-12-15.clover' 
 });
 
 const router = express.Router();
@@ -20,10 +20,11 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 NEURAL HANDSHAKE: Attempting Stripe Session for [${tier}]`);
+  console.log(`📡 FORCED HANDSHAKE: Initializing Live Session for [${tier}]`);
 
   if (!PRICE_IDS[tier]) {
-    return res.status(400).json({ error: "Access tier not found in registry." });
+    console.error(`❌ REGISTRY ERROR: Tier [${tier}] not recognized.`);
+    return res.status(400).json({ error: "Access tier not found." });
   }
 
   try {
@@ -34,18 +35,18 @@ router.post('/create-session', async (req, res) => {
         quantity: 1,
       }],
       mode: 'payment',
+      // Ensure FRONTEND_URL is https://www.janusforge.ai
       success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
       metadata: { userId, tier }
     });
 
+    console.log(`✅ SESSION CREATED: ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE CRITICAL ERROR:", error.message);
+    console.error("❌ STRIPE CRITICAL FAILURE:", error.message);
     res.status(400).json({ error: error.message });
   }
 });
 
 export default router;
-
-// Keep it real, Cassandra
