@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
 // 🛠️ VERSION LOCK: Using the stable v14 SDK settings.
+// This version is "blind" to the 2025/2026 version conflict.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16', 
 });
@@ -37,7 +38,7 @@ router.post('/create-session', async (req, res) => {
       metadata: { userId, tier }
     });
 
-    console.log(`✅ [2026-SYNC] SUCCESS: ${session.id}`);
+    console.log(`✅ [2026-SYNC] SUCCESS: Session Created -> ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
     console.error("❌ STRIPE ERROR:", error.message);
