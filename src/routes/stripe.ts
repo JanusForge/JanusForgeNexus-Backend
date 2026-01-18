@@ -2,9 +2,10 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// 🛠️ Temporal Lock: Explicitly setting the API version for the 2026 timeline
+// ⚓ THE ANCHOR: We force 2023-10-16. 
+// Even though it is 2026, this tells the SDK NOT to use the 2025 version.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-01-27' as any
+  apiVersion: '2023-10-16' as any 
 });
 
 const router = express.Router();
@@ -24,12 +25,11 @@ const HOURS_MAP: Record<string, number> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 [2026-FORCE] Handshake Initialized. Tier: ${tier}, User: ${userId}`);
+  console.log(`📡 [2026-ANCHOR] Forcing 2023 rules for User: ${userId}`);
 
   try {
-    // 🛡️ Guard: Ensure data exists before calling .toString()
     if (!tier || !PRICE_IDS[tier]) {
-      return res.status(400).json({ error: "Invalid Access Tier selected." });
+      return res.status(400).json({ error: "Invalid Access Tier." });
     }
 
     const priceId = PRICE_IDS[tier];
@@ -39,22 +39,19 @@ router.post('/create-session', async (req, res) => {
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: 'payment',
-      // 🔑 METADATA: Fulfillment logic for the Webhook
       metadata: {
         userId: String(userId || 'anonymous'),
         tier: String(tier),
-        hours: String(hours) 
+        hours: String(hours)
       },
       success_url: `${process.env.FRONTEND_URL}/nexus?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/pricing?canceled=true`,
     });
 
-    console.log(`✅ [2026-FORCE] SUCCESS: Session ${session.id} generated.`);
     res.json({ url: session.url });
-
   } catch (error: any) {
-    console.error("❌ STRIPE CRITICAL FAILURE:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("❌ STRIPE VERSION REJECTION:", error.message);
+    res.status(400).json({ error: error.message });
   }
 });
 
