@@ -2,12 +2,9 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// 🛠️ THE UNIVERSAL LOCK:
-// We are forcing the library to use a version that exists globally.
-// We also use 'as any' to prevent the SDK from complaining about the version string.
+// 🛠️ VERSION LOCK: Using the stable v14 SDK settings.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16' as any, 
-  typescript: true,
+  apiVersion: '2023-10-16', 
 });
 
 const router = express.Router();
@@ -21,11 +18,9 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  // Verify the payload is arriving
-  console.log(`📡 NEURAL CHECK: Received tier [${tier}] for user [${userId}]`);
+  console.log(`📡 [2026-SYNC] HANDSHAKE: Attempting Session for [${tier}]`);
 
   if (!PRICE_IDS[tier]) {
-    console.error(`❌ TIER MISSING: [${tier}] not found in PRICE_IDS registry.`);
     return res.status(400).json({ error: "Access tier not found." });
   }
 
@@ -42,11 +37,11 @@ router.post('/create-session', async (req, res) => {
       metadata: { userId, tier }
     });
 
-    console.log(`✅ STRIPE LINK GENERATED: ${session.id}`);
+    console.log(`✅ [2026-SYNC] SUCCESS: ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE CRITICAL ERROR:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("❌ STRIPE ERROR:", error.message);
+    res.status(400).json({ error: error.message });
   }
 });
 
