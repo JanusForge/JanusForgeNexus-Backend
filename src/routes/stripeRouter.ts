@@ -11,6 +11,7 @@ const PRICE_IDS: Record<string, string> = {
 
 router.post('/create-session', async (req, res) => {
   try {
+    // 🛡️ Extraction with safety fallback
     const { tier, userId } = req.body;
 
     console.log(`📡 [2026-BYPASS] Handshake Received - Tier: ${tier}, UserID: ${userId}`);
@@ -19,17 +20,17 @@ router.post('/create-session', async (req, res) => {
       return res.status(400).json({ error: "Access tier invalid or missing." });
     }
 
-    // 🛡️ SANITIZATION: URLSearchParams.append requires strings. 
-    // This prevents the 'toString' crash on undefined values.
+    // 🧱 SANITIZATION: URLSearchParams requires strictly string values.
+    // wrapping in String() prevents the 'toString' crash on undefined values.
     const params = new URLSearchParams();
     params.append('mode', 'payment');
     params.append('line_items[0][price]', String(PRICE_IDS[tier]));
     params.append('line_items[0][quantity]', '1');
-    params.append('success_url', `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`);
-    params.append('cancel_url', `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`);
+    params.append('success_url', `${String(process.env.FRONTEND_URL)}/nexus?session_id={CHECKOUT_SESSION_ID}`);
+    params.append('cancel_url', `${String(process.env.FRONTEND_URL)}/nexus/pricing?canceled=true`);
     
-    // Fallback to 'anonymous' if userId is missing to prevent crash
-    params.append('metadata[userId]', String(userId || 'anonymous'));
+    // Metadata protection
+    params.append('metadata[userId]', String(userId || 'anonymous_nexus_user'));
     params.append('metadata[tier]', String(tier));
     params.append('payment_method_types[0]', 'card');
 
@@ -54,9 +55,8 @@ router.post('/create-session', async (req, res) => {
     res.json({ url: session.url });
 
   } catch (error: any) {
-    // 🧱 CATCH ALL: Prevents the server from hanging on a 500
     console.error("❌ CRITICAL BACKEND ERROR:", error.message);
-    res.status(500).json({ error: `Internal Server Error: ${error.message}` });
+    res.status(500).json({ error: error.message });
   }
 });
 
