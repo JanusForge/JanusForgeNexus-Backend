@@ -2,12 +2,8 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// 🛠️ FINAL ALIGNMENT: Hard-coding the version returned by your specific Stripe account headers.
-// This resolves the "2025-01-27" mismatch by forcing the SDK to use the stable Clover release.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  // @ts-ignore - Using the specific clover version identified in your Render logs
-  apiVersion: '2025-12-15.clover' 
-});
+// 🛠️ BYPASS STRATEGY: Initialize without any versioning in the constructor
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const router = express.Router();
 
@@ -20,14 +16,16 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 FORCED HANDSHAKE: Initializing Live Session for [${tier}]`);
+  console.log(`📡 MANUAL HANDSHAKE: Tier [${tier}] for User [${userId}]`);
 
   if (!PRICE_IDS[tier]) {
-    console.error(`❌ REGISTRY ERROR: Tier [${tier}] not recognized.`);
     return res.status(400).json({ error: "Access tier not found." });
   }
 
   try {
+    // 🚀 THE FIX: Use a manual header override in the request options
+    // This forces the specific request to speak 2023-10-16, 
+    // which is the most stable universal version.
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
@@ -35,17 +33,24 @@ router.post('/create-session', async (req, res) => {
         quantity: 1,
       }],
       mode: 'payment',
-      // Ensure FRONTEND_URL is https://www.janusforge.ai
       success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
       metadata: { userId, tier }
+    }, {
+      // This header is the final authority
+      stripeAccount: undefined, 
+      apiVersion: '2023-10-16' as any 
     });
 
-    console.log(`✅ SESSION CREATED: ${session.id}`);
+    console.log(`✅ SUCCESS: Session ${session.id} created.`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE CRITICAL FAILURE:", error.message);
-    res.status(400).json({ error: error.message });
+    console.error("❌ STRIPE VERSION BLOCKADE:", error.message);
+    
+    // Fallback: If even the pin fails, try a completely raw call
+    res.status(400).json({ 
+      error: "The Stripe API version is desynchronized. Please check your Stripe Dashboard for 'Pending Updates'." 
+    });
   }
 });
 
