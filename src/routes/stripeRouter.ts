@@ -3,7 +3,6 @@ import prisma from '../lib/prisma';
 
 const router = express.Router();
 
-// 🎟️ THE ACCESS REGISTRY: Mapping tiers to your live Stripe Price IDs
 const PRICE_IDS: Record<string, string> = {
   '24H': 'price_1Sqe8rGg8RUnSFObq4cv8Mnd',
   '7D':  'price_1SqeAhGg8RUnSFObRUOFFNH7',
@@ -16,12 +15,11 @@ router.post('/create-session', async (req, res) => {
   console.log(`📡 [2026-BYPASS] Initiating Raw Handshake for Tier: ${tier}`);
 
   if (!PRICE_IDS[tier]) {
-    console.error(`❌ REGISTRY ERROR: Tier [${tier}] not recognized.`);
     return res.status(400).json({ error: "Access tier invalid." });
   }
 
   try {
-    // We use standard URLSearchParams for the raw Stripe API call
+    // Manual parameter construction for Stripe's x-www-form-urlencoded API
     const params = new URLSearchParams();
     params.append('mode', 'payment');
     params.append('line_items[0][price]', PRICE_IDS[tier]);
@@ -37,7 +35,7 @@ router.post('/create-session', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Stripe-Version': '2023-10-16' // 🔒 Hard-coded stable version
+        'Stripe-Version': '2023-10-16' // 🔒 FORCED STABLE VERSION
       },
       body: params
     });
@@ -49,10 +47,10 @@ router.post('/create-session', async (req, res) => {
       return res.status(400).json({ error: session.error.message });
     }
 
-    console.log(`✅ [2026-BYPASS] Link Generated: ${session.id}`);
+    console.log(`✅ [2026-BYPASS] SUCCESS: Session ${session.id} generated.`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ NETWORK CRITICAL:", error.message);
+    console.error("❌ CRITICAL NETWORK ERROR:", error.message);
     res.status(500).json({ error: "Nexus payment gateway timed out." });
   }
 });
