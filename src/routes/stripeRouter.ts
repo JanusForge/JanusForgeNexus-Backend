@@ -1,15 +1,9 @@
 import express from 'express';
-import Stripe from 'stripe';
 import prisma from '../lib/prisma';
-
-// 🛠️ VERSION LOCK: Using the stable v14 SDK settings.
-// This version is "blind" to the 2025/2026 version conflict.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16', 
-});
 
 const router = express.Router();
 
+// 🎟️ THE ACCESS REGISTRY: Mapping tiers to your live Stripe Price IDs
 const PRICE_IDS: Record<string, string> = {
   '24H': 'price_1Sqe8rGg8RUnSFObq4cv8Mnd',
   '7D':  'price_1SqeAhGg8RUnSFObRUOFFNH7',
@@ -19,30 +13,46 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 [2026-SYNC] HANDSHAKE: Attempting Session for [${tier}]`);
+  console.log(`📡 RAW BYPASS: Initializing Live Session for [${tier}]`);
 
   if (!PRICE_IDS[tier]) {
     return res.status(400).json({ error: "Access tier not found." });
   }
 
   try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price: PRICE_IDS[tier],
-        quantity: 1,
-      }],
-      mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
-      metadata: { userId, tier }
+    // 🚀 THE MANUAL HANDSHAKE:
+    // We use a raw fetch to Stripe's API to bypass the SDK's versioning logic entirely.
+    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Stripe-Version': '2023-10-16' // 🔒 FORCED STABLE VERSION
+      },
+      body: new URLSearchParams({
+        'mode': 'payment',
+        'success_url': `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
+        'cancel_url': `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
+        'line_items[0][price]': PRICE_IDS[tier],
+        'line_items[0][quantity]': '1',
+        'metadata[userId]': userId,
+        'metadata[tier]': tier,
+        'payment_method_types[0]': 'card'
+      })
     });
 
-    console.log(`✅ [2026-SYNC] SUCCESS: Session Created -> ${session.id}`);
+    const session = await response.json();
+
+    if (session.error) {
+      console.error("❌ RAW STRIPE ERROR:", session.error.message);
+      return res.status(400).json({ error: session.error.message });
+    }
+
+    console.log(`✅ RAW SUCCESS: Session ${session.id} created.`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE ERROR:", error.message);
-    res.status(400).json({ error: error.message });
+    console.error("❌ CRITICAL NETWORK ERROR:", error.message);
+    res.status(500).json({ error: "Nexus payment gateway timed out." });
   }
 });
 
