@@ -11,26 +11,25 @@ const PRICE_IDS: Record<string, string> = {
 
 router.post('/create-session', async (req, res) => {
   try {
-    // 🛡️ Extraction with safety fallback
     const { tier, userId } = req.body;
 
-    console.log(`📡 [2026-BYPASS] Handshake Received - Tier: ${tier}, UserID: ${userId}`);
+    console.log(`📡 [2026-BYPASS] Attempting Handshake. Tier: ${tier || 'NULL'}, UserID: ${userId || 'NULL'}`);
 
     if (!tier || !PRICE_IDS[tier]) {
-      return res.status(400).json({ error: "Access tier invalid or missing." });
+      return res.status(400).json({ error: "Please select a valid access tier." });
     }
 
-    // 🧱 SANITIZATION: URLSearchParams requires strictly string values.
-    // wrapping in String() prevents the 'toString' crash on undefined values.
     const params = new URLSearchParams();
     params.append('mode', 'payment');
     params.append('line_items[0][price]', String(PRICE_IDS[tier]));
     params.append('line_items[0][quantity]', '1');
-    params.append('success_url', `${String(process.env.FRONTEND_URL)}/nexus?session_id={CHECKOUT_SESSION_ID}`);
-    params.append('cancel_url', `${String(process.env.FRONTEND_URL)}/nexus/pricing?canceled=true`);
     
-    // Metadata protection
-    params.append('metadata[userId]', String(userId || 'anonymous_nexus_user'));
+    const frontendUrl = process.env.FRONTEND_URL || 'https://janusforge.ai';
+    params.append('success_url', `${frontendUrl}/nexus?session_id={CHECKOUT_SESSION_ID}`);
+    params.append('cancel_url', `${frontendUrl}/nexus/pricing?canceled=true`);
+    
+    // 🛡️ THE GUARD: Every value is forced to a String to avoid .toString() crashes
+    params.append('metadata[userId]', String(userId || 'anonymous_user'));
     params.append('metadata[tier]', String(tier));
     params.append('payment_method_types[0]', 'card');
 
@@ -55,8 +54,8 @@ router.post('/create-session', async (req, res) => {
     res.json({ url: session.url });
 
   } catch (error: any) {
-    console.error("❌ CRITICAL BACKEND ERROR:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("❌ CRITICAL BACKEND ERROR:", error.stack || error.message);
+    res.status(500).json({ error: "Neural link synchronization failed. Please refresh." });
   }
 });
 
