@@ -1,7 +1,7 @@
 import express from 'express';
 import Stripe from 'stripe';
-import prisma from '../lib/prisma';
 
+// Anchor to 2023 version to bypass the 2026 SDK default logic
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16' as any 
 });
@@ -23,8 +23,7 @@ const HOURS_MAP: Record<string, number> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  // 🛡️ PROTOCOL FALLBACK: If the env var is missing, we hard-code the Janus Forge production URL
-  const frontendBaseUrl = process.env.FRONTEND_URL || 'https://janusforge.ai';
+  console.log(`📡 [2026-ANCHOR] Initializing for User: ${userId}`);
 
   try {
     if (!tier || !PRICE_IDS[tier]) {
@@ -43,15 +42,16 @@ router.post('/create-session', async (req, res) => {
         tier: String(tier),
         hours: String(hours)
       },
-      // 🔗 URL Construction: Ensuring the scheme is always explicit
-      success_url: `${frontendBaseUrl}/nexus?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${frontendBaseUrl}/pricing?canceled=true`,
+      // 🔒 HARD-LOCKED HTTPS SCHEME: 
+      // This bypasses any misconfigured FRONTEND_URL env variables
+      success_url: `https://janusforge.ai/nexus?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://janusforge.ai/pricing?canceled=true`,
     });
 
-    console.log(`✅ [2026-ANCHOR] Redirecting to Stripe: ${session.id}`);
+    console.log(`✅ [2026-ANCHOR] Handshake Successful: ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE URL FAILURE:", error.message);
+    console.error("❌ STRIPE REDIRECT ERROR:", error.message);
     res.status(400).json({ error: error.message });
   }
 });
