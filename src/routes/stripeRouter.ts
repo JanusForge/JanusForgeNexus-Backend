@@ -13,7 +13,7 @@ router.post('/create-session', async (req, res) => {
   try {
     const { tier, userId } = req.body;
 
-    // 🛡️ Guard 1: Immediate Validation
+    // 🛡️ GUARD 1: Type-safe validation (Prevents .toString() crashes)
     if (!tier || !PRICE_IDS[tier]) {
       return res.status(400).json({ error: "Invalid Access Tier selected." });
     }
@@ -22,43 +22,44 @@ router.post('/create-session', async (req, res) => {
     const safeUserId = String(userId || 'guest');
     const frontendUrl = process.env.FRONTEND_URL || 'https://janusforge.ai';
 
-    console.log(`📡 [2026-FORCE] Handshake starting for User: ${safeUserId}`);
+    console.log(`📡 [2026-FORCE] Primitive Handshake starting for User: ${safeUserId}`);
 
-    // 🛡️ Guard 2: Manual Body Construction
-    // We use a plain object and convert to string to avoid URLSearchParams 'toString' bugs
-    const rawBody = new URLSearchParams();
-    rawBody.append('mode', 'payment');
-    rawBody.append('success_url', `${frontendUrl}/nexus?session_id={CHECKOUT_SESSION_ID}`);
-    rawBody.append('cancel_url', `${frontendUrl}/nexus/pricing?canceled=true`);
-    rawBody.append('line_items[0][price]', priceId);
-    rawBody.append('line_items[0][quantity]', '1');
-    rawBody.append('metadata[userId]', safeUserId);
-    rawBody.append('metadata[tier]', String(tier));
+    // 🛡️ GUARD 2: Manual URL Encoding (Avoids URLSearchParams object bugs)
+    const bodyParams = [
+      `mode=payment`,
+      `success_url=${encodeURIComponent(`${frontendUrl}/nexus?session_id={CHECKOUT_SESSION_ID}`)}`,
+      `cancel_url=${encodeURIComponent(`${frontendUrl}/nexus/pricing?canceled=true`)}`,
+      `line_items[0][price]=${priceId}`,
+      `line_items[0][quantity]=1`,
+      `metadata[userId]=${safeUserId}`,
+      `metadata[tier]=${String(tier)}`,
+      `payment_method_types[0]=card`
+    ].join('&');
 
     const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Stripe-Version': '2023-10-16' // 🔒 Hard-locking the version
+        'Stripe-Version': '2023-10-16' 
       },
-      body: rawBody.toString()
+      body: bodyParams
     });
 
     const data: any = await response.json();
 
     if (!response.ok) {
-      console.error("❌ STRIPE REJECTION:", data.error?.message || 'Unknown API Error');
-      return res.status(400).json({ error: data.error?.message || "Stripe rejected the handshake." });
+      console.error("❌ STRIPE REJECTION:", data.error?.message || 'API Error');
+      return res.status(400).json({ error: data.error?.message });
     }
 
     console.log(`✅ [2026-FORCE] SUCCESS: Session ${data.id}`);
     res.json({ url: data.url });
 
-  } catch (criticalError: any) {
-    // 🧱 The Ultimate Safety Net
-    console.error("❌ CRITICAL SYSTEM ERROR:", criticalError.message);
-    res.status(500).json({ error: "The Nexus Neural Link is currently unstable. Please refresh." });
+  } catch (err: any) {
+    // 🧱 THE ABSOLUTE BACKSTOP: No more 500s.
+    console.error("❌ NEURAL LINK CRASH:", err.message);
+    res.status(500).json({ error: "Temporal sync error. Please check your login status and retry." });
   }
 });
 
