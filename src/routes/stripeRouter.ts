@@ -1,5 +1,9 @@
 import express from 'express';
+import Stripe from 'stripe';
 import prisma from '../lib/prisma';
+
+// 🛠️ INITIALIZATION: No version here; we will set it per-request to bypass the 2026 SDK logic.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const router = express.Router();
 
@@ -12,46 +16,34 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 [2026-BYPASS] Initiating Raw Handshake for Tier: ${tier}`);
+  console.log(`📡 [2026-FORCE] Handshake for Tier: ${tier}`);
 
   if (!PRICE_IDS[tier]) {
     return res.status(400).json({ error: "Access tier invalid." });
   }
 
   try {
-    // Manual parameter construction for Stripe's x-www-form-urlencoded API
-    const params = new URLSearchParams();
-    params.append('mode', 'payment');
-    params.append('line_items[0][price]', PRICE_IDS[tier]);
-    params.append('line_items[0][quantity]', '1');
-    params.append('success_url', `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`);
-    params.append('cancel_url', `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`);
-    params.append('metadata[userId]', userId);
-    params.append('metadata[tier]', tier);
-    params.append('payment_method_types[0]', 'card');
-
-    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Stripe-Version': '2023-10-16' // 🔒 FORCED STABLE VERSION
-      },
-      body: params
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price: PRICE_IDS[tier],
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
+      metadata: { userId, tier }
+    }, {
+      // 🔒 THE MASTER KEY: This overrides the SDK's 2026 default.
+      // We are forcing the most stable version recognized by your account.
+      apiVersion: '2023-10-16' as any 
     });
 
-    const session: any = await response.json();
-
-    if (session.error) {
-      console.error("❌ STRIPE API REJECTED REQUEST:", session.error.message);
-      return res.status(400).json({ error: session.error.message });
-    }
-
-    console.log(`✅ [2026-BYPASS] SUCCESS: Session ${session.id} generated.`);
+    console.log(`✅ [2026-FORCE] SUCCESS: Session ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ CRITICAL NETWORK ERROR:", error.message);
-    res.status(500).json({ error: "Nexus payment gateway timed out." });
+    console.error("❌ STRIPE VERSION FAILURE:", error.message);
+    res.status(400).json({ error: error.message });
   }
 });
 
