@@ -2,8 +2,13 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// 🛠️ BYPASS STRATEGY: Initialize without any versioning in the constructor
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// 🛠️ THE UNIVERSAL LOCK:
+// We are forcing the library to use a version that exists globally.
+// We also use 'as any' to prevent the SDK from complaining about the version string.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16' as any, 
+  typescript: true,
+});
 
 const router = express.Router();
 
@@ -16,16 +21,15 @@ const PRICE_IDS: Record<string, string> = {
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  console.log(`📡 MANUAL HANDSHAKE: Tier [${tier}] for User [${userId}]`);
+  // Verify the payload is arriving
+  console.log(`📡 NEURAL CHECK: Received tier [${tier}] for user [${userId}]`);
 
   if (!PRICE_IDS[tier]) {
+    console.error(`❌ TIER MISSING: [${tier}] not found in PRICE_IDS registry.`);
     return res.status(400).json({ error: "Access tier not found." });
   }
 
   try {
-    // 🚀 THE FIX: Use a manual header override in the request options
-    // This forces the specific request to speak 2023-10-16, 
-    // which is the most stable universal version.
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
@@ -36,21 +40,13 @@ router.post('/create-session', async (req, res) => {
       success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
       metadata: { userId, tier }
-    }, {
-      // This header is the final authority
-      stripeAccount: undefined, 
-      apiVersion: '2023-10-16' as any 
     });
 
-    console.log(`✅ SUCCESS: Session ${session.id} created.`);
+    console.log(`✅ STRIPE LINK GENERATED: ${session.id}`);
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE VERSION BLOCKADE:", error.message);
-    
-    // Fallback: If even the pin fails, try a completely raw call
-    res.status(400).json({ 
-      error: "The Stripe API version is desynchronized. Please check your Stripe Dashboard for 'Pending Updates'." 
-    });
+    console.error("❌ STRIPE CRITICAL ERROR:", error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
