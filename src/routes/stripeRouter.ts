@@ -10,15 +10,17 @@ const PRICE_IDS: Record<string, string> = {
 };
 
 router.post('/create-session', async (req, res) => {
-  const { tier, userId } = req.body;
-
-  console.log(`📡 [2026-BYPASS] Handshake - Tier: ${tier}, User: ${userId}`);
-
-  if (!PRICE_IDS[tier]) {
-    return res.status(400).json({ error: "Access tier invalid." });
-  }
-
   try {
+    const { tier, userId } = req.body;
+
+    console.log(`📡 [2026-BYPASS] Handshake Received - Tier: ${tier}, UserID: ${userId}`);
+
+    if (!tier || !PRICE_IDS[tier]) {
+      return res.status(400).json({ error: "Access tier invalid or missing." });
+    }
+
+    // 🛡️ SANITIZATION: URLSearchParams.append requires strings. 
+    // This prevents the 'toString' crash on undefined values.
     const params = new URLSearchParams();
     params.append('mode', 'payment');
     params.append('line_items[0][price]', String(PRICE_IDS[tier]));
@@ -26,9 +28,9 @@ router.post('/create-session', async (req, res) => {
     params.append('success_url', `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`);
     params.append('cancel_url', `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`);
     
-    // 🛡️ SAFETY CHECK: Ensure these are never undefined
-    params.append('metadata[userId]', String(userId || 'unknown_user'));
-    params.append('metadata[tier]', String(tier || 'unknown_tier'));
+    // Fallback to 'anonymous' if userId is missing to prevent crash
+    params.append('metadata[userId]', String(userId || 'anonymous'));
+    params.append('metadata[tier]', String(tier));
     params.append('payment_method_types[0]', 'card');
 
     const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -48,10 +50,13 @@ router.post('/create-session', async (req, res) => {
       return res.status(400).json({ error: session.error.message });
     }
 
+    console.log(`✅ [2026-BYPASS] SUCCESS: Session ${session.id} generated.`);
     res.json({ url: session.url });
+
   } catch (error: any) {
+    // 🧱 CATCH ALL: Prevents the server from hanging on a 500
     console.error("❌ CRITICAL BACKEND ERROR:", error.message);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: `Internal Server Error: ${error.message}` });
   }
 });
 
