@@ -86,7 +86,7 @@ const io = new Server(httpServer, {
   }
 });
 
-app.set('io', io);
+app.set('socketio', io); // This matches req.app.get('socketio') in your routes
 setupNexusSockets(io);
 
 let liveWatchers = 0;
