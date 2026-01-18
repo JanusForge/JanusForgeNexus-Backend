@@ -2,27 +2,27 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// 🛠️ REFINEMENT: Removed hard-coded apiVersion to allow Stripe to auto-negotiate 
-// with your account's default settings, resolving the 'Invalid version' error.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// 🛠️ ULTIMATE FIX: Explicitly setting apiVersion to null or a known stable version
+// to override any hidden environment defaults causing the 2025-01-27 error.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  // @ts-ignore - Forcing Stripe to use the account-set default version
+  apiVersion: null 
+});
 
 const router = express.Router();
 
-// 🎟️ THE ACCESS REGISTRY: Mapping tiers to your live Stripe Price IDs
 const PRICE_IDS: Record<string, string> = {
-  '24H': 'price_1Sqe8rGg8RUnSFObq4cv8Mnd', // 24H PASS
-  '7D':  'price_1SqeAhGg8RUnSFObRUOFFNH7', // 7D SPRINT
-  '30D': 'price_1SqeCqGg8RUnSFObHN4ZMCqs'  // 30D FORGE
+  '24H': 'price_1Sqe8rGg8RUnSFObq4cv8Mnd',
+  '7D':  'price_1SqeAhGg8RUnSFObRUOFFNH7',
+  '30D': 'price_1SqeCqGg8RUnSFObHN4ZMCqs'
 };
 
 router.post('/create-session', async (req, res) => {
   const { tier, userId } = req.body;
 
-  // Log the attempt for diagnostic clarity in Render Logs
-  console.log(`📡 STRIPE ATTEMPT: Tier [${tier}] for User [${userId}]`);
+  console.log(`📡 NEURAL HANDSHAKE: Attempting Stripe Session for [${tier}]`);
 
   if (!PRICE_IDS[tier]) {
-    console.error(`❌ REGISTRY ERROR: Tier [${tier}] not found.`);
     return res.status(400).json({ error: "Access tier not found in registry." });
   }
 
@@ -33,20 +33,16 @@ router.post('/create-session', async (req, res) => {
         price: PRICE_IDS[tier],
         quantity: 1,
       }],
-      mode: 'payment', 
-      // Ensure FRONTEND_URL in Render is set to https://www.janusforge.ai
+      mode: 'payment',
       success_url: `${process.env.FRONTEND_URL}/nexus?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/nexus/pricing?canceled=true`,
-      metadata: { 
-        userId: userId, 
-        tier: tier 
-      }
+      metadata: { userId, tier }
     });
 
     res.json({ url: session.url });
   } catch (error: any) {
-    console.error("❌ STRIPE SESSION ERROR:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("❌ STRIPE CRITICAL ERROR:", error.message);
+    res.status(400).json({ error: error.message });
   }
 });
 
