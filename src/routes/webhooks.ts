@@ -2,7 +2,7 @@ import express from 'express';
 import Stripe from 'stripe';
 import prisma from '../lib/prisma';
 
-// Initialize Stripe with the Temporal Anchor (2023 version)
+// Initialize Stripe with the Temporal Anchor
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16' as any,
 });
@@ -10,44 +10,42 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 const router = express.Router();
 
 /**
- * 🛰️ THE NEURAL FULFILLMENT GATEWAY
- * This endpoint processes confirmed signals from Stripe.
- * Important: The 'req.body' here must be the Raw Buffer provided 
- * by the middleware in server.ts.
+ * 🛰️ THE WEBHOOK FULFILLMENT GATEWAY
+ * Processes the raw signal from Stripe to grant user access.
  */
-router.post('/', async (req, res) => {
+router.post('/', async (req: any, res) => {
   const sig = req.headers['stripe-signature'];
+  
+  // Use the rawBody captured by the server.ts middleware
+  const payload = req.rawBody || req.body;
+
   let event: Stripe.Event;
 
   try {
-    // 🛡️ VERIFICATION: Ensuring the payload is authentic and untampered
+    // 🛡️ AUTHENTICATION: Verifying the signal is genuinely from Stripe
     event = stripe.webhooks.constructEvent(
-      req.body, // This is the Raw Buffer
-      sig!,
+      payload, 
+      sig!, 
       process.env.STRIPE_WEBHOOK_SECRET!
     );
-    console.log(`✅ [SIGNAL VERIFIED]: ${event.type}`);
+    console.log(`✅ [SIGNAL AUTHENTICATED]: ${event.type}`);
   } catch (err: any) {
-    console.error(`❌ [SIGNATURE FAILURE]: ${err.message}`);
+    console.error(`❌ [SIGNATURE MISMATCH]: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // ⚡ HANDLE SUCCESSFUL PAYMENT
+  // Handle the specific event
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
-    
-    // Extract metadata we injected during session creation
     const { userId, hours, tier } = session.metadata || {};
 
     if (userId && hours) {
-      console.log(`📡 [FULFILLMENT START]: Granting ${hours}H access to User ${userId}`);
+      console.log(`📡 [HANDSHAKE]: Fulfilling ${hours}H access for User ${userId}`);
       
-      // Calculate Expiry: Current Time + Purchased Hours
       const expiryDate = new Date();
       expiryDate.setHours(expiryDate.getHours() + parseInt(hours));
 
       try {
-        // 🏛️ PRISMA UPDATE: Writing the Sovereign status to the database
         await prisma.user.update({
           where: { id: userId },
           data: {
@@ -56,14 +54,11 @@ router.post('/', async (req, res) => {
             tier: tier || 'SOVEREIGN'
           }
         });
-        
-        console.log(`✅ [NEURAL LINK RESTORED]: User ${userId} is now SOVEREIGN until ${expiryDate.toISOString()}`);
+        console.log(`✅ [SOVEREIGNTY GRANTED]: Access valid until ${expiryDate.toISOString()}`);
       } catch (dbError) {
-        console.error("❌ [DATABASE CRITICAL FAILURE]:", dbError);
-        return res.status(500).json({ error: "Database synchronization failed" });
+        console.error("❌ [DATABASE SYNC ERROR]:", dbError);
+        return res.status(500).send("Internal Server Error");
       }
-    } else {
-      console.warn("⚠️ [DATA MISMATCH]: Webhook received but metadata (userId/hours) is missing.");
     }
   }
 

@@ -14,7 +14,7 @@ import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
 import nexusPrimeRouter from './routes/nexusPrime';
 import stripeRouter from './routes/stripe';
-import webhookRouter from './routes/webhooks'; 
+import webhookRouter from './routes/webhooks';
 
 dotenv.config();
 
@@ -55,15 +55,16 @@ app.use(cors({
 
 // --- ⚡ CRITICAL: WEBHOOK PRIORITY ZONE ⚡ ---
 // This MUST come before app.use(express.json())
-// ⚡ 1. THE WEBHOOK GATE: Handle this BEFORE express.json()
-// We use a custom 'verify' function to keep a copy of the raw body for Stripe
-app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRouter);
+// We capture the raw buffer specifically for Stripe's signature verification.
+app.use('/api/webhooks', express.raw({ 
+  type: 'application/json',
+  verify: (req: any, res, buf) => {
+    req.rawBody = buf; 
+  }
+}), webhookRouter);
 
-// ⚡ 2. THE STANDARD GATE: For all other routes
-app.use(express.json({ 
-  limit: '10mb',
-  // This helps if any other route needs the raw body, but usually unnecessary
-}));
+// --- 3. STANDARD MIDDLEWARE (Runs for everything else) ---
+app.use(express.json({ limit: '10mb' }));
 
 // --- 4. NEURAL PERSISTENCE (MONGODB) ---
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -90,7 +91,7 @@ const io = new Server(httpServer, {
   }
 });
 
-app.set('socketio', io); // This matches req.app.get('socketio') in your routes
+app.set('socketio', io);
 setupNexusSockets(io);
 
 let liveWatchers = 0;
