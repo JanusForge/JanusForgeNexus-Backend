@@ -13,9 +13,9 @@ model Purchase {
   userId          String
   amount          Float
   tokens          Int
-  packageName     String
+  packageName      String
   stripeSessionId String   @unique
-  createdAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
   user            User     @relation(fields: [userId], references: [id])
 }
 
@@ -25,35 +25,33 @@ model User {
   username          String             @unique
   password_hash     String             @map("password_hash")
   tier              String             @default("FREE")
-  
+
   // --- 🛡️ SOVEREIGNTY ACCESS FIELDS ---
-  // This stores when their 24h, 7d, or 30d pass ends
-  access_expiry     DateTime?          @map("access_expiry")
-  
-  // A quick flag for the UI to show the "Sovereign" badge
+  access_expiry      DateTime?          @map("access_expiry")
   is_sovereign      Boolean            @default(false) @map("is_sovereign")
+  
   token_balance            Int                @default(0) @map("token_balance")
   tokens_used              Int                @default(0) @map("tokens_used")
   tokens_remaining         Int                @default(0) @map("tokens_remaining")
   refresh_token            String?            @map("refresh_token")
-  created_at               DateTime           @default(now()) @map("created_at")
-  updated_at               DateTime           @updatedAt @map("updated_at")
-  role                     UserRole           @default(USER)
-  reset_expires            DateTime?
+  created_at                DateTime           @default(now()) @map("created_at")
+  updated_at                DateTime           @updatedAt @map("updated_at")
+  role                      UserRole           @default(USER)
+  reset_expires             DateTime?
   reset_token              String?            @unique
-  resetToken               String?
-  resetTokenExpiry         DateTime?
-  
+  resetToken                String?
+  resetTokenExpiry          DateTime?
+
   // Relations
-  purchases                Purchase[]
-  ai_responses             AIResponse[]
-  debate_votes             DebateVote[]
-  posts                    Post[]
-  token_transactions       TokenTransaction[]
-  conversations            Conversation[]     // Relation back to private conversations
-  support_tickets          SupportTicket[]    // ✅ Track Architect transmissions
-  broadcasts          Broadcast[]        // ✅ ADD THIS LINE
-  
+  purchases                 Purchase[]
+  ai_responses              AIResponse[]
+  debate_votes              DebateVote[]
+  posts                     Post[]
+  token_transactions        TokenTransaction[]
+  conversations             Conversation[]
+  support_tickets           SupportTicket[]
+  broadcasts          Broadcast[]
+
   emailVerified            Boolean            @default(false)
   verificationToken        String?            @unique
   verificationTokenExpires DateTime?
@@ -66,12 +64,11 @@ model SupportTicket {
   user_id     String   @map("user_id")
   subject     String
   message     String   @db.Text
-  status      String   @default("OPEN")     // OPEN, IN_PROGRESS, RESOLVED
-  priority    String   @default("NORMAL")   // NORMAL, HIGH, CRITICAL
+  status      String   @default("OPEN")
+  priority    String   @default("NORMAL")
   created_at  DateTime @default(now())      @map("created_at")
   updated_at  DateTime @updatedAt           @map("updated_at")
 
-  // Relations
   user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("support_tickets")
@@ -80,11 +77,13 @@ model SupportTicket {
 model Conversation {
   id              String          @id @default(uuid())
   user_id         String?         @map("user_id")
-  title           String?         // Will store the cinematic 3-5 word titles
+  title           String?         
 
-  // ISOLATION LOGIC
-  is_private      Boolean         @default(true) @map("is_private") // True for Nexus Prime
-  is_daily_forge  Boolean         @default(false) @map("is_daily_forge") // False for Nexus Prime
+  // ⚡ SOCIAL FEED LOGIC
+  // If is_public is true, it shows up on the "X-style" global feed
+  is_public       Boolean         @default(false) @map("is_public") 
+  is_private      Boolean         @default(true) @map("is_private") 
+  is_daily_forge  Boolean         @default(false) @map("is_daily_forge") 
 
   daily_topic     String?         @map("daily_topic")
   forge_date      DateTime?       @map("forge_date")
@@ -102,80 +101,78 @@ model Conversation {
 }
 
 model Post {
-  id               String         @id @default(uuid())
-  content          String         @db.Text // Use Text for long adversarial syntheses
-  is_human         Boolean        @default(true) @map("is_human")
+  id                String         @id @default(uuid())
+  content           String         @db.Text 
+  is_human          Boolean        @default(true) @map("is_human")
 
-  // IDENTIFICATION
-  name             String?        // Stores "Claude", "GPT4", etc. for the chat UI
-  ai_model         AIParticipant? @map("ai_model")
-  user_id          String?        @map("user_id")
-  conversation_id  String         @map("conversation_id")
+  name              String?        
+  ai_model          AIParticipant? @map("ai_model")
+  user_id           String?        @map("user_id")
+  conversation_id   String         @map("conversation_id")
 
-  parent_post_id   String?        @map("parent_post_id")
-  likes            Int            @default(0)
-  required_tier    String?        @map("required_tier")
-  created_at       DateTime       @default(now()) @map("created_at")
-  ai_response      AIResponse?    @relation("PostToAIResponse")
+  // ⚡ THREADING LOGIC (ALREADY EXISTENT)
+  parent_post_id    String?        @map("parent_post_id")
+  likes             Int            @default(0)
+  required_tier     String?        @map("required_tier")
+  created_at        DateTime       @default(now()) @map("created_at")
+  ai_response       AIResponse?    @relation("PostToAIResponse")
 
-  // RELATIONS & CLEANUP
-  conversation     Conversation   @relation("ConversationPosts", fields: [conversation_id], references: [id], onDelete: Cascade)
-  parent           Post?          @relation("PostReplies", fields: [parent_post_id], references: [id])
-  replies          Post[]         @relation("PostReplies")
-  user             User?          @relation(fields: [user_id], references: [id])
+  // RELATIONS
+  conversation      Conversation   @relation("ConversationPosts", fields: [conversation_id], references: [id], onDelete: Cascade)
+  parent            Post?          @relation("PostReplies", fields: [parent_post_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies           Post[]         @relation("PostReplies")
+  user              User?          @relation(fields: [user_id], references: [id])
 
   @@map("posts")
 }
 
 model AIResponse {
-  id               String        @id @default(uuid())
-  post_id          String        @unique @map("post_id")
-  ai_model         AIParticipant @map("ai_model")
-  raw_response     String        @map("raw_response")
-  processing_time  Int           @map("processing_time")
-  tokens_used      Int           @map("tokens_used")
-  cost_cents       Int           @map("cost_cents")
-  user_id          String        @map("user_id")
-  created_at       DateTime      @default(now()) @map("created_at")
+  id                String        @id @default(uuid())
+  post_id           String        @unique @map("post_id")
+  ai_model          AIParticipant @map("ai_model")
+  raw_response      String        @map("raw_response")
+  processing_time   Int           @map("processing_time")
+  tokens_used       Int           @map("tokens_used")
+  cost_cents        Int           @map("cost_cents")
+  user_id           String        @map("user_id")
+  created_at        DateTime      @default(now()) @map("created_at")
 
-  // CASCADE: If post is deleted, delete the AI response data
-  post             Post          @relation("PostToAIResponse", fields: [post_id], references: [id], onDelete: Cascade)
-  user             User          @relation(fields: [user_id], references: [id])
+  post              Post          @relation("PostToAIResponse", fields: [post_id], references: [id], onDelete: Cascade)
+  user              User          @relation(fields: [user_id], references: [id])
 
   @@map("ai_responses")
 }
 
 model DebateVote {
-  id               String        @id @default(uuid())
-  user_id          String        @map("user_id")
-  conversation_id  String        @map("conversation_id")
-  ai_model         AIParticipant @map("ai_model")
-  score            Int
-  created_at       DateTime      @default(now()) @map("created_at")
+  id                String        @id @default(uuid())
+  user_id           String        @map("user_id")
+  conversation_id   String        @map("conversation_id")
+  ai_model          AIParticipant @map("ai_model")
+  score             Int
+  created_at        DateTime      @default(now()) @map("created_at")
 
-  // CASCADE: Deleting conversation wipes votes
-  conversation     Conversation  @relation("ConversationVotes", fields: [conversation_id], references: [id], onDelete: Cascade)
-  user             User          @relation(fields: [user_id], references: [id])
+  conversation      Conversation  @relation("ConversationVotes", fields: [conversation_id], references: [id], onDelete: Cascade)
+  user              User          @relation(fields: [user_id], references: [id])
 
   @@unique([user_id, conversation_id, ai_model])
   @@map("debate_votes")
 }
 
 model TokenTransaction {
-  id               String   @id @default(uuid())
-  user_id          String   @map("user_id")
-  amount           Int
+  id                String   @id @default(uuid())
+  user_id           String   @map("user_id")
+  amount            Int
   transaction_type String   @map("transaction_type")
-  description      String?
-  created_at       DateTime @default(now()) @map("created_at")
-  user             User     @relation(fields: [user_id], references: [id])
+  description       String?
+  created_at        DateTime @default(now()) @map("created_at")
+  user              User     @relation(fields: [user_id], references: [id])
 
   @@map("token_transactions")
 }
 
 model DailyForge {
-  id               String        @id @default(uuid())
-  date             DateTime      @default(now())
+  id                String        @id @default(uuid())
+  date              DateTime      @default(now())
   scoutedTopics    String
   winningTopic     String
   councilVotes     String
@@ -183,7 +180,7 @@ model DailyForge {
   phase            String        @default("INITIALIZED")
   nextReset        DateTime?
   conversationId   String?       @map("conversationId")
-  conversation     Conversation? @relation(fields: [conversationId], references: [id])
+  conversation      Conversation? @relation(fields: [conversationId], references: [id])
 
   @@map("DailyForge")
 }
@@ -206,9 +203,9 @@ enum UserRole {
 model SystemHealthLog {
   id          String   @id @default(uuid())
   timestamp   DateTime @default(now()) @map("timestamp")
-  status      String   // "HEALTHY", "DEGRADED", "DOWN"
+  status      String   
   avg_latency Int      @map("avg_latency")
-  details     Json     // Council health JSON details
+  details     Json     
 
   @@index([timestamp])
   @@map("system_health_logs")
@@ -219,6 +216,6 @@ model Broadcast {
   message   String   @db.Text
   adminId   String
   createdAt DateTime @default(now())
-  
+
   admin     User     @relation(fields: [adminId], references: [id])
 }
