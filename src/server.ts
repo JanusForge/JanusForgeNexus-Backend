@@ -55,11 +55,15 @@ app.use(cors({
 
 // --- ⚡ CRITICAL: WEBHOOK PRIORITY ZONE ⚡ ---
 // This MUST come before app.use(express.json())
-// Because the webhook needs the RAW body to verify Stripe's signature.
-app.use('/api/webhooks', webhookRouter); 
+// ⚡ 1. THE WEBHOOK GATE: Handle this BEFORE express.json()
+// We use a custom 'verify' function to keep a copy of the raw body for Stripe
+app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRouter);
 
-// --- 3. STANDARD MIDDLEWARE (Runs for everything else) ---
-app.use(express.json({ limit: '10mb' }));
+// ⚡ 2. THE STANDARD GATE: For all other routes
+app.use(express.json({ 
+  limit: '10mb',
+  // This helps if any other route needs the raw body, but usually unnecessary
+}));
 
 // --- 4. NEURAL PERSISTENCE (MONGODB) ---
 const MONGODB_URI = process.env.MONGODB_URI;
