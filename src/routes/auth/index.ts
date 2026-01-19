@@ -44,9 +44,7 @@ router.post('/register', async (req, res) => {
         role: isAdmin ? 'GOD_MODE' : (isBeta ? 'BETA_ARCHITECT' : 'USER'),
         access_expiry: initialExpiry,
         is_sovereign: true,
-        emailVerified: false,
-        verificationToken: crypto.randomBytes(32).toString('hex'),
-        verificationTokenExpires: new Date(Date.now() + 3600000)
+        emailVerified: false
       }
     });
 

@@ -16,9 +16,13 @@ model User {
   username          String             @unique
   password_hash     String             @map("password_hash")
   tier              String             @default("FREE")
-  access_expiry      DateTime?          @map("access_expiry")
+  access_expiry     DateTime?          @map("access_expiry")
   is_sovereign      Boolean            @default(false) @map("is_sovereign")
   role              UserRole           @default(USER)
+  
+  // ✅ RESTORED FOR AUTH LOGIC
+  emailVerified     Boolean            @default(false) @map("email_verified")
+
   posts             Post[]
   conversations     Conversation[]
   @@map("users")
