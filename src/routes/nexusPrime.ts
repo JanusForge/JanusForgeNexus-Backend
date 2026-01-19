@@ -1,3 +1,5 @@
+// src/routes/nexusPrime.ts (Full Restoration)
+
 import express from 'express';
 import prisma from '../lib/prisma';
 import { aiClients } from '../server';
@@ -5,9 +7,6 @@ import { AIParticipant } from '@prisma/client';
 
 const router = express.Router();
 
-/**
- * 🛰️ THE IGNITION GATEWAY (Social Edition)
- */
 router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, parentPostId } = req.body;
   const io = req.app.get('socketio');
@@ -15,8 +14,7 @@ router.post('/ignite', async (req: any, res) => {
   try {
     let targetConversationId = conversationId;
 
-    // --- 🛠️ ENUM MAPPING (Prevents 500 Error) ---
-    // Maps frontend names to Prisma Enum names
+    // 🛠️ ALIGNMENT MAP
     const modelMap: Record<string, AIParticipant> = {
       'CLAUDE': AIParticipant.CLAUDE,
       'GPT4': AIParticipant.CHATGPT,
@@ -29,21 +27,18 @@ router.post('/ignite', async (req: any, res) => {
       .map((m: string) => modelMap[m])
       .filter((m: any) => m !== undefined);
 
-    // 1. 🏗️ ARCHITECTURE CHECK
     if (!targetConversationId) {
       const newConversation = await prisma.conversation.create({
         data: {
           user_id: userId,
-          is_public: true, 
-          is_private: false,
-          title: prompt.split(' ').slice(0, 5).join(' ') + "...",
+          is_public: true,
+          title: prompt.substring(0, 50),
           council_members: validCouncilMembers
         }
       });
       targetConversationId = newConversation.id;
     }
 
-    // 2. 📝 RECORD HUMAN TRANSMISSION
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
@@ -55,56 +50,78 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // Broadcast user post (Using a global channel for simpler frontend sync)
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
 
-    // 3. 🧠 COUNCIL SYNTHESIS
-    // We iterate through valid models and create responses
-    for (const modelEnum of validCouncilMembers) {
-      const aiPost = await prisma.post.create({
-        data: {
-          content: `[Synthesizing ${modelEnum}...]`, // Placeholder for actual logic
-          conversation_id: targetConversationId,
-          parent_post_id: userPost.id,
-          is_human: false,
-          name: modelEnum.toString(),
-          ai_model: modelEnum
-        }
-      });
-
-      io.emit('nexus:transmission', aiPost);
-    }
-
+    // Return early to the UI
     res.json({ success: true, conversationId: targetConversationId });
 
+    // 🧠 ACTIVATE VOICES (REAL AI CALLS)
+    for (const modelEnum of validCouncilMembers) {
+      try {
+        let aiContent = "";
+
+        if (modelEnum === AIParticipant.CLAUDE) {
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-20240620",
+            max_tokens: 1024,
+            messages: [{ role: "user", content: prompt }],
+          });
+          aiContent = msg.content[0].text;
+        } else if (modelEnum === AIParticipant.CHATGPT) {
+          const comp = await aiClients.GPT4.chat.completions.create({
+            model: "gpt-4o",
+            messages: [{ role: "user", content: prompt }],
+          });
+          aiContent = comp.choices[0].message.content || "";
+        } else if (modelEnum === AIParticipant.GEMINI_PRO) {
+          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-pro" });
+          const result = await model.generateContent(prompt);
+          aiContent = result.response.text();
+        } else if (modelEnum === AIParticipant.GROK) {
+            const comp = await aiClients.GROK.chat.completions.create({
+                model: "grok-beta",
+                messages: [{ role: "user", content: prompt }]
+            });
+            aiContent = comp.choices[0].message.content || "";
+        } else if (modelEnum === AIParticipant.DEEPSEEK) {
+            const comp = await aiClients.DEEPSEEK.chat.completions.create({
+                model: "deepseek-chat",
+                messages: [{ role: "user", content: prompt }]
+            });
+            aiContent = comp.choices[0].message.content || "";
+        }
+
+        const aiPost = await prisma.post.create({
+          data: {
+            content: aiContent,
+            conversation_id: targetConversationId,
+            parent_post_id: userPost.id,
+            is_human: false,
+            name: modelEnum.toString(),
+            ai_model: modelEnum
+          }
+        });
+        io.emit('nexus:transmission', aiPost);
+      } catch (err) {
+        console.error(`Error with ${modelEnum}:`, err);
+      }
+    }
   } catch (error) {
-    console.error("🚀 IGNITION CRITICAL FAILURE:", error);
-    res.status(500).json({ error: "Neural link desynchronized." });
+    console.error("Ignition Error:", error);
+    if (!res.headersSent) res.status(500).send("Sync Error");
   }
 });
 
-/**
- * 📜 FEED HYDRATION
- */
 router.get('/stream', async (req, res) => {
   try {
     const feed = await prisma.conversation.findMany({
       where: { is_public: true },
-      include: {
-        posts: {
-          orderBy: { created_at: 'asc' } // Get all posts for simplicity in dev
-        }
-      },
+      include: { posts: { orderBy: { created_at: 'asc' } } },
       orderBy: { created_at: 'desc' }
     });
-
-    // Flatten for the current frontend chatThread logic
-    const flattenedMessages = feed.flatMap(conv => conv.posts);
-    res.json(flattenedMessages);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch neural stream." });
-  }
+    res.json(feed.flatMap(f => f.posts));
+  } catch (err) { res.status(500).send("Stream Error"); }
 });
 
 export default router;
