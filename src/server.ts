@@ -54,8 +54,6 @@ app.use(cors({
 }));
 
 // --- ⚡ CRITICAL: WEBHOOK PRIORITY ZONE ⚡ ---
-// This MUST come before app.use(express.json())
-// We capture the raw buffer specifically for Stripe's signature verification.
 app.use('/api/webhooks', express.raw({ 
   type: 'application/json',
   verify: (req: any, res, buf) => {
@@ -63,10 +61,10 @@ app.use('/api/webhooks', express.raw({
   }
 }), webhookRouter);
 
-// --- 3. STANDARD MIDDLEWARE (Runs for everything else) ---
+// --- 3. STANDARD MIDDLEWARE ---
 app.use(express.json({ limit: '10mb' }));
 
-// --- 4. NEURAL PERSISTENCE (MONGODB) ---
+// --- 4. NEURAL PERSISTENCE ---
 const MONGODB_URI = process.env.MONGODB_URI;
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI)
@@ -97,7 +95,9 @@ setupNexusSockets(io);
 let liveWatchers = 0;
 io.on('connection', (socket) => {
   liveWatchers++;
+  // ⚡ Sychronize new node immediately
   io.emit('pulse-update', { count: liveWatchers });
+  console.log(`📡 Node Active: ${liveWatchers}`);
 
   socket.on('disconnect', () => {
     liveWatchers = Math.max(0, liveWatchers - 1);
@@ -117,6 +117,3 @@ httpServer.listen(PORT, () => {
 });
 
 export { io };
-
-
-// Keep it real, Cassandra.
