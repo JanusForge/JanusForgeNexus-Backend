@@ -7,7 +7,6 @@ const router = express.Router();
 
 /**
  * 🛰️ THE IGNITION GATEWAY (Social Edition)
- * Handles Root Patterns (New Threads) and Nested Replies.
  */
 router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, parentPostId } = req.body;
@@ -16,16 +15,29 @@ router.post('/ignite', async (req: any, res) => {
   try {
     let targetConversationId = conversationId;
 
-    // 1. 🏗️ ARCHITECTURE CHECK: Is this a new thread or a reply?
+    // --- 🛠️ ENUM MAPPING (Prevents 500 Error) ---
+    // Maps frontend names to Prisma Enum names
+    const modelMap: Record<string, AIParticipant> = {
+      'CLAUDE': AIParticipant.CLAUDE,
+      'GPT4': AIParticipant.CHATGPT,
+      'GEMINI': AIParticipant.GEMINI_PRO,
+      'GROK': AIParticipant.GROK,
+      'DEEPSEEK': AIParticipant.DEEPSEEK
+    };
+
+    const validCouncilMembers = models
+      .map((m: string) => modelMap[m])
+      .filter((m: any) => m !== undefined);
+
+    // 1. 🏗️ ARCHITECTURE CHECK
     if (!targetConversationId) {
-      // Create a new Public Conversation (The "Root Card" on the feed)
       const newConversation = await prisma.conversation.create({
         data: {
           user_id: userId,
-          is_public: true, // This makes it visible on the global feed
+          is_public: true, 
           is_private: false,
-          title: prompt.split(' ').slice(0, 5).join(' ') + "...", // Cinematic auto-title
-          council_members: models as AIParticipant[]
+          title: prompt.split(' ').slice(0, 5).join(' ') + "...",
+          council_members: validCouncilMembers
         }
       });
       targetConversationId = newConversation.id;
@@ -37,35 +49,31 @@ router.post('/ignite', async (req: any, res) => {
         content: prompt,
         user_id: userId,
         conversation_id: targetConversationId,
-        parent_post_id: parentPostId || null, // Link to specific reply if provided
+        parent_post_id: parentPostId || null,
         is_human: true,
-        name: "Sovereign Node" // Or user's actual username
+        name: "Sovereign Node"
       }
     });
 
-    // Broadcast user post immediately to the specific thread
-    io.emit(`nexus:transmission:${targetConversationId}`, userPost);
-    // Also broadcast to the global feed so people see a "New Pattern" was started
+    // Broadcast user post (Using a global channel for simpler frontend sync)
+    io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
 
-    // 3. 🧠 COUNCIL SYNTHESIS (AI RESPONSES)
-    // We trigger AI for each selected model
-    for (const model of models) {
-      // Process AI response logic here (calling aiClients based on 'model')
-      // For brevity, assuming your AI worker handles the actual generation
-      
+    // 3. 🧠 COUNCIL SYNTHESIS
+    // We iterate through valid models and create responses
+    for (const modelEnum of validCouncilMembers) {
       const aiPost = await prisma.post.create({
         data: {
-          content: `[Synthesizing ${model}...]`, // Placeholder for actual AI content
+          content: `[Synthesizing ${modelEnum}...]`, // Placeholder for actual logic
           conversation_id: targetConversationId,
-          parent_post_id: userPost.id, // AI always replies to the prompt that triggered it
+          parent_post_id: userPost.id,
           is_human: false,
-          name: model,
-          ai_model: model as AIParticipant
+          name: modelEnum.toString(),
+          ai_model: modelEnum
         }
       });
 
-      io.emit(`nexus:transmission:${targetConversationId}`, aiPost);
+      io.emit('nexus:transmission', aiPost);
     }
 
     res.json({ success: true, conversationId: targetConversationId });
@@ -78,7 +86,6 @@ router.post('/ignite', async (req: any, res) => {
 
 /**
  * 📜 FEED HYDRATION
- * Fetches the global list of "Root" conversations for the public panel.
  */
 router.get('/stream', async (req, res) => {
   try {
@@ -86,17 +93,15 @@ router.get('/stream', async (req, res) => {
       where: { is_public: true },
       include: {
         posts: {
-          where: { parent_post_id: null }, // Only get the "First Post" of each thread
-          take: 1,
-          orderBy: { created_at: 'desc' }
-        },
-        _count: {
-          select: { posts: true } // Show how many replies are inside
+          orderBy: { created_at: 'asc' } // Get all posts for simplicity in dev
         }
       },
       orderBy: { created_at: 'desc' }
     });
-    res.json(feed);
+
+    // Flatten for the current frontend chatThread logic
+    const flattenedMessages = feed.flatMap(conv => conv.posts);
+    res.json(flattenedMessages);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch neural stream." });
   }
