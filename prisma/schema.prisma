@@ -20,8 +20,10 @@ model User {
   is_sovereign      Boolean            @default(false) @map("is_sovereign")
   role              UserRole           @default(USER)
   
-  // ✅ RESTORED FOR AUTH LOGIC
-  emailVerified     Boolean            @default(false) @map("email_verified")
+  // 🔐 SECURITY & VERIFICATION LAYER
+  emailVerified            Boolean   @default(false) @map("email_verified")
+  verificationToken        String?   @unique @map("verification_token")
+  verificationTokenExpires DateTime? @map("verification_token_expires")
 
   posts             Post[]
   conversations     Conversation[]
