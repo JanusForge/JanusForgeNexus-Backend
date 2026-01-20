@@ -67,7 +67,7 @@ router.post('/register', async (req, res) => {
 // --- 2. VERIFY EMAIL (The Bridge) ---
 router.get('/verify-email', async (req, res) => {
   const { token } = req.query;
-  
+
   try {
     const user = await prisma.user.findFirst({
       where: {
@@ -80,10 +80,15 @@ router.get('/verify-email', async (req, res) => {
       return res.status(400).send("<h1>Link invalid or expired.</h1>");
     }
 
+    // 🎖️ FOUNDER CHECK: See if we still have slots in the Genesis 100
+    const founderCount = await prisma.user.count({ where: { is_founder: true } });
+    const qualifyAsFounder = founderCount < 100;
+
     await prisma.user.update({
       where: { id: user.id },
       data: {
         emailVerified: true,
+        is_founder: qualifyAsFounder, // Automatically awards status if slot available
         verificationToken: null,
         verificationTokenExpires: null
       }

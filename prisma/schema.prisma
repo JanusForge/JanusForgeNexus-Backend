@@ -19,6 +19,7 @@ model User {
   access_expiry     DateTime?          @map("access_expiry")
   is_sovereign      Boolean            @default(false) @map("is_sovereign")
   role              UserRole           @default(USER)
+  is_founder      Boolean  @default(false)
   
   // 🔐 SECURITY & VERIFICATION LAYER
   emailVerified            Boolean   @default(false) @map("email_verified")

@@ -24,6 +24,16 @@ router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, parentPostId } = req.body;
   const io = req.app.get('socketio');
 
+  // 🚦 PHASE 2: Simple 30-second cooldown per user
+  const lastPost = await prisma.post.findFirst({
+    where: { user_id: userId },
+    orderBy: { created_at: 'desc' }
+  });
+
+  if (lastPost && (Date.now() - new Date(lastPost.created_at).getTime() < 30000)) {
+    return res.status(429).json({ error: "The Forge is cooling down. Please wait 30 seconds." });
+  }
+
   try {
     let targetConversationId = conversationId;
 
@@ -156,7 +166,16 @@ router.get('/stream', async (req, res) => {
   try {
     const feed = await prisma.conversation.findMany({
       where: { is_public: true },
-      include: { posts: { orderBy: { created_at: 'asc' } } },
+      include: { 
+        posts: { 
+          orderBy: { created_at: 'asc' },
+          include: {
+            user: {
+              select: { is_founder: true } // 🎖️ FOUNDER STATUS INCLUSION
+            }
+          }
+        } 
+      },
       orderBy: { created_at: 'desc' }
     });
     res.json(feed.flatMap(f => f.posts));
