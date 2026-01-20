@@ -1,4 +1,4 @@
-// src/routes/nexusPrime.ts
+// src/routes/nexusPrime.ts (Surgically Updated for 2026 Council)
 
 import express from 'express';
 import prisma from '../lib/prisma';
@@ -39,7 +39,6 @@ router.post('/ignite', async (req: any, res) => {
       .map((m: string) => modelMap[m])
       .filter((m: any) => m !== undefined);
 
-    // 1. Establish Conversation
     if (!targetConversationId) {
       const newConversation = await prisma.conversation.create({
         data: {
@@ -52,7 +51,6 @@ router.post('/ignite', async (req: any, res) => {
       targetConversationId = newConversation.id;
     }
 
-    // 2. Save User Entry
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
@@ -64,35 +62,36 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // 3. Emit User Post & Release UI
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 🚀 4. SEQUENTIAL RANDOMIZED ACTIVATION
+    // 🚀 SEQUENTIAL RANDOMIZED ACTIVATION
     const randomizedCouncil = shuffleCouncil(validCouncilMembers);
 
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-
-        /**
-         * 🛡️ PERSONA ISOLATION PROMPT
-         * This prevents "Puppet Mastering" by strictly defining the AI's role.
-         */
-        const isolatedPrompt = `### YOUR IDENTITY: You are ${modelEnum}.
-### MISSION: Respond ONLY as yourself. Do not simulate, name, or write for any other Council members.
+        const isolatedPrompt = `### IDENTITY: You are ${modelEnum}.
+### MISSION: Respond ONLY as yourself. Do not simulate or write for other Council members.
 ### QUERY: ${prompt}`;
 
-        // Model Dispatcher
+        // --- CLAUDE (Anthropic 4.5 Series) ---
         if (modelEnum === AIParticipant.CLAUDE) {
-          const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-7-sonnet-latest",
-            max_tokens: 1024,
-            messages: [{ role: "user", content: isolatedPrompt }],
-          });
-          aiContent = msg.content[0].text;
+          const claudeFallbacks = ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-5-sonnet-latest"];
+          for (const m of claudeFallbacks) {
+            try {
+              const msg = await aiClients.CLAUDE.messages.create({
+                model: m,
+                max_tokens: 1024,
+                messages: [{ role: "user", content: isolatedPrompt }],
+              });
+              aiContent = msg.content[0].text;
+              if (aiContent) break;
+            } catch (e) { console.warn(`Claude [${m}] fallback triggered.`); }
+          }
         } 
+        // --- CHATGPT (OpenAI GPT-5/4o) ---
         else if (modelEnum === AIParticipant.CHATGPT) {
           const comp = await aiClients.GPT4.chat.completions.create({
             model: "gpt-4o",
@@ -100,11 +99,19 @@ router.post('/ignite', async (req: any, res) => {
           });
           aiContent = comp.choices[0].message.content || "";
         } 
+        // --- GEMINI (Google 3/2.5 Series) ---
         else if (modelEnum === AIParticipant.GEMINI_PRO) {
-          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-2.0-pro-exp" });
-          const result = await model.generateContent(isolatedPrompt);
-          aiContent = result.response.text();
+          const geminiFallbacks = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-1.5-pro"];
+          for (const m of geminiFallbacks) {
+            try {
+              const model = aiClients.GEMINI.getGenerativeModel({ model: m });
+              const result = await model.generateContent(isolatedPrompt);
+              aiContent = result.response.text();
+              if (aiContent) break;
+            } catch (e) { console.warn(`Gemini [${m}] fallback triggered.`); }
+          }
         } 
+        // --- GROK (xAI Grok-3) ---
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
             model: "grok-3",
@@ -112,6 +119,7 @@ router.post('/ignite', async (req: any, res) => {
           });
           aiContent = comp.choices[0].message.content || "";
         } 
+        // --- DEEPSEEK (DeepSeek-V3) ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat",
@@ -121,7 +129,6 @@ router.post('/ignite', async (req: any, res) => {
         }
 
         if (aiContent) {
-          // Save and Emit one by one
           const aiPost = await prisma.post.create({
             data: {
               content: aiContent,
@@ -132,11 +139,8 @@ router.post('/ignite', async (req: any, res) => {
               ai_model: modelEnum
             }
           });
-
           io.emit('nexus:transmission', aiPost);
-          
-          // ⏱️ Breathe: Prevents WebSocket Race Conditions
-          await new Promise(resolve => setTimeout(resolve, 500)); 
+          await new Promise(resolve => setTimeout(resolve, 600)); // 0.6s breathing room
         }
       } catch (err) {
         console.error(`Council Failure [${modelEnum}]:`, err);
