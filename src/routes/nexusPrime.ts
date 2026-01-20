@@ -1,4 +1,4 @@
-// src/routes/nexusPrime.ts (Surgically Updated for 2026 Council)
+// src/routes/nexusPrime.ts (Surgically Updated for 2026 Council Synthesis)
 
 import express from 'express';
 import prisma from '../lib/prisma';
@@ -76,15 +76,14 @@ router.post('/ignite', async (req: any, res) => {
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 🚀 SEQUENTIAL RANDOMIZED ACTIVATION
+    // 🚀 SEQUENTIAL RANDOMIZED ACTIVATION WITH ROLLING CONTEXT
     const randomizedCouncil = shuffleCouncil(validCouncilMembers);
+    let rollingContext = `User Query: ${prompt}\n\n`;
 
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `### IDENTITY: You are ${modelEnum}.
-### MISSION: Respond ONLY as yourself. Do not simulate or write for other Council members.
-### QUERY: ${prompt}`;
+        const isolatedPrompt = `### THE NEXUS COUNCIL SO FAR:\n${rollingContext}\n\n### YOUR IDENTITY: You are ${modelEnum}.\n### MISSION: Analyze the query and previous Council responses. Provide your unique synthesis. Respond ONLY as yourself.\n\n### YOUR RESPONSE:`;
 
         // --- CLAUDE (Anthropic 4.5 Series) ---
         if (modelEnum === AIParticipant.CLAUDE) {
@@ -100,7 +99,7 @@ router.post('/ignite', async (req: any, res) => {
               if (aiContent) break;
             } catch (e) { console.warn(`Claude [${m}] fallback triggered.`); }
           }
-        } 
+        }
         // --- CHATGPT (OpenAI GPT-5/4o) ---
         else if (modelEnum === AIParticipant.CHATGPT) {
           const comp = await aiClients.GPT4.chat.completions.create({
@@ -108,7 +107,7 @@ router.post('/ignite', async (req: any, res) => {
             messages: [{ role: "user", content: isolatedPrompt }],
           });
           aiContent = comp.choices[0].message.content || "";
-        } 
+        }
         // --- GEMINI (Google 3/2.5 Series) ---
         else if (modelEnum === AIParticipant.GEMINI_PRO) {
           const geminiFallbacks = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-1.5-pro"];
@@ -120,7 +119,7 @@ router.post('/ignite', async (req: any, res) => {
               if (aiContent) break;
             } catch (e) { console.warn(`Gemini [${m}] fallback triggered.`); }
           }
-        } 
+        }
         // --- GROK (xAI Grok-3) ---
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
@@ -128,7 +127,7 @@ router.post('/ignite', async (req: any, res) => {
             messages: [{ role: "user", content: isolatedPrompt }]
           });
           aiContent = comp.choices[0].message.content || "";
-        } 
+        }
         // --- DEEPSEEK (DeepSeek-V3) ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
@@ -149,6 +148,10 @@ router.post('/ignite', async (req: any, res) => {
               ai_model: modelEnum
             }
           });
+          
+          // 🛡️ Update rolling context for the next model
+          rollingContext += `${modelEnum}: ${aiContent}\n\n`;
+          
           io.emit('nexus:transmission', aiPost);
           await new Promise(resolve => setTimeout(resolve, 600)); // 0.6s breathing room
         }
@@ -166,15 +169,15 @@ router.get('/stream', async (req, res) => {
   try {
     const feed = await prisma.conversation.findMany({
       where: { is_public: true },
-      include: { 
-        posts: { 
+      include: {
+        posts: {
           orderBy: { created_at: 'asc' },
           include: {
             user: {
               select: { is_founder: true } // 🎖️ FOUNDER STATUS INCLUSION
             }
           }
-        } 
+        }
       },
       orderBy: { created_at: 'desc' }
     });
