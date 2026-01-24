@@ -19,7 +19,7 @@ router.post('/ignite', async (req: any, res) => {
   const io = req.app.get('socketio');
 
   try {
-    // 🚦 1. COOLDOWN & PERSISTENCE CHECK
+    // 🚦 1. COOLDOWN CHECK
     const lastPost = await prisma.post.findFirst({
       where: { user_id: userId },
       orderBy: { created_at: 'desc' }
@@ -29,43 +29,33 @@ router.post('/ignite', async (req: any, res) => {
       return res.status(429).json({ error: "The Forge is cooling down. Wait 30 seconds." });
     }
 
-    // 🏛️ 2. ANCESTRY RECALL (The "Thread Memory" Engine)
-    let threadAncestry = "";
-    if (parentPostId || conversationId) {
-      const history = await prisma.post.findMany({
-        where: { conversation_id: conversationId },
-        orderBy: { created_at: 'asc' },
-        take: 15 // Last 15 turns for context depth
-      });
-      threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
-    }
-
     let targetConversationId = conversationId;
 
-    const modelMap: Record<string, AIParticipant> = {
-      'CLAUDE': AIParticipant.CLAUDE,
-      'GPT4': AIParticipant.GPT,
-      'GEMINI': AIParticipant.GEMINI,
-      'GROK': AIParticipant.GROK,
-      'DEEPSEEK': AIParticipant.DEEPSEEK
-    };
-
-    const validCouncilMembers = models
-      .map((m: string) => modelMap[m])
-      .filter((m: any) => m !== undefined);
-
+    // 🏛️ 2. CONVERSATION ANCHORING
     if (!targetConversationId) {
       const newConversation = await prisma.conversation.create({
         data: {
           user_id: userId,
           is_public: true,
           title: prompt.substring(0, 50),
-          council_members: validCouncilMembers
+          council_members: models.map((m: string) => m as any) // Simplified mapping
         }
       });
       targetConversationId = newConversation.id;
     }
 
+    // 🏛️ 3. THREAD-LOCKED ANCESTRY (Memory for THIS thread only)
+    let threadAncestry = "";
+    if (targetConversationId) {
+      const history = await prisma.post.findMany({
+        where: { conversation_id: targetConversationId }, // 🔒 LOCK TO THIS THREAD
+        orderBy: { created_at: 'asc' },
+        take: 10 // Last 10 turns for clean memory
+      });
+      threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
+    }
+
+    // 🏛️ 4. CREATE USER POST
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
@@ -81,42 +71,42 @@ router.post('/ignite', async (req: any, res) => {
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 🚀 3. SEQUENTIAL ACTIVATION WITH MEMORY & ROLLING CONTEXT
+    // 🚀 5. SEQUENTIAL ACTIVATION
+    const modelMap: Record<string, AIParticipant> = {
+      'CLAUDE': AIParticipant.CLAUDE,
+      'GPT4': AIParticipant.GPT,
+      'GEMINI': AIParticipant.GEMINI,
+      'GROK': AIParticipant.GROK,
+      'DEEPSEEK': AIParticipant.DEEPSEEK
+    };
+
+    const validCouncilMembers = models
+      .map((m: string) => modelMap[m])
+      .filter((m: any) => m !== undefined);
+
     const randomizedCouncil = shuffleCouncil(validCouncilMembers);
     let currentSessionContext = "";
 
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        
-        // Build the full prompt including Ancestry (Memory) and current Session context
         const isolatedPrompt = `
-### THREAD ANCESTRY (HISTORY):
+### CURRENT USER QUERY:
+"${prompt}"
+
+### THREAD HISTORY (CONTEXT FOR THIS CONVERSATION ONLY):
 ${threadAncestry}
 
-### CURRENT COUNCIL SESSION:
+### RECENT COUNCIL DISCUSSION:
 ${currentSessionContext}
 
 ### YOUR IDENTITY: You are ${modelEnum}.
-### MISSION: Analyze the history and the current session's points. Provide your synthesis.
+### MISSION: Respond to the user's current query using the history of THIS thread. Be concise and actionable.
 ### YOUR RESPONSE:`;
 
-        // --- CLAUDE (Anthropic) ---
-        if (modelEnum === AIParticipant.CLAUDE) {
-          const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-opus-latest"];
-          for (const m of fallbacks) {
-            try {
-              const msg = await aiClients.CLAUDE.messages.create({
-                model: m, max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              aiContent = msg.content[0].text;
-              if (aiContent) break;
-            } catch (e) { console.warn(`Claude fallback ${m} failed`); }
-          }
-        }
-        // --- GPT-5 (OpenAI January 2026 Edition) ---
-        else if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-5.2", "gpt-5-2-extended", "gpt-5.1-chat-latest"];
+        // --- GPT-5.2 (2026 Stable) ---
+        if (modelEnum === AIParticipant.GPT) {
+          const fallbacks = ["gpt-5.2", "gpt-5-2-extended", "gpt-4o"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.GPT4.chat.completions.create({
@@ -124,46 +114,41 @@ ${currentSessionContext}
               });
               aiContent = comp.choices[0].message.content || "";
               if (aiContent) break;
-            } catch (e) { console.warn(`GPT fallback ${m} failed`); }
+            } catch (e) { console.warn(`GPT [${m}] failed.`); }
           }
         }
-        // --- GEMINI 3 (Google January 2026 Edition) ---
+        // --- GEMINI 3 (2026 Stable) ---
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3-pro"];
+          const fallbacks = ["gemini-3-pro", "gemini-3-flash", "gemini-1.5-pro"];
           for (const m of fallbacks) {
             try {
               const model = aiClients.GEMINI.getGenerativeModel({ model: m });
               const result = await model.generateContent(isolatedPrompt);
               aiContent = result.response.text();
               if (aiContent) break;
-            } catch (e) { console.warn(`Gemini fallback ${m} failed`); }
+            } catch (e) { console.warn(`Gemini [${m}] failed.`); }
           }
         }
-        // --- GROK (xAI) ---
+        // --- CLAUDE ---
+        else if (modelEnum === AIParticipant.CLAUDE) {
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-20241022", max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          aiContent = msg.content[0].text;
+        }
+        // --- GROK ---
         else if (modelEnum === AIParticipant.GROK) {
-          const fallbacks = ["grok-4.1", "grok-2-latest", "grok-3"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.GROK.chat.completions.create({
-                model: m, messages: [{ role: "user", content: isolatedPrompt }]
-              });
-              aiContent = comp.choices[0].message.content || "";
-              if (aiContent) break;
-            } catch (e) { console.warn(`Grok fallback ${m} failed`); }
-          }
+          const comp = await aiClients.GROK.chat.completions.create({
+            model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }]
+          });
+          aiContent = comp.choices[0].message.content || "";
         }
         // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
-          const fallbacks = ["deepseek-chat", "deepseek-reasoner"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.DEEPSEEK.chat.completions.create({
-                model: m, messages: [{ role: "user", content: isolatedPrompt }]
-              });
-              aiContent = comp.choices[0].message.content || "";
-              if (aiContent) break;
-            } catch (e) { console.warn(`DeepSeek fallback ${m} failed`); }
-          }
+          const comp = await aiClients.DEEPSEEK.chat.completions.create({
+            model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
+          });
+          aiContent = comp.choices[0].message.content || "";
         }
 
         if (aiContent) {
@@ -177,7 +162,6 @@ ${currentSessionContext}
               ai_model: modelEnum
             }
           });
-          // Update session context for the next model in the loop
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit('nexus:transmission', aiPost);
           await new Promise(r => setTimeout(r, 600));
@@ -185,7 +169,7 @@ ${currentSessionContext}
       } catch (err) { console.error(`Council Failure:`, err); }
     }
   } catch (error: any) {
-    if (!res.headersSent) res.status(500).json({ error: "Sync Error", details: error.message });
+    if (!res.headersSent) res.status(500).json({ error: "Sync Error" });
   }
 });
 
