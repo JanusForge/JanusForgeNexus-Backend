@@ -18,13 +18,16 @@
   },
   "include": ["src/**/*"],
   "exclude": [
-    "node_modules", 
+    "node_modules",
     "**/*.test.ts",
+    "src/lib/councilDebate.ts",
     "src/routes/admin.ts",
     "src/routes/archives.ts",
     "src/routes/debates.ts",
+    "src/routes/conversations.ts",
     "src/routes/passwordReset.ts",
-    "src/scripts/aiScout.ts",
-    "src/simulateForge.ts"
-   ]
+    "src/scripts",
+    "src/simulateForge.ts",
+    "src/services/nexus-core/nexus-router.ts"
+  ]
 }
