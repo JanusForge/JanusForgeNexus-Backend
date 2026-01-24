@@ -90,7 +90,7 @@ router.post('/ignite', async (req: any, res) => {
           }
         }
         else if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-5.2", "gpt-5-2-extended", "gpt-4.1"];
+          const fallbacks = ["gpt-5.2", "gpt-5.1-chat-latest", 'gpt-4.1', "gpt-5-2-extended", "gpt-4.1"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.GPT4.chat.completions.create({
@@ -102,7 +102,7 @@ router.post('/ignite', async (req: any, res) => {
           }
         }
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro"];
+          const fallbacks = ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro"];
           for (const m of fallbacks) {
             try {
               const model = aiClients.GEMINI.getGenerativeModel({ model: m });
@@ -113,7 +113,7 @@ router.post('/ignite', async (req: any, res) => {
           }
         }
         else if (modelEnum === AIParticipant.GROK) {
-          const fallbacks = ["grok-2-latest", "grok-3", "grok-4"];
+          const fallbacks = ["grok-4.1", "grok-2-latest", "grok-3", "grok-4"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.GROK.chat.completions.create({
