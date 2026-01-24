@@ -1,7 +1,7 @@
 // src/routes/nexusPrime.ts (Surgically Updated for 2026 Council Synthesis)
 
 import express from 'express';
-import prisma from '../lib/prisma';
+import { prisma } from '../lib/prisma'; // Ensure this matches your prisma export path
 import { aiClients } from '../server';
 import { AIParticipant } from '@prisma/client';
 
@@ -24,23 +24,24 @@ router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, parentPostId } = req.body;
   const io = req.app.get('socketio');
 
-  // 🚦 PHASE 2: Simple 30-second cooldown per user
-  const lastPost = await prisma.post.findFirst({
-    where: { user_id: userId },
-    orderBy: { created_at: 'desc' }
-  });
-
-  if (lastPost && (Date.now() - new Date(lastPost.created_at).getTime() < 30000)) {
-    return res.status(429).json({ error: "The Forge is cooling down. Please wait 30 seconds." });
-  }
-
   try {
+    // 🚦 PHASE 1: Simple 30-second cooldown per user
+    const lastPost = await prisma.post.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: 'desc' }
+    });
+
+    if (lastPost && (Date.now() - new Date(lastPost.created_at).getTime() < 30000)) {
+      return res.status(429).json({ error: "The Forge is cooling down. Please wait 30 seconds." });
+    }
+
     let targetConversationId = conversationId;
 
+    // 🏛️ ALIGNED ENUM MAP (Matches schema.prisma)
     const modelMap: Record<string, AIParticipant> = {
       'CLAUDE': AIParticipant.CLAUDE,
-      'GPT4': AIParticipant.CHATGPT,
-      'GEMINI': AIParticipant.GEMINI_PRO,
+      'GPT4': AIParticipant.GPT,      // Changed from CHATGPT to GPT
+      'GEMINI': AIParticipant.GEMINI, // Changed from GEMINI_PRO to GEMINI
       'GROK': AIParticipant.GROK,
       'DEEPSEEK': AIParticipant.DEEPSEEK
     };
@@ -74,6 +75,8 @@ router.post('/ignite', async (req: any, res) => {
 
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
+    
+    // Return early so frontend knows ignition was successful
     res.json({ success: true, conversationId: targetConversationId });
 
     // 🚀 SEQUENTIAL RANDOMIZED ACTIVATION WITH ROLLING CONTEXT
@@ -85,9 +88,9 @@ router.post('/ignite', async (req: any, res) => {
         let aiContent = "";
         const isolatedPrompt = `### THE NEXUS COUNCIL SO FAR:\n${rollingContext}\n\n### YOUR IDENTITY: You are ${modelEnum}.\n### MISSION: Analyze the query and previous Council responses. Provide your unique synthesis. Respond ONLY as yourself.\n\n### YOUR RESPONSE:`;
 
-        // --- CLAUDE (Anthropic 4.5 Series) ---
+        // --- CLAUDE ---
         if (modelEnum === AIParticipant.CLAUDE) {
-          const claudeFallbacks = ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-5-sonnet-latest"];
+          const claudeFallbacks = ["claude-3-5-sonnet-latest", "claude-3-opus-latest"];
           for (const m of claudeFallbacks) {
             try {
               const msg = await aiClients.CLAUDE.messages.create({
@@ -100,17 +103,17 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Claude [${m}] fallback triggered.`); }
           }
         }
-        // --- CHATGPT (OpenAI GPT-5/4o) ---
-        else if (modelEnum === AIParticipant.CHATGPT) {
+        // --- GPT ---
+        else if (modelEnum === AIParticipant.GPT) {
           const comp = await aiClients.GPT4.chat.completions.create({
             model: "gpt-4o",
             messages: [{ role: "user", content: isolatedPrompt }],
           });
           aiContent = comp.choices[0].message.content || "";
         }
-        // --- GEMINI (Google 3/2.5 Series) ---
-        else if (modelEnum === AIParticipant.GEMINI_PRO) {
-          const geminiFallbacks = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-1.5-pro"];
+        // --- GEMINI ---
+        else if (modelEnum === AIParticipant.GEMINI) {
+          const geminiFallbacks = ["gemini-1.5-pro", "gemini-1.5-flash"];
           for (const m of geminiFallbacks) {
             try {
               const model = aiClients.GEMINI.getGenerativeModel({ model: m });
@@ -120,15 +123,15 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Gemini [${m}] fallback triggered.`); }
           }
         }
-        // --- GROK (xAI Grok-3) ---
+        // --- GROK ---
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
-            model: "grok-3",
+            model: "grok-2-latest",
             messages: [{ role: "user", content: isolatedPrompt }]
           });
           aiContent = comp.choices[0].message.content || "";
         }
-        // --- DEEPSEEK (DeepSeek-V3) ---
+        // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat",
@@ -148,20 +151,21 @@ router.post('/ignite', async (req: any, res) => {
               ai_model: modelEnum
             }
           });
-          
-          // 🛡️ Update rolling context for the next model
+
           rollingContext += `${modelEnum}: ${aiContent}\n\n`;
-          
           io.emit('nexus:transmission', aiPost);
-          await new Promise(resolve => setTimeout(resolve, 600)); // 0.6s breathing room
+          await new Promise(resolve => setTimeout(resolve, 800)); // Breathing room
         }
       } catch (err) {
         console.error(`Council Failure [${modelEnum}]:`, err);
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Nexus Ignition Failure:", error);
-    if (!res.headersSent) res.status(500).send("Sync Error");
+    if (!res.headersSent) {
+      // 🛡️ JSON error response prevents "Unexpected token S" on frontend
+      res.status(500).json({ error: "Sync Error", details: error.message });
+    }
   }
 });
 
@@ -173,16 +177,16 @@ router.get('/stream', async (req, res) => {
         posts: {
           orderBy: { created_at: 'asc' },
           include: {
-            user: {
-              select: { is_founder: true } // 🎖️ FOUNDER STATUS INCLUSION
-            }
+            user: { select: { is_founder: true } }
           }
         }
       },
       orderBy: { created_at: 'desc' }
     });
     res.json(feed.flatMap(f => f.posts));
-  } catch (err) { res.status(500).send("Stream Error"); }
+  } catch (err) { 
+    res.status(500).json({ error: "Stream Error" }); 
+  }
 });
 
 export default router;
