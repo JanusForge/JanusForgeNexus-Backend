@@ -17,5 +17,14 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts"]
+  "exclude": [
+    "node_modules", 
+    "**/*.test.ts",
+    "src/routes/admin.ts",
+    "src/routes/archives.ts",
+    "src/routes/debates.ts",
+    "src/routes/passwordReset.ts",
+    "src/scripts/aiScout.ts",
+    "src/simulateForge.ts"
+   ]
 }

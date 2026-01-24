@@ -129,13 +129,26 @@ ${currentSessionContext}
             } catch (e) { console.warn(`Gemini [${m}] failed.`); }
           }
         }
-        // --- CLAUDE ---
-        else if (modelEnum === AIParticipant.CLAUDE) {
-          const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-5-sonnet-20241022", max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }],
-          });
-          aiContent = msg.content[0].text;
-        }
+        // --- 🟦 CLAUDE (Anthropic) ---
+if (modelEnum === AIParticipant.CLAUDE) {
+  const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"];
+  for (const m of fallbacks) {
+    try {
+      const msg = await aiClients.CLAUDE.messages.create({
+        model: m,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: isolatedPrompt }],
+      });
+      
+      // 🛡️ Type-Safe extraction: Find the first text block
+      const textBlock = msg.content.find(block => block.type === 'text');
+      if (textBlock && 'text' in textBlock) {
+        aiContent = textBlock.text;
+        break;
+      }
+    } catch (e) { console.warn(`Claude [${m}] failed.`); }
+  }
+}
         // --- GROK ---
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
