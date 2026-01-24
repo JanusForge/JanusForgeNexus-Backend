@@ -63,9 +63,9 @@ model Post {
 
 enum AIParticipant {
   GROK
-  GEMINI_PRO
+  GEMINI
   CLAUDE
-  CHATGPT
+  GPT
   DEEPSEEK
 }
 
