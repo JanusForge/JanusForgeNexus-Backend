@@ -19,6 +19,7 @@ router.post('/ignite', async (req: any, res) => {
   const io = req.app.get('socketio');
 
   try {
+    // 🚦 1. COOLDOWN & PERSISTENCE CHECK
     const lastPost = await prisma.post.findFirst({
       where: { user_id: userId },
       orderBy: { created_at: 'desc' }
@@ -26,6 +27,17 @@ router.post('/ignite', async (req: any, res) => {
 
     if (lastPost && (Date.now() - new Date(lastPost.created_at).getTime() < 30000)) {
       return res.status(429).json({ error: "The Forge is cooling down. Wait 30 seconds." });
+    }
+
+    // 🏛️ 2. ANCESTRY RECALL (The "Thread Memory" Engine)
+    let threadAncestry = "";
+    if (parentPostId || conversationId) {
+      const history = await prisma.post.findMany({
+        where: { conversation_id: conversationId },
+        orderBy: { created_at: 'asc' },
+        take: 15 // Last 15 turns for context depth
+      });
+      threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
     }
 
     let targetConversationId = conversationId;
@@ -69,16 +81,29 @@ router.post('/ignite', async (req: any, res) => {
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     res.json({ success: true, conversationId: targetConversationId });
 
+    // 🚀 3. SEQUENTIAL ACTIVATION WITH MEMORY & ROLLING CONTEXT
     const randomizedCouncil = shuffleCouncil(validCouncilMembers);
-    let rollingContext = `User Query: ${prompt}\n\n`;
+    let currentSessionContext = "";
 
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `### THE NEXUS COUNCIL SO FAR:\n${rollingContext}\n\n### YOUR IDENTITY: You are ${modelEnum}.\n### MISSION: Analyze the query and provide synthesis.\n\n### YOUR RESPONSE:`;
+        
+        // Build the full prompt including Ancestry (Memory) and current Session context
+        const isolatedPrompt = `
+### THREAD ANCESTRY (HISTORY):
+${threadAncestry}
 
+### CURRENT COUNCIL SESSION:
+${currentSessionContext}
+
+### YOUR IDENTITY: You are ${modelEnum}.
+### MISSION: Analyze the history and the current session's points. Provide your synthesis.
+### YOUR RESPONSE:`;
+
+        // --- CLAUDE (Anthropic) ---
         if (modelEnum === AIParticipant.CLAUDE) {
-          const fallbacks = ["claude-3-5-sonnet-20241022", "claude-sonnet-4-5-20250929", "claude-opus-4-5-20251101"];
+          const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-opus-latest"];
           for (const m of fallbacks) {
             try {
               const msg = await aiClients.CLAUDE.messages.create({
@@ -89,8 +114,9 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Claude fallback ${m} failed`); }
           }
         }
+        // --- GPT-5 (OpenAI January 2026 Edition) ---
         else if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-5.2", "gpt-5.1-chat-latest", 'gpt-4.1', "gpt-5-2-extended", "gpt-4.1"];
+          const fallbacks = ["gpt-5.2", "gpt-5-2-extended", "gpt-5.1-chat-latest"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.GPT4.chat.completions.create({
@@ -101,8 +127,9 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`GPT fallback ${m} failed`); }
           }
         }
+        // --- GEMINI 3 (Google January 2026 Edition) ---
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3-pro", "gemini-3-flash", "gemini-2.5-pro"];
+          const fallbacks = ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-3-pro"];
           for (const m of fallbacks) {
             try {
               const model = aiClients.GEMINI.getGenerativeModel({ model: m });
@@ -112,8 +139,9 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Gemini fallback ${m} failed`); }
           }
         }
+        // --- GROK (xAI) ---
         else if (modelEnum === AIParticipant.GROK) {
-          const fallbacks = ["grok-4.1", "grok-2-latest", "grok-3", "grok-4"];
+          const fallbacks = ["grok-4.1", "grok-2-latest", "grok-3"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.GROK.chat.completions.create({
@@ -124,8 +152,9 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Grok fallback ${m} failed`); }
           }
         }
+        // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
-          const fallbacks = ["deepseek-chat", "deepseek-reasoner", "deepseek-v3.2"];
+          const fallbacks = ["deepseek-chat", "deepseek-reasoner"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.DEEPSEEK.chat.completions.create({
@@ -148,7 +177,8 @@ router.post('/ignite', async (req: any, res) => {
               ai_model: modelEnum
             }
           });
-          rollingContext += `${modelEnum}: ${aiContent}\n\n`;
+          // Update session context for the next model in the loop
+          currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit('nexus:transmission', aiPost);
           await new Promise(r => setTimeout(r, 600));
         }
