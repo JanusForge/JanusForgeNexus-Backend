@@ -5,7 +5,6 @@ import { AIParticipant } from '@prisma/client';
 
 const router = express.Router();
 
-// 🧬 DNA REPLICATION: Exact shuffle logic from Nexus Prime
 function shuffleCouncil(array: AIParticipant[]) {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -37,7 +36,7 @@ router.get('/history', async (req, res) => {
   }
 });
 
-// 🚀 NODE IGNITION (Powered by Nexus Prime Engine)
+// 🚀 NODE IGNITION (Powered by Academic Formatting Engine)
 router.post('/ignite', async (req: any, res) => {
   const { prompt, institution, userType, userId, conversationId } = req.body;
   const io = req.app.get('socketio');
@@ -46,7 +45,22 @@ router.post('/ignite', async (req: any, res) => {
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Node credentials invalid." });
 
-    const systemDirective = `### IDENTITY: Sovereign AI Council for ${institution}. ### CONTEXT: ${userType} access point. ### MISSION: Provide high-fidelity, adversarial feedback.`;
+    // 🧬 SURGICAL UPDATE: Enhanced System Directive for Academic Professionalism
+    const systemDirective = `
+      ### IDENTITY: You are a member of the Sovereign AI Council for ${institution}.
+      ### CONTEXT: This is a ${userType} access point.
+      
+      ### MANDATORY RESPONSE FORMAT:
+      You must format your response as a formal Academic Memorandum using Markdown:
+      1. **Executive Summary**: A high-level overview of your stance.
+      2. **Detailed Analysis**: Use sub-headers and bullet points for technical/clinical data.
+      3. **Adversarial Peer Review**: Critique or support specific points made by previous Council members in this session.
+      4. **Regional Impact Statement**: Address how this affects the ${institution} area specifically (e.g., Mingo County, Logan, etc.).
+      5. **Closing Recommendation**: A singular, actionable conclusion.
+
+      ### TONE: 
+      Professional, analytical, and academically rigorous. Use clear paragraph breaks (\\n\\n) between sections.
+    `;
 
     let conversation;
     if (conversationId) {
@@ -77,7 +91,6 @@ router.post('/ignite', async (req: any, res) => {
     io.emit(`node:${institution}:transmission`, userPost);
     res.json({ success: true, conversationId: conversation.id });
 
-    // --- START NEXUS PRIME ENGINE REPLICATION ---
     const models = [AIParticipant.CLAUDE, AIParticipant.GPT, AIParticipant.GEMINI, AIParticipant.GROK, AIParticipant.DEEPSEEK];
     const randomizedCouncil = shuffleCouncil(models);
     let currentSessionContext = "";
@@ -85,7 +98,7 @@ router.post('/ignite', async (req: any, res) => {
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION:\n${currentSessionContext}\n\nIdentity: ${modelEnum}.`;
+        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION HISTORY:\n${currentSessionContext}\n\nYour Identity: ${modelEnum}.`;
 
         if (modelEnum === AIParticipant.GPT) {
           const comp = await aiClients.GPT4.chat.completions.create({
@@ -100,7 +113,7 @@ router.post('/ignite', async (req: any, res) => {
         }
         else if (modelEnum === AIParticipant.CLAUDE) {
           const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-5-sonnet-latest", max_tokens: 1024,
+            model: "claude-3-5-sonnet-latest", max_tokens: 1500, // Increased for detailed formatting
             messages: [{ role: "user", content: isolatedPrompt }],
           });
           const textBlock = msg.content.find(b => b.type === 'text');
@@ -108,7 +121,7 @@ router.post('/ignite', async (req: any, res) => {
         }
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
-            model: "grok-4.1-fast", // RESTORED: 2026 terminal version
+            model: "grok-4.1-fast",
             messages: [{ role: "user", content: isolatedPrompt }],
           });
           aiContent = comp.choices[0]?.message?.content || "";
@@ -131,9 +144,9 @@ router.post('/ignite', async (req: any, res) => {
               ai_model: modelEnum
             }
           });
-          currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
+          currentSessionContext += `${modelEnum}'s Memorandum: ${aiContent}\n\n---\n\n`;
           io.emit(`node:${institution}:transmission`, aiPost);
-          await new Promise(r => setTimeout(r, 1200)); // Standard cooling delay
+          await new Promise(r => setTimeout(r, 1200));
         }
       } catch (err) { console.error(`Node Council Error:`, err); }
     }
