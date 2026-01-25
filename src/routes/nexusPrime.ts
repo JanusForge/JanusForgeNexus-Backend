@@ -18,17 +18,25 @@ router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, parentPostId } = req.body;
   const io = req.app.get('socketio');
 
+  console.log("🚀 IGNITE SEQUENCE START:", { userId, conversationId });
+
   try {
-    // 🏛️ 1. IDENTITY LOOKUP (Doing it right)
+    // 🏛️ 1. IDENTITY HANDSHAKE
+    // We fetch the user first to ensure the ID is valid and get the real username.
     const currentUser = await prisma.user.findUnique({
       where: { id: userId }
     });
 
-    const activeName = currentUser?.username || "Sovereign Node";
+    if (!currentUser) {
+      console.error("❌ IDENTITY ERROR: User ID not found in database.");
+      return res.status(401).json({ error: "Sovereign Node not recognized. Please re-login." });
+    }
+
+    const activeName = currentUser.username || "Sovereign Node";
 
     // 🚦 2. COOLDOWN CHECK
     const lastPost = await prisma.post.findFirst({
-      where: { user_id: userId },
+      where: { user_id: currentUser.id },
       orderBy: { created_at: 'desc' }
     });
 
@@ -42,40 +50,44 @@ router.post('/ignite', async (req: any, res) => {
     if (!targetConversationId) {
       const newConversation = await prisma.conversation.create({
         data: {
-          user_id: userId,
+          user_id: currentUser.id,
           is_public: true,
           title: prompt.substring(0, 50),
-          council_members: models.map((m: string) => m as any)
+          // We pass the models as an array that matches the AIParticipant enum
+          council_members: models as AIParticipant[]
         }
       });
       targetConversationId = newConversation.id;
     }
 
-    // 🏛️ 4. THREAD-LOCKED ANCESTRY
+    // 🏛️ 4. THREAD-LOCKED ANCESTRY (Memory)
     let threadAncestry = "";
     if (targetConversationId) {
       const history = await prisma.post.findMany({
         where: { conversation_id: targetConversationId },
         orderBy: { created_at: 'asc' },
-        take: 10 
+        take: 12 // Context depth
       });
       threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
     }
 
-    // 🏛️ 5. CREATE USER POST (Identity Verified)
+    // 🏛️ 5. CREATE USER POST
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
-        user_id: userId || null,
+        user_id: currentUser.id,
         conversation_id: targetConversationId,
         parent_post_id: parentPostId || null,
         is_human: true,
-        name: activeName 
+        name: activeName
       }
     });
 
+    // Notify the UI immediately
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
+    
+    // Send success response so the frontend stops waiting
     res.json({ success: true, conversationId: targetConversationId });
 
     // 🚀 6. SEQUENTIAL ACTIVATION
@@ -111,8 +123,9 @@ ${currentSessionContext}
 ### MISSION: Respond to the user's current query using the history of THIS thread. Be concise and actionable.
 ### YOUR RESPONSE:`;
 
+        // --- GPT-5.2 ---
         if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-5.2", "gpt-5-2-extended", "gpt-4o"];
+          const fallbacks = ["gpt-5.2", "gpt-5", "gpt-4o"];
           for (const m of fallbacks) {
             try {
               const comp = await aiClients.GPT4.chat.completions.create({
@@ -123,8 +136,9 @@ ${currentSessionContext}
             } catch (e) { console.warn(`GPT [${m}] failed.`); }
           }
         }
+        // --- GEMINI 3 ---
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-3-pro", "gemini-3-flash", "gemini-1.5-pro"];
+          const fallbacks = ["gemini-3-pro", "gemini-3-flash", "gemini-2.0-pro-exp"];
           for (const m of fallbacks) {
             try {
               const model = aiClients.GEMINI.getGenerativeModel({ model: m });
@@ -134,6 +148,7 @@ ${currentSessionContext}
             } catch (e) { console.warn(`Gemini [${m}] failed.`); }
           }
         }
+        // --- CLAUDE ---
         else if (modelEnum === AIParticipant.CLAUDE) {
           const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"];
           for (const m of fallbacks) {
@@ -143,7 +158,6 @@ ${currentSessionContext}
                 max_tokens: 1024,
                 messages: [{ role: "user", content: isolatedPrompt }],
               });
-
               const textBlock = msg.content.find(block => block.type === 'text');
               if (textBlock && 'text' in textBlock) {
                 aiContent = textBlock.text;
@@ -152,12 +166,14 @@ ${currentSessionContext}
             } catch (e) { console.warn(`Claude [${m}] failed.`); }
           }
         }
+        // --- GROK ---
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
             model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }]
           });
           aiContent = comp.choices[0].message.content || "";
         }
+        // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
@@ -178,12 +194,13 @@ ${currentSessionContext}
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit('nexus:transmission', aiPost);
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 800)); // Slightly longer pause for socket stability
         }
-      } catch (err) { console.error(`Council Failure:`, err); }
+      } catch (err) { console.error(`Council Failure [${modelEnum}]:`, err); }
     }
   } catch (error: any) {
-    if (!res.headersSent) res.status(500).json({ error: "Sync Error" });
+    console.error("🔥 CRITICAL IGNITE ERROR:", error);
+    if (!res.headersSent) res.status(500).json({ error: "Sync Error", details: error.message });
   }
 });
 
