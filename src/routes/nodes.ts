@@ -5,6 +5,7 @@ import { AIParticipant } from '@prisma/client';
 
 const router = express.Router();
 
+// 🧬 DNA REPLICATION: Exact shuffle logic from Nexus Prime
 function shuffleCouncil(array: AIParticipant[]) {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -14,41 +15,29 @@ function shuffleCouncil(array: AIParticipant[]) {
   return shuffled;
 }
 
-// 🏛️ NODE HISTORY (Private & Filtered with Architect Override)
+// 🏛️ NODE HISTORY (Private & Architect Override)
 router.get('/history', async (req, res) => {
   const { institution, userType, userId } = req.query;
-
   try {
-    const requestingUser = await prisma.user.findUnique({ 
-      where: { id: String(userId) } 
-    });
-
-    // 🛡️ Precision Handshake: Aligned with your Neon DB (GOD_MODE & CassandraWilliamson)
-    const isArchitect = 
-      requestingUser?.username === 'CassandraWilliamson' || 
-      (requestingUser?.role as string) === 'GOD_MODE';
+    const requestingUser = await prisma.user.findUnique({ where: { id: String(userId) } });
+    const isArchitect = requestingUser?.username === 'CassandraWilliamson' || (requestingUser?.role as string) === 'GOD_MODE';
 
     const threads = await prisma.conversation.findMany({
       where: {
         is_public: false,
         title: { startsWith: `[${institution}-${userType}]` },
-        // 🏰 GOD_MODE Bypass: If you are the architect, you see all threads for this node
         ...(isArchitect ? {} : { user_id: String(userId) })
       },
-      include: { 
-        posts: { orderBy: { created_at: 'asc' } } 
-      },
+      include: { posts: { orderBy: { created_at: 'asc' } } },
       orderBy: { created_at: 'desc' }
     });
-
     res.json(threads);
   } catch (err) {
-    console.error("Archive Retrieval Fault:", err);
     res.status(500).json({ error: "Archive Retrieval Fault" });
   }
 });
 
-// 🚀 NODE IGNITION (Private Council DNA)
+// 🚀 NODE IGNITION (Powered by Nexus Prime Engine)
 router.post('/ignite', async (req: any, res) => {
   const { prompt, institution, userType, userId, conversationId } = req.body;
   const io = req.app.get('socketio');
@@ -57,13 +46,8 @@ router.post('/ignite', async (req: any, res) => {
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Node credentials invalid." });
 
-    const systemDirective = `
-      ### IDENTITY: You are the Sovereign AI Council for ${institution}.
-      ### CONTEXT: This is a ${userType} access point.
-      ### MISSION: Provide high-fidelity, adversarial feedback tailored to ${institution}'s regional and academic goals.
-    `;
+    const systemDirective = `### IDENTITY: Sovereign AI Council for ${institution}. ### CONTEXT: ${userType} access point. ### MISSION: Provide high-fidelity, adversarial feedback.`;
 
-    // 🏛️ Anchor to a specific conversation if ID is provided, otherwise create new
     let conversation;
     if (conversationId) {
       conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
@@ -90,11 +74,10 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // Notify UI on node-specific channel
     io.emit(`node:${institution}:transmission`, userPost);
     res.json({ success: true, conversationId: conversation.id });
 
-    // --- REPLICATED COUNCIL DNA ---
+    // --- START NEXUS PRIME ENGINE REPLICATION ---
     const models = [AIParticipant.CLAUDE, AIParticipant.GPT, AIParticipant.GEMINI, AIParticipant.GROK, AIParticipant.DEEPSEEK];
     const randomizedCouncil = shuffleCouncil(models);
     let currentSessionContext = "";
@@ -104,7 +87,6 @@ router.post('/ignite', async (req: any, res) => {
         let aiContent = "";
         const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION:\n${currentSessionContext}\n\nIdentity: ${modelEnum}.`;
 
-        // 🧬 Fallback Engine (Cloned from nexusPrime)
         if (modelEnum === AIParticipant.GPT) {
           const comp = await aiClients.GPT4.chat.completions.create({
             model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
@@ -126,7 +108,8 @@ router.post('/ignite', async (req: any, res) => {
         }
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
-            model: "grok-2-1212", messages: [{ role: "user", content: isolatedPrompt }],
+            model: "grok-4.1-fast", // RESTORED: 2026 terminal version
+            messages: [{ role: "user", content: isolatedPrompt }],
           });
           aiContent = comp.choices[0]?.message?.content || "";
         }
@@ -150,7 +133,7 @@ router.post('/ignite', async (req: any, res) => {
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit(`node:${institution}:transmission`, aiPost);
-          await new Promise(r => setTimeout(r, 1200));
+          await new Promise(r => setTimeout(r, 1200)); // Standard cooling delay
         }
       } catch (err) { console.error(`Node Council Error:`, err); }
     }
