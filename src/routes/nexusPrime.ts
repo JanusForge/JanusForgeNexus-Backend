@@ -22,7 +22,6 @@ router.post('/ignite', async (req: any, res) => {
 
   try {
     // 🏛️ 1. IDENTITY HANDSHAKE
-    // We fetch the user first to ensure the ID is valid and get the real username.
     const currentUser = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -40,33 +39,43 @@ router.post('/ignite', async (req: any, res) => {
       orderBy: { created_at: 'desc' }
     });
 
-    if (lastPost && (Date.now() - new Date(lastPost.created_at).getTime() < 30000)) {
-      return res.status(429).json({ error: "The Forge is cooling down. Wait 30 seconds." });
+    if (lastPost && (Date.now() - new Date(lastPost.created_at).getTime() < 15000)) {
+      return res.status(429).json({ error: "The Forge is cooling down. Wait 15 seconds." });
     }
 
     let targetConversationId = conversationId;
 
-    // 🏛️ 3. CONVERSATION ANCHORING
+    // 🏛️ 3. CONVERSATION ANCHORING (FIXED ENUM MAPPING)
     if (!targetConversationId) {
+      // Translate frontend strings to Prisma-valid Enums
+      const mappedCouncil = models.map((m: string) => {
+        const upper = m.toUpperCase();
+        if (upper === 'GPT4') return AIParticipant.GPT;
+        if (upper === 'CLAUDE') return AIParticipant.CLAUDE;
+        if (upper === 'GEMINI') return AIParticipant.GEMINI;
+        if (upper === 'GROK') return AIParticipant.GROK;
+        if (upper === 'DEEPSEEK') return AIParticipant.DEEPSEEK;
+        return m as AIParticipant;
+      });
+
       const newConversation = await prisma.conversation.create({
         data: {
           user_id: currentUser.id,
           is_public: true,
           title: prompt.substring(0, 50),
-          // We pass the models as an array that matches the AIParticipant enum
-          council_members: models as AIParticipant[]
+          council_members: mappedCouncil
         }
       });
       targetConversationId = newConversation.id;
     }
 
-    // 🏛️ 4. THREAD-LOCKED ANCESTRY (Memory)
+    // 🏛️ 4. THREAD-LOCKED ANCESTRY
     let threadAncestry = "";
     if (targetConversationId) {
       const history = await prisma.post.findMany({
         where: { conversation_id: targetConversationId },
         orderBy: { created_at: 'asc' },
-        take: 12 // Context depth
+        take: 12 
       });
       threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
     }
@@ -83,11 +92,9 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // Notify the UI immediately
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     
-    // Send success response so the frontend stops waiting
     res.json({ success: true, conversationId: targetConversationId });
 
     // 🚀 6. SEQUENTIAL ACTIVATION
@@ -113,67 +120,41 @@ router.post('/ignite', async (req: any, res) => {
 ### CURRENT USER QUERY:
 "${prompt}"
 
-### THREAD HISTORY (CONTEXT FOR THIS CONVERSATION ONLY):
+### THREAD HISTORY:
 ${threadAncestry}
 
 ### RECENT COUNCIL DISCUSSION:
 ${currentSessionContext}
 
-### YOUR IDENTITY: You are ${modelEnum}.
-### MISSION: Respond to the user's current query using the history of THIS thread. Be concise and actionable.
+### YOUR IDENTITY: You are ${modelEnum}. Respond concisely and actionable.
 ### YOUR RESPONSE:`;
 
-        // --- GPT-5.2 ---
         if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-5.2", "gpt-5", "gpt-4o"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.GPT4.chat.completions.create({
-                model: m, messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              aiContent = comp.choices[0].message.content || "";
-              if (aiContent) break;
-            } catch (e) { console.warn(`GPT [${m}] failed.`); }
-          }
+          const comp = await aiClients.GPT4.chat.completions.create({
+            model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          aiContent = comp.choices[0].message.content || "";
         }
-        // --- GEMINI 3 ---
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-3-pro", "gemini-3-flash", "gemini-2.0-pro-exp"];
-          for (const m of fallbacks) {
-            try {
-              const model = aiClients.GEMINI.getGenerativeModel({ model: m });
-              const result = await model.generateContent(isolatedPrompt);
-              aiContent = result.response.text();
-              if (aiContent) break;
-            } catch (e) { console.warn(`Gemini [${m}] failed.`); }
-          }
+          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          const result = await model.generateContent(isolatedPrompt);
+          aiContent = result.response.text();
         }
-        // --- CLAUDE ---
         else if (modelEnum === AIParticipant.CLAUDE) {
-          const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"];
-          for (const m of fallbacks) {
-            try {
-              const msg = await aiClients.CLAUDE.messages.create({
-                model: m,
-                max_tokens: 1024,
-                messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              const textBlock = msg.content.find(block => block.type === 'text');
-              if (textBlock && 'text' in textBlock) {
-                aiContent = textBlock.text;
-                break;
-              }
-            } catch (e) { console.warn(`Claude [${m}] failed.`); }
-          }
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-latest",
+            max_tokens: 1024,
+            messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          const textBlock = msg.content.find(block => block.type === 'text');
+          if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
         }
-        // --- GROK ---
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
             model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }]
           });
           aiContent = comp.choices[0].message.content || "";
         }
-        // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
@@ -194,7 +175,7 @@ ${currentSessionContext}
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit('nexus:transmission', aiPost);
-          await new Promise(r => setTimeout(r, 800)); // Slightly longer pause for socket stability
+          await new Promise(r => setTimeout(r, 800)); 
         }
       } catch (err) { console.error(`Council Failure [${modelEnum}]:`, err); }
     }
