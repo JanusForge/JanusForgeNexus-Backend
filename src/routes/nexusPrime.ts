@@ -136,25 +136,46 @@ ${currentSessionContext}
           aiContent = comp.choices[0].message.content || "";
         }
         else if (modelEnum === AIParticipant.GEMINI) {
-          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
-          const result = await model.generateContent(isolatedPrompt);
-          aiContent = result.response.text();
-        }
+  const fallbacks = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"];
+  for (const m of fallbacks) {
+    try {
+      const model = aiClients.GEMINI.getGenerativeModel({ model: m });
+      const result = await model.generateContent(isolatedPrompt);
+      aiContent = result.response.text();
+      if (aiContent) break;
+    } catch (e) { console.warn(`Gemini Node ${m} failed. Trying next...`); }
+  }
+}
         else if (modelEnum === AIParticipant.CLAUDE) {
-          const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-5-sonnet-latest",
-            max_tokens: 1024,
-            messages: [{ role: "user", content: isolatedPrompt }],
-          });
-          const textBlock = msg.content.find(block => block.type === 'text');
-          if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
-        }
+  const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest", "claude-3-opus-latest"];
+  for (const m of fallbacks) {
+    try {
+      const msg = await aiClients.CLAUDE.messages.create({
+        model: m,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: isolatedPrompt }],
+      });
+      const textBlock = msg.content.find(block => block.type === 'text');
+      if (textBlock && 'text' in textBlock) {
+        aiContent = textBlock.text;
+        break; // 🛡️ Found one! Stop looking.
+      }
+    } catch (e) { console.warn(`Claude Node ${m} failed. Trying next...`); }
+  }
+}
         else if (modelEnum === AIParticipant.GROK) {
-          const comp = await aiClients.GROK.chat.completions.create({
-            model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }]
-          });
-          aiContent = comp.choices[0].message.content || "";
-        }
+  const fallbacks = ["grok-2-latest", "grok-2-1212", "grok-beta"];
+  for (const m of fallbacks) {
+    try {
+      const comp = await aiClients.GROK.chat.completions.create({
+        model: m, 
+        messages: [{ role: "user", content: isolatedPrompt }]
+      });
+      aiContent = comp.choices[0]?.message?.content || "";
+      if (aiContent) break;
+    } catch (e) { console.warn(`Grok Node ${m} failed. Trying next...`); }
+  }
+}
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
@@ -175,7 +196,7 @@ ${currentSessionContext}
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit('nexus:transmission', aiPost);
-          await new Promise(r => setTimeout(r, 800)); 
+          await new Promise(r => setTimeout(r, 1500)); 
         }
       } catch (err) { console.error(`Council Failure [${modelEnum}]:`, err); }
     }
