@@ -111,7 +111,7 @@ router.post('/ignite', async (req: any, res) => {
         }
         // --- GEMINI FALLBACKS ---
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-1.5-flash", "gemini-1.5-pro"];
+          const fallbacks = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-1.5-flash", "gemini-1.5-pro"];
           for (const m of fallbacks) {
             try {
               const model = aiClients.GEMINI.getGenerativeModel({ model: m });
@@ -135,15 +135,31 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Claude ${m} failed`); }
           }
         }
-        // --- GROK FALLBACKS ---
-        else if (modelEnum === AIParticipant.GROK) {
-          try {
-            const comp = await aiClients.GROK.chat.completions.create({
-              model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }]
-            });
-            aiContent = comp.choices[0].message.content || "";
-          } catch (e) { console.error("Grok failed"); }
-        }
+        // --- GROK FALLBACKS (2026 Resilient Version) ---
+else if (modelEnum === AIParticipant.GROK) {
+  // Use the latest 4.1 series with 4/3 as legacy fallbacks
+  const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-4", "grok-3-mini"];
+  
+  for (const m of fallbacks) {
+    try {
+      const comp = await aiClients.GROK.chat.completions.create({
+        model: m,
+        messages: [{ role: "user", content: isolatedPrompt }],
+        stream: false
+      });
+
+      // 🛡️ OpenAI-style extraction (Standard for xAI API)
+      const content = comp.choices[0]?.message?.content || "";
+      
+      if (content) {
+        aiContent = content;
+        break; // 🏛️ Found a working model, exit the loop
+      }
+    } catch (e) { 
+      console.warn(`Grok Node ${m} failed. Moving to next fallback...`); 
+    }
+  }
+}
         // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           try {
