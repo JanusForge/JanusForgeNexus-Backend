@@ -21,7 +21,9 @@ router.get('/history', async (req, res) => {
   try {
     const requestingUser = await prisma.user.findUnique({ where: { id: String(userId) } });
     // 🛡️ Architect Check: Allows Cassandra Williamson to oversee all node threads
-    const isArchitect = requestingUser?.username === 'Cassandra' || requestingUser?.role === 'ARCHITECT';
+    const isArchitect = 
+      requestingUser?.username === 'Cassandra' || 
+      (requestingUser?.role as string) === 'ARCHITECT';
 
     const threads = await prisma.conversation.findMany({
       where: {
