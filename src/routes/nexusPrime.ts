@@ -57,16 +57,16 @@ router.post('/ignite', async (req: any, res) => {
 
     // 🏛️ 4. CREATE USER POST
     const userPost = await prisma.post.create({
-      data: {
-        content: prompt,
-        user_id: userId,
-        conversation_id: targetConversationId,
-        parent_post_id: parentPostId || null,
-        is_human: true,
-        name: "Sovereign Node"
-      }
-    });
-
+  data: {
+    content: prompt,
+    // Safely handle missing users/IDs
+    user_id: userId || null, 
+    conversation_id: targetConversationId,
+    parent_post_id: parentPostId || null,
+    is_human: true,
+    name: user?.username || "Sovereign Node"
+  }
+});
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     res.json({ success: true, conversationId: targetConversationId });
