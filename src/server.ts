@@ -82,7 +82,12 @@ const io = new Server(httpServer, {
     origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true
-  }
+  },
+  // 🛡️ SURGICAL FIX: Aligning transports with frontend to solve 400 Bad Request
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 app.set('socketio', io);
