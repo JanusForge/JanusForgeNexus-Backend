@@ -14,132 +14,129 @@ function shuffleCouncil(array: AIParticipant[]) {
   return shuffled;
 }
 
+// 🏛️ NODE HISTORY (Private & Filtered for Institutions)
+router.get('/history', async (req, res) => {
+  const { institution, userType, userId } = req.query;
+
+  try {
+    const privateThread = await prisma.conversation.findFirst({
+      where: {
+        user_id: String(userId),
+        is_public: false,
+        title: {
+          startsWith: `[${institution}-${userType}]`
+        }
+      },
+      include: {
+        posts: { orderBy: { created_at: 'asc' } }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    res.json(privateThread ? privateThread.posts : []);
+  } catch (err) {
+    console.error("Node History Error:", err);
+    res.status(500).json({ error: "Private Stream Error" });
+  }
+});
+
+// 🚀 NODE IGNITION (Private Council Logic)
 router.post('/ignite', async (req: any, res) => {
   const { prompt, institution, userType, userId } = req.body;
   const io = req.app.get('socketio');
 
-  // 🧬 DNA: Define the core Council models to be used by all nodes
-  const models = ['CLAUDE', 'GPT4', 'GEMINI', 'GROK', 'DEEPSEEK'];
-
   try {
-    // 🏛️ 1. IDENTITY HANDSHAKE
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Node credentials invalid." });
 
-    // 🏛️ 2. INSTITUTIONAL PERSONA (The "Soul" of the Node)
     const systemDirective = `
       ### IDENTITY: You are the Sovereign AI Council for ${institution}.
       ### CONTEXT: This is a ${userType} access point.
-      ### MISSION: Provide high-fidelity, adversarial feedback tailored to ${institution}'s specific regional and academic goals.
-      ### GUIDELINE: If Nursing/Clinical, prioritize HIPAA-style logic. If IT/Vocational, prioritize industry standards.
+      ### MISSION: Provide high-fidelity, adversarial feedback tailored to ${institution}.
     `;
 
-    // 🏛️ 3. NODE-LOCKED CONVERSATION
-    // We create a title that tags the institution for easier database filtering
-    const newConversation = await prisma.conversation.create({
-      data: {
+    // Ensure we anchor to a private conversation
+    let conversation = await prisma.conversation.findFirst({
+      where: {
         user_id: currentUser.id,
-        is_public: false, // Node conversations are private by default
-        title: `[${institution}] ${prompt.substring(0, 40)}`,
-        council_members: [AIParticipant.CLAUDE, AIParticipant.GPT, AIParticipant.GEMINI, AIParticipant.GROK, AIParticipant.DEEPSEEK]
+        is_public: false,
+        title: { startsWith: `[${institution}-${userType}]` }
       }
     });
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          user_id: currentUser.id,
+          is_public: false,
+          title: `[${institution}-${userType}] ${prompt.substring(0, 30)}...`,
+          council_members: [AIParticipant.CLAUDE, AIParticipant.GPT, AIParticipant.GEMINI, AIParticipant.GROK, AIParticipant.DEEPSEEK]
+        }
+      });
+    }
 
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
         user_id: currentUser.id,
-        conversation_id: newConversation.id,
+        conversation_id: conversation.id,
         is_human: true,
         name: currentUser.username || "Sovereign User"
       }
     });
 
-    // Notify UI (Node specific channel)
+    // Notify the UI on the node-specific channel
     io.emit(`node:${institution}:transmission`, userPost);
-    res.json({ success: true, conversationId: newConversation.id });
+    res.json({ success: true, conversationId: conversation.id });
 
-    // 🚀 4. RESILIENT SEQUENTIAL ACTIVATION (The DNA Clone)
-    const modelMap: Record<string, AIParticipant> = {
-      'CLAUDE': AIParticipant.CLAUDE,
-      'GPT4': AIParticipant.GPT,
-      'GEMINI': AIParticipant.GEMINI,
-      'GROK': AIParticipant.GROK,
-      'DEEPSEEK': AIParticipant.DEEPSEEK
-    };
-
-    const validCouncilMembers = models.map(m => modelMap[m.toUpperCase()]).filter(m => m !== undefined);
-    const randomizedCouncil = shuffleCouncil(validCouncilMembers);
+    // --- REPLICATED COUNCIL DNA ---
+    const models = [AIParticipant.CLAUDE, AIParticipant.GPT, AIParticipant.GEMINI, AIParticipant.GROK, AIParticipant.DEEPSEEK];
+    const randomizedCouncil = shuffleCouncil(models);
     let currentSessionContext = "";
 
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION SO FAR:\n${currentSessionContext}\n\nIdentity: ${modelEnum}. Respond as the ${institution} Node Expert.`;
+        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION:\n${currentSessionContext}\n\nIdentity: ${modelEnum}.`;
 
-        // --- THE FALLBACK DNA (Identical to Nexus Prime for stability) ---
+        // 🧬 DNA Replication of your fallback logic from nexusPrime.ts
         if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-4o", "gpt-4-turbo"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.GPT4.chat.completions.create({
-                model: m, messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              aiContent = comp.choices[0].message.content || "";
-              if (aiContent) break;
-            } catch (e) { console.warn(`GPT ${m} failed`); }
-          }
-        }
+          const comp = await aiClients.GPT4.chat.completions.create({
+            model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          aiContent = comp.choices[0].message.content || "";
+        } 
         else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-3-flash-preview", "gemini-2.0-flash-exp", "gemini-1.5-pro"];
-          for (const m of fallbacks) {
-            try {
-              const model = aiClients.GEMINI.getGenerativeModel({ model: m });
-              const result = await model.generateContent(isolatedPrompt);
-              aiContent = result.response.text();
-              if (aiContent) break;
-            } catch (e) { console.warn(`Gemini ${m} failed`); }
-          }
+          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          const result = await model.generateContent(isolatedPrompt);
+          aiContent = result.response.text();
         }
         else if (modelEnum === AIParticipant.CLAUDE) {
-          const fallbacks = ["claude-3-5-sonnet-latest", "claude-3-haiku-20240307"];
-          for (const m of fallbacks) {
-            try {
-              const msg = await aiClients.CLAUDE.messages.create({
-                model: m, max_tokens: 1024,
-                messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              const textBlock = msg.content.find(block => block.type === 'text');
-              if (textBlock && 'text' in textBlock) { aiContent = textBlock.text; break; }
-            } catch (e) { console.warn(`Claude ${m} failed`); }
-          }
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-latest", max_tokens: 1024,
+            messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          const textBlock = msg.content.find(b => b.type === 'text');
+          if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
         }
         else if (modelEnum === AIParticipant.GROK) {
-          const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-beta"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.GROK.chat.completions.create({
-                model: m, messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              aiContent = comp.choices[0]?.message?.content || "";
-              if (aiContent) break;
-            } catch (e) { console.warn(`Grok ${m} failed`); }
-          }
+          const comp = await aiClients.GROK.chat.completions.create({
+            model: "grok-2-1212", messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          aiContent = comp.choices[0]?.message?.content || "";
         }
         else if (modelEnum === AIParticipant.DEEPSEEK) {
-          try {
-            const comp = await aiClients.DEEPSEEK.chat.completions.create({
-              model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
-            });
-            aiContent = comp.choices[0].message.content || "";
-          } catch (e) { console.error("DeepSeek failed"); }
+          const comp = await aiClients.DEEPSEEK.chat.completions.create({
+            model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
+          });
+          aiContent = comp.choices[0].message.content || "";
         }
 
         if (aiContent) {
           const aiPost = await prisma.post.create({
             data: {
               content: aiContent,
-              conversation_id: newConversation.id,
+              conversation_id: conversation.id,
               parent_post_id: userPost.id,
               is_human: false,
               name: `${institution}_${modelEnum}`,
@@ -150,10 +147,10 @@ router.post('/ignite', async (req: any, res) => {
           io.emit(`node:${institution}:transmission`, aiPost);
           await new Promise(r => setTimeout(r, 1200));
         }
-      } catch (err) { console.error(`Node Cluster Error:`, err); }
+      } catch (err) { console.error(`Node Council Error:`, err); }
     }
   } catch (error) {
-    console.error("🔥 NODE IGNITION ERROR:", error);
+    console.error("🔥 NODE IGNITION FAULT:", error);
     if (!res.headersSent) res.status(500).json({ error: "Node Sync Error" });
   }
 });
