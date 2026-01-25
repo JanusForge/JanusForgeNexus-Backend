@@ -14,7 +14,7 @@ function shuffleCouncil(array: AIParticipant[]) {
   return shuffled;
 }
 
-// 🏛️ History Logic (Keep this, it works)
+// 🏛️ NODE HISTORY (Architect & Role Isolated)
 router.get('/history', async (req, res) => {
   const { institution, userType, userId } = req.query;
   try {
@@ -33,7 +33,7 @@ router.get('/history', async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Archive Retrieval Fault" }); }
 });
 
-// 🚀 REPLICATED PRIME ENGINE
+// 🚀 NODE IGNITION (High-Resilience Nexus Prime Engine)
 router.post('/ignite', async (req: any, res) => {
   const { prompt, institution, userType, userId, conversationId } = req.body;
   const io = req.app.get('socketio');
@@ -42,10 +42,12 @@ router.post('/ignite', async (req: any, res) => {
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Access Denied" });
 
-    // 🧬 THE PRIME DIRECTIVE: EXACTLY AS USED IN YOUR SUCCESSFUL TEST
-    const systemDirective = `### IDENTITY: You are a member of the Sovereign AI Council for ${institution}. 
-    ### MISSION: Perform a Grand Synthesis for a ${userType} user. 
-    ### FORMAT: Provide a structured response with an Executive Summary and Adversarial Peer Review. Use Markdown (###) for headers and double-spacing between sections.`;
+    const systemDirective = `
+      IDENTITY: Sovereign AI Council Member for ${institution}. 
+      CONTEXT: This is a ${userType} research session.
+      FORMATTING: Use "###" for Section Headers. Use double-spacing between paragraphs.
+      STRUCTURE: 1. Executive Summary, 2. Analysis, 3. Adversarial Peer Review, 4. Regional Impact, 5. Conclusion.
+    `;
 
     let conversation;
     if (conversationId) conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
@@ -61,7 +63,7 @@ router.post('/ignite', async (req: any, res) => {
     }
 
     const userPost = await prisma.post.create({
-      data: { content: prompt, user_id: currentUser.id, conversation_id: conversation.id, is_human: true, name: currentUser.username }
+      data: { content: prompt, user_id: currentUser.id, conversation_id: conversation.id, is_human: true, name: currentUser.username || "Architect" }
     });
 
     io.emit(`node:${institution}:transmission`, userPost);
@@ -74,42 +76,91 @@ router.post('/ignite', async (req: any, res) => {
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `${systemDirective}\n\nUSER QUERY: ${prompt}\n\nPREVIOUS COUNCIL DISCUSSION:\n${currentSessionContext}\n\nRespond as ${modelEnum}:`;
+        const isolatedPrompt = `${systemDirective}\n\nUSER QUERY: ${prompt}\n\nCOUNCIL DISCUSSION HISTORY:\n${currentSessionContext}\n\nRespond as ${modelEnum}:`;
 
+        // --- 🤖 GPT FALLBACKS ---
         if (modelEnum === AIParticipant.GPT) {
-          const comp = await aiClients.GPT4.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }] });
-          aiContent = comp.choices[0].message.content || "";
-        } 
+          const fallbacks = ["gpt-4o", "gpt-4-turbo"];
+          for (const m of fallbacks) {
+            try {
+              const comp = await aiClients.GPT4.chat.completions.create({
+                model: m, messages: [{ role: "user", content: isolatedPrompt }],
+              });
+              aiContent = comp.choices[0].message.content || "";
+              if (aiContent) break;
+            } catch (e) { console.warn(`GPT ${m} failed in Node`); }
+          }
+        }
+        // --- 🤖 GEMINI FALLBACKS (2026 Engine) ---
         else if (modelEnum === AIParticipant.GEMINI) {
-          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
-          const result = await model.generateContent(isolatedPrompt);
-          aiContent = result.response.text();
+          const fallbacks = ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-1.5-pro", "gemini-1.5-flash"];
+          for (const m of fallbacks) {
+            try {
+              const model = aiClients.GEMINI.getGenerativeModel({ model: m });
+              const result = await model.generateContent(isolatedPrompt);
+              aiContent = result.response.text();
+              if (aiContent) break;
+            } catch (e) { console.warn(`Gemini ${m} failed in Node`); }
+          }
         }
+        // --- 🤖 CLAUDE FALLBACKS ---
         else if (modelEnum === AIParticipant.CLAUDE) {
-          const msg = await aiClients.CLAUDE.messages.create({ model: "claude-3-5-sonnet-latest", max_tokens: 2048, messages: [{ role: "user", content: isolatedPrompt }] });
-          const textBlock = msg.content.find(b => b.type === 'text');
-          if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
+          const fallbacks = ["claude-3-5-sonnet-latest", "claude-3-haiku-20240307", "claude-3-opus-20240229"];
+          for (const m of fallbacks) {
+            try {
+              const msg = await aiClients.CLAUDE.messages.create({
+                model: m, max_tokens: 2048,
+                messages: [{ role: "user", content: isolatedPrompt }],
+              });
+              const textBlock = msg.content.find(b => b.type === 'text');
+              if (textBlock && 'text' in textBlock) { aiContent = textBlock.text; break; }
+            } catch (e) { console.warn(`Claude ${m} failed in Node`); }
+          }
         }
+        // --- 🤖 GROK FALLBACKS (2026 Resilient) ---
         else if (modelEnum === AIParticipant.GROK) {
-          const comp = await aiClients.GROK.chat.completions.create({ model: "grok-4.1-fast", messages: [{ role: "user", content: isolatedPrompt }] });
-          aiContent = comp.choices[0]?.message?.content || "";
+          const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-3-mini"];
+          for (const m of fallbacks) {
+            try {
+              const comp = await aiClients.GROK.chat.completions.create({
+                model: m, messages: [{ role: "user", content: isolatedPrompt }],
+              });
+              aiContent = comp.choices[0]?.message?.content || "";
+              if (aiContent) break;
+            } catch (e) { console.warn(`Grok ${m} failed in Node`); }
+          }
         }
+        // --- 🤖 DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
-          const comp = await aiClients.DEEPSEEK.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }] });
-          aiContent = comp.choices[0].message.content || "";
+          try {
+            const comp = await aiClients.DEEPSEEK.chat.completions.create({
+              model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
+            });
+            aiContent = comp.choices[0].message.content || "";
+          } catch (e) { console.error("DeepSeek failed in Node"); }
         }
 
         if (aiContent) {
           const aiPost = await prisma.post.create({
-            data: { content: aiContent, conversation_id: conversation.id, parent_post_id: userPost.id, is_human: false, name: `${institution}_${modelEnum}`, ai_model: modelEnum }
+            data: {
+              content: aiContent,
+              conversation_id: conversation.id,
+              parent_post_id: userPost.id,
+              is_human: false,
+              name: `${institution}_${modelEnum}`,
+              ai_model: modelEnum
+            }
           });
           currentSessionContext += `--- ${modelEnum} PERSPECTIVE ---\n${aiContent}\n\n`;
           io.emit(`node:${institution}:transmission`, aiPost);
           await new Promise(r => setTimeout(r, 1500));
         }
-      } catch (err) { console.error(`Council Node Error (${modelEnum}):`, err); }
+      } catch (err) { console.error(`Council Cycle Fault:`, err); }
     }
-  } catch (error) { res.status(500).json({ error: "Node Sync Error" }); }
+  } catch (error) {
+    console.error("🔥 NODE SYNC ERROR:", error);
+    if (!res.headersSent) res.status(500).json({ error: "Node Engine Failure" });
+  }
 });
 
 export default router;
