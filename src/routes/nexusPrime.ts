@@ -19,7 +19,14 @@ router.post('/ignite', async (req: any, res) => {
   const io = req.app.get('socketio');
 
   try {
-    // 🚦 1. COOLDOWN CHECK
+    // 🏛️ 1. IDENTITY LOOKUP (Doing it right)
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    const activeName = currentUser?.username || "Sovereign Node";
+
+    // 🚦 2. COOLDOWN CHECK
     const lastPost = await prisma.post.findFirst({
       where: { user_id: userId },
       orderBy: { created_at: 'desc' }
@@ -31,47 +38,47 @@ router.post('/ignite', async (req: any, res) => {
 
     let targetConversationId = conversationId;
 
-    // 🏛️ 2. CONVERSATION ANCHORING
+    // 🏛️ 3. CONVERSATION ANCHORING
     if (!targetConversationId) {
       const newConversation = await prisma.conversation.create({
         data: {
           user_id: userId,
           is_public: true,
           title: prompt.substring(0, 50),
-          council_members: models.map((m: string) => m as any) // Simplified mapping
+          council_members: models.map((m: string) => m as any)
         }
       });
       targetConversationId = newConversation.id;
     }
 
-    // 🏛️ 3. THREAD-LOCKED ANCESTRY (Memory for THIS thread only)
+    // 🏛️ 4. THREAD-LOCKED ANCESTRY
     let threadAncestry = "";
     if (targetConversationId) {
       const history = await prisma.post.findMany({
-        where: { conversation_id: targetConversationId }, // 🔒 LOCK TO THIS THREAD
+        where: { conversation_id: targetConversationId },
         orderBy: { created_at: 'asc' },
-        take: 10 // Last 10 turns for clean memory
+        take: 10 
       });
       threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
     }
 
-    // 🏛️ 4. CREATE USER POST
+    // 🏛️ 5. CREATE USER POST (Identity Verified)
     const userPost = await prisma.post.create({
-  data: {
-    content: prompt,
-    // Safely handle missing users/IDs
-    user_id: userId || null, 
-    conversation_id: targetConversationId,
-    parent_post_id: parentPostId || null,
-    is_human: true,
-    name: user?.username || "Sovereign Node"
-  }
-});
+      data: {
+        content: prompt,
+        user_id: userId || null,
+        conversation_id: targetConversationId,
+        parent_post_id: parentPostId || null,
+        is_human: true,
+        name: activeName 
+      }
+    });
+
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 🚀 5. SEQUENTIAL ACTIVATION
+    // 🚀 6. SEQUENTIAL ACTIVATION
     const modelMap: Record<string, AIParticipant> = {
       'CLAUDE': AIParticipant.CLAUDE,
       'GPT4': AIParticipant.GPT,
@@ -104,7 +111,6 @@ ${currentSessionContext}
 ### MISSION: Respond to the user's current query using the history of THIS thread. Be concise and actionable.
 ### YOUR RESPONSE:`;
 
-        // --- GPT-5.2 (2026 Stable) ---
         if (modelEnum === AIParticipant.GPT) {
           const fallbacks = ["gpt-5.2", "gpt-5-2-extended", "gpt-4o"];
           for (const m of fallbacks) {
@@ -117,7 +123,6 @@ ${currentSessionContext}
             } catch (e) { console.warn(`GPT [${m}] failed.`); }
           }
         }
-        // --- GEMINI 3 (2026 Stable) ---
         else if (modelEnum === AIParticipant.GEMINI) {
           const fallbacks = ["gemini-3-pro", "gemini-3-flash", "gemini-1.5-pro"];
           for (const m of fallbacks) {
@@ -129,34 +134,30 @@ ${currentSessionContext}
             } catch (e) { console.warn(`Gemini [${m}] failed.`); }
           }
         }
-        // --- 🟦 CLAUDE (Anthropic) ---
-if (modelEnum === AIParticipant.CLAUDE) {
-  const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"];
-  for (const m of fallbacks) {
-    try {
-      const msg = await aiClients.CLAUDE.messages.create({
-        model: m,
-        max_tokens: 1024,
-        messages: [{ role: "user", content: isolatedPrompt }],
-      });
-      
-      // 🛡️ Type-Safe extraction: Find the first text block
-      const textBlock = msg.content.find(block => block.type === 'text');
-      if (textBlock && 'text' in textBlock) {
-        aiContent = textBlock.text;
-        break;
-      }
-    } catch (e) { console.warn(`Claude [${m}] failed.`); }
-  }
-}
-        // --- GROK ---
+        else if (modelEnum === AIParticipant.CLAUDE) {
+          const fallbacks = ["claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"];
+          for (const m of fallbacks) {
+            try {
+              const msg = await aiClients.CLAUDE.messages.create({
+                model: m,
+                max_tokens: 1024,
+                messages: [{ role: "user", content: isolatedPrompt }],
+              });
+
+              const textBlock = msg.content.find(block => block.type === 'text');
+              if (textBlock && 'text' in textBlock) {
+                aiContent = textBlock.text;
+                break;
+              }
+            } catch (e) { console.warn(`Claude [${m}] failed.`); }
+          }
+        }
         else if (modelEnum === AIParticipant.GROK) {
           const comp = await aiClients.GROK.chat.completions.create({
             model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }]
           });
           aiContent = comp.choices[0].message.content || "";
         }
-        // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           const comp = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
