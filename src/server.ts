@@ -14,6 +14,7 @@ import authRouter from './routes/auth';
 import nexusPrimeRouter from './routes/nexusPrime';
 import stripeRouter from './routes/stripe';
 import webhookRouter from './routes/webhooks';
+import nodesRouter from './routes/nodes';
 
 dotenv.config();
 
@@ -69,6 +70,7 @@ app.use('/api/nexus', nexusPrimeRouter);
 app.use('/api/conversations', nexusPrimeRouter);
 app.use('/api/stripe', stripeRouter);
 app.use('/api/webhooks', webhookRouter);
+app.use('/api/nodes', nodesRouter);
 
 // --- 6. NEURAL LINK (SOCKETS) ---
 const io = new Server(httpServer, {
