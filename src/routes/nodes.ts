@@ -14,55 +14,46 @@ function shuffleCouncil(array: AIParticipant[]) {
   return shuffled;
 }
 
-// 🏛️ NODE HISTORY (Private & Filtered for Institutions)
+// 🏛️ NODE HISTORY (With Architect Override)
 router.get('/history', async (req, res) => {
   const { institution, userType, userId } = req.query;
 
   try {
-    const privateThread = await prisma.conversation.findFirst({
+    const requestingUser = await prisma.user.findUnique({ where: { id: String(userId) } });
+    // 🛡️ Architect Check: Allows Cassandra Williamson to oversee all node threads
+    const isArchitect = requestingUser?.username === 'Cassandra' || requestingUser?.role === 'ARCHITECT';
+
+    const threads = await prisma.conversation.findMany({
       where: {
-        user_id: String(userId),
         is_public: false,
-        title: {
-          startsWith: `[${institution}-${userType}]`
-        }
+        title: { startsWith: `[${institution}-${userType}]` },
+        ...(isArchitect ? {} : { user_id: String(userId) })
       },
-      include: {
-        posts: { orderBy: { created_at: 'asc' } }
-      },
+      include: { posts: { orderBy: { created_at: 'asc' } } },
       orderBy: { created_at: 'desc' }
     });
 
-    res.json(privateThread ? privateThread.posts : []);
+    res.json(threads);
   } catch (err) {
-    console.error("Node History Error:", err);
-    res.status(500).json({ error: "Private Stream Error" });
+    res.status(500).json({ error: "Archive Retrieval Fault" });
   }
 });
 
-// 🚀 NODE IGNITION (Private Council Logic)
+// 🚀 NODE IGNITION (Remains surgically similar to nexusPrime)
 router.post('/ignite', async (req: any, res) => {
-  const { prompt, institution, userType, userId } = req.body;
+  const { prompt, institution, userType, userId, conversationId } = req.body;
   const io = req.app.get('socketio');
 
   try {
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Node credentials invalid." });
 
-    const systemDirective = `
-      ### IDENTITY: You are the Sovereign AI Council for ${institution}.
-      ### CONTEXT: This is a ${userType} access point.
-      ### MISSION: Provide high-fidelity, adversarial feedback tailored to ${institution}.
-    `;
+    const systemDirective = `### IDENTITY: Sovereign AI Council for ${institution}. ### CONTEXT: ${userType} access.`;
 
-    // Ensure we anchor to a private conversation
-    let conversation = await prisma.conversation.findFirst({
-      where: {
-        user_id: currentUser.id,
-        is_public: false,
-        title: { startsWith: `[${institution}-${userType}]` }
-      }
-    });
+    let conversation;
+    if (conversationId) {
+      conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    }
 
     if (!conversation) {
       conversation = await prisma.conversation.create({
@@ -85,7 +76,6 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // Notify the UI on the node-specific channel
     io.emit(`node:${institution}:transmission`, userPost);
     res.json({ success: true, conversationId: conversation.id });
 
@@ -97,61 +87,37 @@ router.post('/ignite', async (req: any, res) => {
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION:\n${currentSessionContext}\n\nIdentity: ${modelEnum}.`;
+        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\nIdentity: ${modelEnum}.`;
 
-        // 🧬 DNA Replication of your fallback logic from nexusPrime.ts
         if (modelEnum === AIParticipant.GPT) {
-          const comp = await aiClients.GPT4.chat.completions.create({
-            model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
-          });
+          const comp = await aiClients.GPT4.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }] });
           aiContent = comp.choices[0].message.content || "";
-        } 
-        else if (modelEnum === AIParticipant.GEMINI) {
-          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
-          const result = await model.generateContent(isolatedPrompt);
+        } else if (modelEnum === AIParticipant.GEMINI) {
+          const result = await aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" }).generateContent(isolatedPrompt);
           aiContent = result.response.text();
-        }
-        else if (modelEnum === AIParticipant.CLAUDE) {
-          const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-5-sonnet-latest", max_tokens: 1024,
-            messages: [{ role: "user", content: isolatedPrompt }],
-          });
+        } else if (modelEnum === AIParticipant.CLAUDE) {
+          const msg = await aiClients.CLAUDE.messages.create({ model: "claude-3-5-sonnet-latest", max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }] });
           const textBlock = msg.content.find(b => b.type === 'text');
           if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
-        }
-        else if (modelEnum === AIParticipant.GROK) {
-          const comp = await aiClients.GROK.chat.completions.create({
-            model: "grok-2-1212", messages: [{ role: "user", content: isolatedPrompt }],
-          });
+        } else if (modelEnum === AIParticipant.GROK) {
+          const comp = await aiClients.GROK.chat.completions.create({ model: "grok-2-1212", messages: [{ role: "user", content: isolatedPrompt }] });
           aiContent = comp.choices[0]?.message?.content || "";
-        }
-        else if (modelEnum === AIParticipant.DEEPSEEK) {
-          const comp = await aiClients.DEEPSEEK.chat.completions.create({
-            model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
-          });
+        } else if (modelEnum === AIParticipant.DEEPSEEK) {
+          const comp = await aiClients.DEEPSEEK.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }] });
           aiContent = comp.choices[0].message.content || "";
         }
 
         if (aiContent) {
           const aiPost = await prisma.post.create({
-            data: {
-              content: aiContent,
-              conversation_id: conversation.id,
-              parent_post_id: userPost.id,
-              is_human: false,
-              name: `${institution}_${modelEnum}`,
-              ai_model: modelEnum
-            }
+            data: { content: aiContent, conversation_id: conversation.id, parent_post_id: userPost.id, is_human: false, name: `${institution}_${modelEnum}`, ai_model: modelEnum }
           });
-          currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit(`node:${institution}:transmission`, aiPost);
           await new Promise(r => setTimeout(r, 1200));
         }
-      } catch (err) { console.error(`Node Council Error:`, err); }
+      } catch (err) { console.error(`Council Node Error:`, err); }
     }
   } catch (error) {
-    console.error("🔥 NODE IGNITION FAULT:", error);
-    if (!res.headersSent) res.status(500).json({ error: "Node Sync Error" });
+    res.status(500).json({ error: "Node Sync Error" });
   }
 });
 
