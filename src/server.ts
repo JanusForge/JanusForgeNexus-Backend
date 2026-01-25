@@ -15,9 +15,6 @@ import nexusPrimeRouter from './routes/nexusPrime';
 import stripeRouter from './routes/stripe';
 import webhookRouter from './routes/webhooks';
 
-// 🚧 LEGACY BYPASS (Commented out to allow build)
-// import adminRouter from './routes/admin';
-
 dotenv.config();
 
 const app = express();
@@ -58,7 +55,7 @@ app.use(cors({
 // --- 3. MIDDLEWARE ---
 app.use(express.json({ limit: '10mb' }));
 
-// --- 4. NEURAL PERSISTENCE (Optional for Nexus) ---
+// --- 4. NEURAL PERSISTENCE ---
 const MONGODB_URI = process.env.MONGODB_URI;
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI)
@@ -73,9 +70,6 @@ app.use('/api/conversations', nexusPrimeRouter);
 app.use('/api/stripe', stripeRouter);
 app.use('/api/webhooks', webhookRouter);
 
-// 🚧 LEGACY ROUTES (Disabled)
-// app.use('/api/admin', adminRouter);
-
 // --- 6. NEURAL LINK (SOCKETS) ---
 const io = new Server(httpServer, {
   cors: {
@@ -83,11 +77,11 @@ const io = new Server(httpServer, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  // 🛡️ SURGICAL FIX: Aligning transports with frontend to solve 400 Bad Request
-  transports: ['websocket', 'polling'],
+  // 🛡️ Render Stability: Allowing automatic transport negotiation
   allowEIO3: true,
   pingTimeout: 60000,
-  pingInterval: 25000
+  pingInterval: 25000,
+  connectTimeout: 45000
 });
 
 app.set('socketio', io);
