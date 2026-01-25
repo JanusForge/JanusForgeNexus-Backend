@@ -8,40 +8,47 @@ const router = express.Router();
 function shuffleCouncil(array: AIParticipant[]) {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
 }
 
-// 🏛️ NODE HISTORY (With Architect Override)
+// 🏛️ NODE HISTORY (Private & Filtered with Architect Override)
 router.get('/history', async (req, res) => {
   const { institution, userType, userId } = req.query;
 
   try {
-    const requestingUser = await prisma.user.findUnique({ where: { id: String(userId) } });
-    // 🛡️ Architect Check: Allows Cassandra Williamson to oversee all node threads
+    const requestingUser = await prisma.user.findUnique({ 
+      where: { id: String(userId) } 
+    });
+
+    // 🛡️ Precision Handshake: Aligned with your Neon DB (GOD_MODE & CassandraWilliamson)
     const isArchitect = 
-      requestingUser?.username === 'Cassandra' || 
-      (requestingUser?.role as string) === 'ARCHITECT';
+      requestingUser?.username === 'CassandraWilliamson' || 
+      (requestingUser?.role as string) === 'GOD_MODE';
 
     const threads = await prisma.conversation.findMany({
       where: {
         is_public: false,
         title: { startsWith: `[${institution}-${userType}]` },
+        // 🏰 GOD_MODE Bypass: If you are the architect, you see all threads for this node
         ...(isArchitect ? {} : { user_id: String(userId) })
       },
-      include: { posts: { orderBy: { created_at: 'asc' } } },
+      include: { 
+        posts: { orderBy: { created_at: 'asc' } } 
+      },
       orderBy: { created_at: 'desc' }
     });
 
     res.json(threads);
   } catch (err) {
+    console.error("Archive Retrieval Fault:", err);
     res.status(500).json({ error: "Archive Retrieval Fault" });
   }
 });
 
-// 🚀 NODE IGNITION (Remains surgically similar to nexusPrime)
+// 🚀 NODE IGNITION (Private Council DNA)
 router.post('/ignite', async (req: any, res) => {
   const { prompt, institution, userType, userId, conversationId } = req.body;
   const io = req.app.get('socketio');
@@ -50,8 +57,13 @@ router.post('/ignite', async (req: any, res) => {
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Node credentials invalid." });
 
-    const systemDirective = `### IDENTITY: Sovereign AI Council for ${institution}. ### CONTEXT: ${userType} access.`;
+    const systemDirective = `
+      ### IDENTITY: You are the Sovereign AI Council for ${institution}.
+      ### CONTEXT: This is a ${userType} access point.
+      ### MISSION: Provide high-fidelity, adversarial feedback tailored to ${institution}'s regional and academic goals.
+    `;
 
+    // 🏛️ Anchor to a specific conversation if ID is provided, otherwise create new
     let conversation;
     if (conversationId) {
       conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
@@ -78,6 +90,7 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
+    // Notify UI on node-specific channel
     io.emit(`node:${institution}:transmission`, userPost);
     res.json({ success: true, conversationId: conversation.id });
 
@@ -89,37 +102,61 @@ router.post('/ignite', async (req: any, res) => {
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\nIdentity: ${modelEnum}.`;
+        const isolatedPrompt = `${systemDirective}\n\n### QUERY: ${prompt}\n\n### DISCUSSION:\n${currentSessionContext}\n\nIdentity: ${modelEnum}.`;
 
+        // 🧬 Fallback Engine (Cloned from nexusPrime)
         if (modelEnum === AIParticipant.GPT) {
-          const comp = await aiClients.GPT4.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }] });
+          const comp = await aiClients.GPT4.chat.completions.create({
+            model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
+          });
           aiContent = comp.choices[0].message.content || "";
-        } else if (modelEnum === AIParticipant.GEMINI) {
-          const result = await aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" }).generateContent(isolatedPrompt);
+        } 
+        else if (modelEnum === AIParticipant.GEMINI) {
+          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" });
+          const result = await model.generateContent(isolatedPrompt);
           aiContent = result.response.text();
-        } else if (modelEnum === AIParticipant.CLAUDE) {
-          const msg = await aiClients.CLAUDE.messages.create({ model: "claude-3-5-sonnet-latest", max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }] });
+        }
+        else if (modelEnum === AIParticipant.CLAUDE) {
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-latest", max_tokens: 1024,
+            messages: [{ role: "user", content: isolatedPrompt }],
+          });
           const textBlock = msg.content.find(b => b.type === 'text');
           if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
-        } else if (modelEnum === AIParticipant.GROK) {
-          const comp = await aiClients.GROK.chat.completions.create({ model: "grok-2-1212", messages: [{ role: "user", content: isolatedPrompt }] });
+        }
+        else if (modelEnum === AIParticipant.GROK) {
+          const comp = await aiClients.GROK.chat.completions.create({
+            model: "grok-2-1212", messages: [{ role: "user", content: isolatedPrompt }],
+          });
           aiContent = comp.choices[0]?.message?.content || "";
-        } else if (modelEnum === AIParticipant.DEEPSEEK) {
-          const comp = await aiClients.DEEPSEEK.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }] });
+        }
+        else if (modelEnum === AIParticipant.DEEPSEEK) {
+          const comp = await aiClients.DEEPSEEK.chat.completions.create({
+            model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
+          });
           aiContent = comp.choices[0].message.content || "";
         }
 
         if (aiContent) {
           const aiPost = await prisma.post.create({
-            data: { content: aiContent, conversation_id: conversation.id, parent_post_id: userPost.id, is_human: false, name: `${institution}_${modelEnum}`, ai_model: modelEnum }
+            data: {
+              content: aiContent,
+              conversation_id: conversation.id,
+              parent_post_id: userPost.id,
+              is_human: false,
+              name: `${institution}_${modelEnum}`,
+              ai_model: modelEnum
+            }
           });
+          currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit(`node:${institution}:transmission`, aiPost);
           await new Promise(r => setTimeout(r, 1200));
         }
-      } catch (err) { console.error(`Council Node Error:`, err); }
+      } catch (err) { console.error(`Node Council Error:`, err); }
     }
   } catch (error) {
-    res.status(500).json({ error: "Node Sync Error" });
+    console.error("🔥 NODE IGNITION FAULT:", error);
+    if (!res.headersSent) res.status(500).json({ error: "Node Sync Error" });
   }
 });
 
