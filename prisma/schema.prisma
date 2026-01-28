@@ -26,6 +26,11 @@ model User {
   conversations            Conversation[]
   posts                    Post[]
   institutions             institutions?            @relation(fields: [institution_id], references: [id])
+  referral_code String?   @unique
+  referred_by   String?
+  referrer      User?     @relation("UserReferrals", fields: [referred_by], references: [id])
+  referrals     User[]    @relation("UserReferrals")  
+
 
   @@map("users")
 }
