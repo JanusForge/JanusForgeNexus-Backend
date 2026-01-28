@@ -10,7 +10,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendVerificationEmail(email: string, token: string) {
   const verificationUrl = `https://janusforgenexus-backend.onrender.com/api/auth/verify-email?token=${token}`;
-  
+
   await resend.emails.send({
     from: 'Janus Forge <no-reply@janusforge.ai>',
     to: email,
@@ -28,18 +28,30 @@ async function sendVerificationEmail(email: string, token: string) {
 
 // --- 1. REGISTER ---
 router.post('/register', async (req, res) => {
-  const { username, email, password, referralCode = "" } = req.body;
+  // ✅ Edited to accept referral_code from frontend
+  const { username, email, password, referral_code = "" } = req.body;
   try {
     const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (existingUser) return res.status(400).json({ error: "Email already registered." });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const token = crypto.randomBytes(32).toString('hex');
-    
-    const isAdmin = email.toLowerCase() === 'admin@janusforge.ai';
-    const isBeta = referralCode.trim().toUpperCase() === 'BETA_2026';
 
-    const trialHours = isAdmin ? 876000 : (isBeta ? 24 : 1);
+    const isAdmin = email.toLowerCase() === 'admin@janusforge.ai';
+    const isBetaCode = referral_code.trim().toUpperCase() === 'BETA_2026';
+
+    // 🕵️ [Surgical Logic]: Resolve Dynamic Referrer
+    let referredById = null;
+    if (referral_code && !isBetaCode) {
+      const advocate = await prisma.user.findUnique({
+        where: { referral_code: referral_code }
+      });
+      if (advocate) {
+        referredById = advocate.id;
+      }
+    }
+
+    const trialHours = isAdmin ? 876000 : (isBetaCode ? 24 : 1);
     const initialExpiry = new Date(Date.now() + trialHours * 60 * 60 * 1000);
 
     const user = await prisma.user.create({
@@ -47,12 +59,13 @@ router.post('/register', async (req, res) => {
         username,
         email: email.toLowerCase(),
         password_hash: hashedPassword,
-        role: isAdmin ? 'GOD_MODE' : (isBeta ? 'BETA_ARCHITECT' : 'USER'),
+        role: isAdmin ? 'GOD_MODE' : (isBetaCode ? 'BETA_ARCHITECT' : 'USER'),
         access_expiry: initialExpiry,
         is_sovereign: true,
-        emailVerified: false, // 🔒 Start locked
+        emailVerified: false, 
         verificationToken: token,
-        verificationTokenExpires: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24H window
+        verificationTokenExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        referred_by: referredById // ✅ Link to the Advocate in Neon
       }
     });
 
@@ -80,7 +93,6 @@ router.get('/verify-email', async (req, res) => {
       return res.status(400).send("<h1>Link invalid or expired.</h1>");
     }
 
-    // 🎖️ FOUNDER CHECK: See if we still have slots in the Genesis 100
     const founderCount = await prisma.user.count({ where: { is_founder: true } });
     const qualifyAsFounder = founderCount < 100;
 
@@ -88,13 +100,12 @@ router.get('/verify-email', async (req, res) => {
       where: { id: user.id },
       data: {
         emailVerified: true,
-        is_founder: qualifyAsFounder, // Automatically awards status if slot available
+        is_founder: qualifyAsFounder, 
         verificationToken: null,
         verificationTokenExpires: null
       }
     });
 
-    // Redirect to your frontend login page with a success flag
     res.redirect('https://janusforge.ai/login?verified=true');
   } catch (error) {
     res.status(500).send("Verification internal error.");
@@ -106,8 +117,7 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    
-    // Safety check: must exist, have a password, and be verified
+
     if (!user || !user.password_hash || !user.emailVerified) {
       return res.status(401).json({ error: "Identity unknown or unverified." });
     }
@@ -121,7 +131,8 @@ router.post('/login', async (req, res) => {
       email: user.email,
       role: user.role,
       access_expiry: user.access_expiry,
-      is_sovereign: user.is_sovereign
+      is_sovereign: user.is_sovereign,
+      referral_code: user.referral_code // ✅ Return this so advocates can find their code
     });
   } catch (error) {
     res.status(500).json({ error: "Internal login failure." });
