@@ -46,6 +46,48 @@ router.get('/tickets', async (req, res) => {
 });
 
 /**
+ * 🏆 GET /api/admin/referral-leaderboard
+ * Fetches ranking of advocates based on successful referrals.
+ * Restricted to Master Authority.
+ */
+router.get('/referral-leaderboard', async (req, res) => {
+  const { userId } = req.query;
+
+  try {
+    // 🛡️ Verify Authority
+    const caller = await prisma.user.findUnique({ where: { id: String(userId) } });
+    if (!caller || caller.email !== 'admin@janusforge.ai') {
+      return res.status(403).json({ error: "Protocol 0 Violation" });
+    }
+
+    // 📊 Aggregate Advocate Data from Neon
+    const leaderboard = await prisma.user.findMany({
+      where: {
+        referral_code: { not: null },
+        email: { not: 'admin@janusforge.ai' }
+      },
+      select: {
+        username: true,
+        referral_code: true,
+        _count: {
+          select: { referrals: true }
+        }
+      },
+      orderBy: {
+        referrals: {
+          _count: 'desc'
+        }
+      }
+    });
+
+    return res.json(leaderboard);
+  } catch (error) {
+    console.error("Referral Leaderboard Sync Error:", error);
+    return res.status(500).json({ error: "Failed to synchronize referral data." });
+  }
+});
+
+/**
  * 📊 GET /api/admin/nexus-metrics
  * Pulls global system health and user consumption data.
  */
@@ -133,7 +175,6 @@ router.post('/toggle-status', async (req, res) => {
 /**
  * 📢 POST /api/admin/broadcast
  * Deploys a system-wide message to all active Neural Links (Sockets).
- *
  */
 router.post('/broadcast', async (req, res) => {
   const { userId } = req.query;
@@ -146,7 +187,7 @@ router.post('/broadcast', async (req, res) => {
 
     // 📡 Access the global Socket.io instance from the app context
     const io = req.app.get('io');
-    
+
     if (io) {
       // Emit to all connected clients on the 'nexus:broadcast' channel
       io.emit('nexus:broadcast', {
