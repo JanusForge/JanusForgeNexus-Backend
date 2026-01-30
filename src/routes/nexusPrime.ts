@@ -104,7 +104,8 @@ router.post('/ignite', async (req: any, res) => {
 
     for (const modelEnum of randomizedCouncil) {
       try {
-        let aiContent = "";
+         await new Promise(r => setTimeout(r, 500));
+         let aiContent = "";
         
         // 🛡️ Surgical injection of Directive and Identity
         const isolatedPrompt = `
