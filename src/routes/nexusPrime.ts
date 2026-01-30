@@ -25,7 +25,7 @@ router.post('/ignite', async (req: any, res) => {
 
     const activeName = currentUser.username || "Sovereign Node";
 
-    // 🏛️ 2. CONVERSATION ANCHORING (FIXED ENUM MAPPING)
+    // 🏛️ 2. CONVERSATION ANCHORING
     let targetConversationId = conversationId;
     if (!targetConversationId) {
       const mappedCouncil = models.map((m: string) => {
@@ -49,7 +49,7 @@ router.post('/ignite', async (req: any, res) => {
       targetConversationId = newConversation.id;
     }
 
-    // 🏛️ 3. CREATE USER POST (Surgically moved UP for Feed reliability)
+    // 🏛️ 3. CREATE USER POST
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
@@ -60,11 +60,9 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // Notify UI and CLOSE the HTTP request so the feed updates immediately
     io.emit('nexus:transmission', userPost);
     if (!parentPostId) io.emit('nexus:new_root', userPost);
-    
-    // 🛡️ FIX: Returning here ensures the query is recorded and visible in the feed.
+
     res.json({ success: true, conversationId: targetConversationId });
 
     // 🏛️ 4. THREAD-LOCKED ANCESTRY
@@ -91,10 +89,31 @@ router.post('/ignite', async (req: any, res) => {
     const randomizedCouncil = shuffleCouncil(validCouncilMembers);
     let currentSessionContext = "";
 
+    // 🏛️ NEXUS PRIME DIRECTIVE Definition
+    const NEXUS_PRIME_DIRECTIVE = `
+      You are a member of the Janus Forge Nexus Council. 
+      Your goal is Sovereign Truth through Multi-Model Synthesis.
+
+      RULES:
+      1. ADVERSARIAL ANALYSIS: If a previous model in the DISCUSSION section made a logic error or missed a nuance, call it out respectfully.
+      2. VISUAL LOGIC: If the user's query involves a process, flow, or hierarchy, you MUST provide a Mermaid.js diagram. Wrap diagrams in: \`\`\`mermaid [code] \`\`\`.
+      3. TONE: Maintain a Cyber-Institutional, authoritative, and concise tone.
+      4. IDENTITY: You are current speaker. Do not speak as the other models.
+    `;
+
     for (const modelEnum of randomizedCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `### HISTORY:\n${threadAncestry}\n\n### DISCUSSION:\n${currentSessionContext}\n\n### QUERY: ${prompt}\n\nIdentity: ${modelEnum}. Respond concisely.`;
+        
+        // 🛡️ Surgical injection of Directive and Identity
+        const isolatedPrompt = `
+          DIRECTIVE: ${NEXUS_PRIME_DIRECTIVE}
+          HISTORY: ${threadAncestry}
+          DISCUSSION: ${currentSessionContext}
+          QUERY: ${prompt}
+          
+          Your Identity for this turn: ${modelEnum}.
+        `;
 
         // --- GPT FALLBACKS ---
         if (modelEnum === AIParticipant.GPT) {
@@ -135,31 +154,21 @@ router.post('/ignite', async (req: any, res) => {
             } catch (e) { console.warn(`Claude ${m} failed`); }
           }
         }
-        // --- GROK FALLBACKS (2026 Resilient Version) ---
-else if (modelEnum === AIParticipant.GROK) {
-  // Use the latest 4.1 series with 4/3 as legacy fallbacks
-  const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-4", "grok-3-mini"];
-  
-  for (const m of fallbacks) {
-    try {
-      const comp = await aiClients.GROK.chat.completions.create({
-        model: m,
-        messages: [{ role: "user", content: isolatedPrompt }],
-        stream: false
-      });
-
-      // 🛡️ OpenAI-style extraction (Standard for xAI API)
-      const content = comp.choices[0]?.message?.content || "";
-      
-      if (content) {
-        aiContent = content;
-        break; // 🏛️ Found a working model, exit the loop
-      }
-    } catch (e) { 
-      console.warn(`Grok Node ${m} failed. Moving to next fallback...`); 
-    }
-  }
-}
+        // --- GROK FALLBACKS ---
+        else if (modelEnum === AIParticipant.GROK) {
+          const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-4", "grok-3-mini"];
+          for (const m of fallbacks) {
+            try {
+              const comp = await aiClients.GROK.chat.completions.create({
+                model: m,
+                messages: [{ role: "user", content: isolatedPrompt }],
+                stream: false
+              });
+              const content = comp.choices[0]?.message?.content || "";
+              if (content) { aiContent = content; break; }
+            } catch (e) { console.warn(`Grok Node ${m} failed.`); }
+          }
+        }
         // --- DEEPSEEK ---
         else if (modelEnum === AIParticipant.DEEPSEEK) {
           try {
@@ -183,7 +192,7 @@ else if (modelEnum === AIParticipant.GROK) {
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
           io.emit('nexus:transmission', aiPost);
-          await new Promise(r => setTimeout(r, 1200)); 
+          await new Promise(r => setTimeout(r, 1200));
         }
       } catch (err) { console.error(`Node Failure:`, err); }
     }
