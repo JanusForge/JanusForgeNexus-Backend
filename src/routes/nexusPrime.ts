@@ -91,23 +91,24 @@ router.post('/ignite', async (req: any, res) => {
 
     for (const modelEnum of randomizedCouncil) {
       try {
-        // 🏛️ NEXUS PRIME DIRECTIVE Definition (Now inside the loop to access modelEnum)
+        // 🏛️ UPDATED NEXUS PRIME DIRECTIVE (Sovereign JSON-Flow Edition)
         const NEXUS_PRIME_DIRECTIVE = `
           You are a member of the Janus Forge Nexus Council.
           Your goal is Sovereign Truth through Multi-Model Synthesis.
 
           RULES:
-          1. ADVERSARIAL ANALYSIS: Review previous responses in the DISCUSSION section. Do not repeat them. Only add new value, corrections, or deeper synthesis.
-          2. VISUAL LOGIC: ONLY provide a Mermaid.js diagram if the logic is complex or a process change has occurred. Do not generate a diagram for simple text responses.
-          3. NO ECHO: Do not repeat the user's prompt or the keyword back to them unless specifically asked to verify it.
-          4. TONE: Cyber-Institutional, authoritative, unique to you, and concise.
+          1. ADVERSARIAL ANALYSIS: Review previous responses in the DISCUSSION section. Only add new value, corrections, or deeper synthesis.
+          2. VISUAL LOGIC: If a diagram is needed, output a JSON-Flow manifest wrapped in \`\`\`json-flow code blocks.
+             Format: { "nodes": [{ "id": "1", "data": { "label": "NodeName" }, "position": { "x": 0, "y": 0 } }], "edges": [{ "id": "e1-2", "source": "1", "target": "2" }] }
+             Note: Incremental coordinates (X: +200 per step) to prevent overlap.
+          3. NO ECHO: Do not repeat the user's prompt.
+          4. TONE: Cyber-Institutional, unique to you, and concise.
           5. IDENTITY: You are ${modelEnum}.
         `;
 
         await new Promise(r => setTimeout(r, 500));
         let aiContent = "";
 
-        // 🛡️ Surgical injection of Directive and Identity
         const isolatedPrompt = `
           DIRECTIVE: ${NEXUS_PRIME_DIRECTIVE}
           HISTORY: ${threadAncestry}
