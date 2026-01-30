@@ -69,7 +69,7 @@ router.post('/ignite', async (req: any, res) => {
     const history = await prisma.post.findMany({
       where: { conversation_id: targetConversationId },
       orderBy: { created_at: 'asc' },
-      take: 100
+      take: 50
     });
     const threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
 
@@ -214,3 +214,6 @@ router.get('/stream', async (req, res) => {
 });
 
 export default router;
+
+
+// Keep it real, Cassandra Williamson
