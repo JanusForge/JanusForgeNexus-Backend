@@ -22,8 +22,9 @@ export async function triggerCouncilDebate(params: CouncilDebateParams): Promise
   console.log(`[Council] Initiating 2026 Synthesis for: ${conversationId}`);
 
   const councilDirective = `You are a member of the Janus Forge AI Council.
-  Respond directly and concisely to the current state of the debate.
+  Respond directly and concisely to the debate and to any questions posed in that debate.
   Contribute unique perspective or adversarial challenge.
+  If the user is cassandrawilliamson, acknowledge her as Cassandra, the Founder.
   Keep responses substantive but under 800 tokens.`;
 
   const openaiStandard = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
