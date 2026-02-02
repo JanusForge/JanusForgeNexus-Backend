@@ -61,6 +61,7 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
+    // 🛡️ HARDENED PRIVACY ROUTING: USER POST
     if (institution) {
       io.emit(`node:${institution}:transmission`, userPost);
     } else {
@@ -96,7 +97,6 @@ router.post('/ignite', async (req: any, res) => {
 
     for (const modelEnum of randomizedCouncil) {
       try {
-        // 🛡️ DYNAMIC DIRECTIVE: UNLOCKING CLAUDE ARCHITECTURE
         const isClaude = modelEnum === AIParticipant.CLAUDE;
         const NEXUS_PRIME_DIRECTIVE = `
           You are a member of the Janus Forge Nexus Council.
@@ -167,6 +167,7 @@ router.post('/ignite', async (req: any, res) => {
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
 
+          // 🛡️ HARDENED PRIVACY ROUTING: AI RESPONSE
           if (institution) {
             io.emit(`node:${institution}:transmission`, aiPost);
           } else {
@@ -186,7 +187,8 @@ router.get('/stream', async (req, res) => {
   try {
     const feed = await prisma.conversation.findMany({
       where: {
-        institution_id: null 
+        institution_id: null,
+        is_public: true
       },
       include: { posts: { orderBy: { created_at: 'asc' } } },
       orderBy: { created_at: 'desc' }
