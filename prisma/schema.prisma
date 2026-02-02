@@ -38,6 +38,7 @@ model User {
 model Conversation {
   id              String          @id @default(uuid())
   user_id         String?         @map("user_id")
+  institution_id  String?          @map("institution_id")
   title           String?
   is_public       Boolean         @default(false) @map("is_public")
   is_private      Boolean         @default(true) @map("is_private")
