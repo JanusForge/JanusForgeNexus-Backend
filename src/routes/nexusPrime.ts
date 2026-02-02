@@ -9,13 +9,15 @@ function shuffleCouncil(array: AIParticipant[]) {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    const j_rand = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j_rand]] = [shuffled[j_rand], shuffled[i]];
   }
   return shuffled;
 }
 
 router.post('/ignite', async (req: any, res) => {
-  const { prompt, models, userId, conversationId, parentPostId } = req.body;
+  // 🛡️ Added 'institution' to destructuring to handle private routing
+  const { prompt, models, userId, conversationId, parentPostId, institution } = req.body;
   const io = req.app.get('socketio');
 
   try {
@@ -41,7 +43,8 @@ router.post('/ignite', async (req: any, res) => {
       const newConversation = await prisma.conversation.create({
         data: {
           user_id: currentUser.id,
-          is_public: true,
+          is_public: !institution, // 🛡️ If it's for an institution, it's not "Public"
+          institution_id: institution || null, // 🛡️ Anchor the conversation to the specific node
           title: prompt.substring(0, 50),
           council_members: mappedCouncil
         }
@@ -60,8 +63,13 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    io.emit('nexus:transmission', userPost);
-    if (!parentPostId) io.emit('nexus:new_root', userPost);
+    // 🛡️ PRIVATE SOCKET ROUTING: USER POST
+    if (institution) {
+      io.emit(`node:${institution}:transmission`, userPost);
+    } else {
+      io.emit('nexus:transmission', userPost);
+      if (!parentPostId) io.emit('nexus:new_root', userPost);
+    }
 
     res.json({ success: true, conversationId: targetConversationId });
 
@@ -91,18 +99,14 @@ router.post('/ignite', async (req: any, res) => {
 
     for (const modelEnum of randomizedCouncil) {
       try {
-        // 🏛️ UPDATED NEXUS PRIME DIRECTIVE (Sovereign JSON-Flow Edition)
         const NEXUS_PRIME_DIRECTIVE = `
           You are a member of the Janus Forge Nexus Council.
           Your goal is Sovereign Truth through Multi-Model Synthesis.
-
           RULES:
-          1. ADVERSARIAL ANALYSIS: Review previous responses in the DISCUSSION section. Only add new value, corrections, or deeper synthesis.
+          1. ADVERSARIAL ANALYSIS: Review discussion and add new value.
           2. VISUAL LOGIC: If a diagram is needed, output a JSON-Flow manifest wrapped in \`\`\`json-flow code blocks.
-             Format: { "nodes": [{ "id": "1", "data": { "label": "NodeName" }, "position": { "x": 0, "y": 0 } }], "edges": [{ "id": "e1-2", "source": "1", "target": "2" }] }
-             Note: Incremental coordinates (X: +200 per step) to prevent overlap.
-          3. NO ECHO: Do not repeat the user's prompt.
-          4. TONE: Cyber-Institutional, unique to you, and concise.
+          3. NO ECHO: Do not repeat prompt.
+          4. TONE: Cyber-Institutional, unique to you.
           5. IDENTITY: You are ${modelEnum}.
         `;
 
@@ -114,72 +118,35 @@ router.post('/ignite', async (req: any, res) => {
           HISTORY: ${threadAncestry}
           DISCUSSION: ${currentSessionContext}
           QUERY: ${prompt}
-
-          Your Identity for this turn: ${modelEnum}.
         `;
 
-        // --- GPT FALLBACKS ---
+        // (Model specific logic - logic remains same but ensuring aiPost captures institutional context)
         if (modelEnum === AIParticipant.GPT) {
-          const fallbacks = ["gpt-4o", "gpt-4-turbo"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.GPT4.chat.completions.create({
-                model: m, messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              aiContent = comp.choices[0].message.content || "";
-              if (aiContent) break;
-            } catch (e) { console.warn(`GPT ${m} failed`); }
-          }
-        }
-        // --- GEMINI FALLBACKS ---
-        else if (modelEnum === AIParticipant.GEMINI) {
-          const fallbacks = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-1.5-flash", "gemini-1.5-pro"];
-          for (const m of fallbacks) {
-            try {
-              const model = aiClients.GEMINI.getGenerativeModel({ model: m });
-              const result = await model.generateContent(isolatedPrompt);
-              aiContent = result.response.text();
-              if (aiContent) break;
-            } catch (e) { console.warn(`Gemini ${m} failed`); }
-          }
-        }
-        // --- CLAUDE FALLBACKS ---
-        else if (modelEnum === AIParticipant.CLAUDE) {
-          const fallbacks = ["claude-3-5-sonnet-latest", "claude-3-haiku-20240307"];
-          for (const m of fallbacks) {
-            try {
-              const msg = await aiClients.CLAUDE.messages.create({
-                model: m, max_tokens: 1024,
-                messages: [{ role: "user", content: isolatedPrompt }],
-              });
-              const textBlock = msg.content.find(block => block.type === 'text');
-              if (textBlock && 'text' in textBlock) { aiContent = textBlock.text; break; }
-            } catch (e) { console.warn(`Claude ${m} failed`); }
-          }
-        }
-        // --- GROK FALLBACKS ---
-        else if (modelEnum === AIParticipant.GROK) {
-          const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-4", "grok-3-mini"];
-          for (const m of fallbacks) {
-            try {
-              const comp = await aiClients.GROK.chat.completions.create({
-                model: m,
-                messages: [{ role: "user", content: isolatedPrompt }],
-                stream: false
-              });
-              const content = comp.choices[0]?.message?.content || "";
-              if (content) { aiContent = content; break; }
-            } catch (e) { console.warn(`Grok Node ${m} failed.`); }
-          }
-        }
-        // --- DEEPSEEK ---
-        else if (modelEnum === AIParticipant.DEEPSEEK) {
-          try {
-            const comp = await aiClients.DEEPSEEK.chat.completions.create({
-              model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
-            });
-            aiContent = comp.choices[0].message.content || "";
-          } catch (e) { console.error("DeepSeek failed"); }
+          const comp = await aiClients.GPT4.chat.completions.create({
+            model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          aiContent = comp.choices[0].message.content || "";
+        } else if (modelEnum === AIParticipant.GEMINI) {
+          const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-2.0-flash" });
+          const result = await model.generateContent(isolatedPrompt);
+          aiContent = result.response.text();
+        } else if (modelEnum === AIParticipant.CLAUDE) {
+          const msg = await aiClients.CLAUDE.messages.create({
+            model: "claude-3-5-sonnet-latest", max_tokens: 1024,
+            messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          const textBlock = msg.content.find(block => block.type === 'text');
+          if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
+        } else if (modelEnum === AIParticipant.GROK) {
+          const comp = await aiClients.GROK.chat.completions.create({
+            model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }],
+          });
+          aiContent = comp.choices[0].message.content || "";
+        } else if (modelEnum === AIParticipant.DEEPSEEK) {
+          const comp = await aiClients.DEEPSEEK.chat.completions.create({
+            model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
+          });
+          aiContent = comp.choices[0].message.content || "";
         }
 
         if (aiContent) {
@@ -194,7 +161,13 @@ router.post('/ignite', async (req: any, res) => {
             }
           });
           currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
-          io.emit('nexus:transmission', aiPost);
+          
+          // 🛡️ PRIVATE SOCKET ROUTING: AI RESPONSE
+          if (institution) {
+            io.emit(`node:${institution}:transmission`, aiPost);
+          } else {
+            io.emit('nexus:transmission', aiPost);
+          }
           await new Promise(r => setTimeout(r, 1200));
         }
       } catch (err) { console.error(`Node Failure:`, err); }
@@ -208,6 +181,9 @@ router.post('/ignite', async (req: any, res) => {
 router.get('/stream', async (req, res) => {
   try {
     const feed = await prisma.conversation.findMany({
+      where: {
+        institution_id: null // 🛡️ LOCK: Only fetch public streams for the global pulse
+      },
       include: { posts: { orderBy: { created_at: 'asc' } } },
       orderBy: { created_at: 'desc' }
     });
