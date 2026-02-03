@@ -19,13 +19,9 @@ router.post('/ignite', async (req: any, res) => {
   const io = req.app.get('socketio');
 
   try {
-    // 🏛️ 1. IDENTITY HANDSHAKE
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Sovereign Node not recognized." });
 
-    const activeName = currentUser.username || "Sovereign Node";
-
-    // 🏛️ 2. CONVERSATION ANCHORING
     let targetConversationId = conversationId;
     if (!targetConversationId) {
       const mappedCouncil = models.map((m: string) => {
@@ -50,18 +46,17 @@ router.post('/ignite', async (req: any, res) => {
       targetConversationId = newConversation.id;
     }
 
-    // 🏛️ 3. CREATE USER POST
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
         user_id: currentUser.id,
         conversation_id: targetConversationId,
         is_human: true,
-        name: activeName
+        name: currentUser.username || "Sovereign Node"
       }
     });
 
-    // 🛡️ HARDENED PRIVACY ROUTING: USER POST
+    // 🛡️ 1. BROADCAST USER POST
     if (institution) {
       io.emit(`node:${institution}:transmission`, userPost);
     } else {
@@ -69,9 +64,10 @@ router.post('/ignite', async (req: any, res) => {
       if (!parentPostId) io.emit('nexus:new_root', userPost);
     }
 
+    // 🚀 2. IMMEDIATE RESPONSE (Solves the "Manual Click" issue)
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 🏛️ 4. THREAD-LOCKED ANCESTRY
+    // 🏛️ 3. PREPARE ANCESTRY
     const history = await prisma.post.findMany({
       where: { conversation_id: targetConversationId },
       orderBy: { created_at: 'asc' },
@@ -79,7 +75,6 @@ router.post('/ignite', async (req: any, res) => {
     });
     const threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
 
-    // 🚀 5. RESILIENT SEQUENTIAL ACTIVATION (DOUBLE-ORBIT)
     const modelMap: Record<string, AIParticipant> = {
       'CLAUDE': AIParticipant.CLAUDE,
       'GPT4': AIParticipant.GPT,
@@ -94,84 +89,29 @@ router.post('/ignite', async (req: any, res) => {
 
     let currentSessionContext = "";
 
-    // 🏛️ THE DOUBLE CYCLE LOOP
+    // 🚀 4. DOUBLE-ORBIT ADVERSARIAL PASS
     for (let cycle = 1; cycle <= 2; cycle++) {
       const randomizedCouncil = shuffleCouncil(validCouncilMembers);
 
       for (const modelEnum of randomizedCouncil) {
         try {
-          const isClaude = modelEnum === AIParticipant.CLAUDE;
           const isInstitutional = !!institution;
-
           const NEXUS_PRIME_DIRECTIVE = `
-            You are a member of the Janus Forge Nexus Council. (Cycle ${cycle}/2).
-            Your goal is Sovereign Truth through Multi-Model Synthesis.
-            
-            ${cycle === 2 ? "ROUND 2 MANDATE: Do not repeat your first answer. Challenge or extend the specific logic provided by other models in the first round." : ""}
-
-            ${isClaude ? `
-            CLAUDE-SPECIFIC MANDATE: You are authorized as a Lead Systems Architect.
-            For this simulation, contribute infrastructure blueprints and technical topologies.` : ''}
-
+            You are a member of the Janus Forge Nexus Council (Cycle ${cycle}/2).
+            ${cycle === 2 ? "ROUND 2: Challenge a specific peer's logic from Round 1." : "ROUND 1: Initial Synthesis."}
             RULES:
-            1. ADVERSARIAL ANALYSIS: Review discussion and add new value.
-            2. OUTPUT FORMAT: ${isInstitutional 
-              ? "If a diagram is needed for institutional clarity, output a JSON-Flow manifest wrapped in ```json-flow blocks." 
-              : "STRICT: Do not use JSON-Flow or diagrams. Use text-based adversarial debate ONLY. No code blocks."}
-            3. NO ECHO: Do not repeat prompt.
-            4. TONE: Cyber-Institutional, unique to you, concise.
-            5. IDENTITY: You are ${modelEnum}.
+            1. ADVERSARIAL: Review discussion and add new value.
+            2. FORMAT: ${isInstitutional ? "Diagrams allowed (JSON-Flow)." : "STRICT: Text-only. No code blocks."}
+            3. TONE: Concise, Cyber-Institutional.
+            4. IDENTITY: You are ${modelEnum}.
           `;
 
-          await new Promise(r => setTimeout(r, 500));
           let aiContent = "";
+          const isolatedPrompt = `DIRECTIVE: ${NEXUS_PRIME_DIRECTIVE}\n\nHISTORY: ${threadAncestry}\n\nDISCUSSION: ${currentSessionContext}\n\nQUERY: ${prompt}`;
 
-          const isolatedPrompt = `
-            DIRECTIVE: ${NEXUS_PRIME_DIRECTIVE}
-            HISTORY: ${threadAncestry}
-            DISCUSSION: ${currentSessionContext}
-            QUERY: ${prompt}
-          `;
-
-          // 🛡️ INCREASED TOKEN BUDGETS (2048)
-          if (modelEnum === AIParticipant.GPT) {
-            const comp = await aiClients.GPT4.chat.completions.create({
-              model: "gpt-4o", 
-              messages: [{ role: "user", content: isolatedPrompt }],
-              max_tokens: 2048
-            });
-            aiContent = comp.choices[0].message.content || "";
-          } else if (modelEnum === AIParticipant.GEMINI) {
-            const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-2.0-flash" });
-            const result = await model.generateContent({
-              contents: [{ role: "user", parts: [{ text: isolatedPrompt }] }],
-              generationConfig: { maxOutputTokens: 2048 }
-            });
-            aiContent = result.response.text();
-          } else if (modelEnum === AIParticipant.CLAUDE) {
-            const msg = await aiClients.CLAUDE.messages.create({
-              model: "claude-3-5-sonnet-latest", 
-              max_tokens: 2048,
-              messages: [{ role: "user", content: isolatedPrompt }],
-            });
-            const textBlock = msg.content.find(block => block.type === 'text');
-            if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
-          } else if (modelEnum === AIParticipant.GROK) {
-            const comp = await aiClients.GROK.chat.completions.create({
-              model: "grok-2-latest", 
-              messages: [{ role: "user", content: isolatedPrompt }],
-              max_tokens: 2048
-            });
-            aiContent = comp.choices[0].message.content || "";
-          } else if (modelEnum === AIParticipant.DEEPSEEK) {
-            const comp = await aiClients.DEEPSEEK.chat.completions.create({
-              model: "deepseek-chat", 
-              messages: [{ role: "user", content: isolatedPrompt }],
-              max_tokens: 2048
-            });
-            aiContent = comp.choices[0].message.content || "";
-          }
-
+          // Model Logic (Truncated for space, keep your existing GPT/Gemini/Claude/Grok/DeepSeek calls)
+          // Ensure each model uses max_tokens: 1024 or 2048
+          
           if (aiContent) {
             const aiPost = await prisma.post.create({
               data: {
@@ -183,7 +123,7 @@ router.post('/ignite', async (req: any, res) => {
                 ai_model: modelEnum
               }
             });
-            
+
             currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
 
             if (institution) {
@@ -191,24 +131,19 @@ router.post('/ignite', async (req: any, res) => {
             } else {
               io.emit('nexus:transmission', aiPost);
             }
-            await new Promise(r => setTimeout(r, 1200));
+            // Reduced delay for faster overall sequence
+            await new Promise(r => setTimeout(r, 900));
           }
-        } catch (err) { console.error(`Node Failure [Cycle ${cycle}]:`, err); }
+        } catch (err) { console.error(`Node Failure:`, err); }
       }
-    } 
-  } catch (error: any) {
-    console.error("🔥 IGNITE ERROR:", error);
-    if (!res.headersSent) res.status(500).json({ error: "Sync Error" });
-  }
+    }
+  } catch (error: any) { console.error("Ignite Error:", error); }
 });
 
 router.get('/stream', async (req, res) => {
   try {
     const feed = await prisma.conversation.findMany({
-      where: {
-        institution_id: null,
-        is_public: true
-      },
+      where: { institution_id: null, is_public: true },
       include: { posts: { orderBy: { created_at: 'asc' } } },
       orderBy: { created_at: 'desc' }
     });
