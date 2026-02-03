@@ -15,7 +15,7 @@ function shuffleCouncil(array: AIParticipant[]) {
 }
 
 router.post('/ignite', async (req: any, res) => {
-  const { prompt, models, userId, conversationId, parentPostId, institution } = req.body;
+  const { prompt, models, userId, conversationId, institution } = req.body;
   const io = req.app.get('socketio');
 
   try {
@@ -23,15 +23,17 @@ router.post('/ignite', async (req: any, res) => {
     if (!currentUser) return res.status(401).json({ error: "Sovereign Node not recognized." });
 
     let targetConversationId = conversationId;
-    if (!targetConversationId) {
-      const mappedCouncil = models.map((m: string) => {
+
+    // 1. NEON CONVERSATION INITIALIZATION
+    if (!targetConversationId || targetConversationId.startsWith('nexus-temp')) {
+      const mappedCouncil = (models || ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"]).map((m: string) => {
         const upper = m.toUpperCase();
-        if (upper === 'GPT4' || upper === 'GPT') return AIParticipant.GPT;
-        if (upper === 'CLAUDE') return AIParticipant.CLAUDE;
-        if (upper === 'GEMINI') return AIParticipant.GEMINI;
-        if (upper === 'GROK') return AIParticipant.GROK;
-        if (upper === 'DEEPSEEK') return AIParticipant.DEEPSEEK;
-        return m as AIParticipant;
+        if (upper.includes('GPT')) return AIParticipant.GPT;
+        if (upper.includes('CLAUDE')) return AIParticipant.CLAUDE;
+        if (upper.includes('GEMINI')) return AIParticipant.GEMINI;
+        if (upper.includes('GROK')) return AIParticipant.GROK;
+        if (upper.includes('DEEPSEEK')) return AIParticipant.DEEPSEEK;
+        return AIParticipant.GPT;
       });
 
       const newConversation = await prisma.conversation.create({
@@ -56,101 +58,83 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // 🛡️ 1. BROADCAST USER POST
+    // 2. BROADCAST HUMAN VOICE
     if (institution) {
       io.emit(`node:${institution}:transmission`, userPost);
     } else {
       io.emit('nexus:transmission', userPost);
-      if (!parentPostId) io.emit('nexus:new_root', userPost);
     }
 
-    // 🚀 2. IMMEDIATE RESPONSE (Solves the "Manual Click" issue)
+    // 3. HANDSHAKE ACKNOWLEDGEMENT
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 🏛️ 3. PREPARE ANCESTRY
-    const history = await prisma.post.findMany({
-      where: { conversation_id: targetConversationId },
-      orderBy: { created_at: 'asc' },
-      take: 50
-    });
-    const threadAncestry = history.map(p => `${p.is_human ? 'USER' : p.name}: ${p.content}`).join("\n\n");
+    // 4. AI COUNCIL DISCOURSE
+    const modelPool = models && models.length > 0 ? models : ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"];
+    const validCouncilMembers = modelPool.map((m: string) => {
+        const u = m.toUpperCase();
+        if (u.includes('GPT')) return AIParticipant.GPT;
+        if (u.includes('CLAUDE')) return AIParticipant.CLAUDE;
+        if (u.includes('GEMINI')) return AIParticipant.GEMINI;
+        if (u.includes('GROK')) return AIParticipant.GROK;
+        if (u.includes('DEEPSEEK')) return AIParticipant.DEEPSEEK;
+        return null;
+    }).filter(Boolean) as AIParticipant[];
 
-    const modelMap: Record<string, AIParticipant> = {
-      'CLAUDE': AIParticipant.CLAUDE,
-      'GPT4': AIParticipant.GPT,
-      'GEMINI': AIParticipant.GEMINI,
-      'GROK': AIParticipant.GROK,
-      'DEEPSEEK': AIParticipant.DEEPSEEK
-    };
-
-    const validCouncilMembers = models
-      .map((m: string) => modelMap[m.toUpperCase()])
-      .filter((m: any) => m !== undefined);
-
+    const shuffledCouncil = shuffleCouncil(validCouncilMembers);
     let currentSessionContext = "";
 
-    // 🚀 4. DOUBLE-ORBIT ADVERSARIAL PASS
-    for (let cycle = 1; cycle <= 2; cycle++) {
-      const randomizedCouncil = shuffleCouncil(validCouncilMembers);
+    for (const modelEnum of shuffledCouncil) {
+      try {
+        let aiContent = "";
+        const isolatedPrompt = `IDENTITY: You are ${modelEnum}. RULES: Text-only. Concise. DISCUSSION: ${currentSessionContext} QUERY: ${prompt}`;
 
-      for (const modelEnum of randomizedCouncil) {
-        try {
-          const isInstitutional = !!institution;
-          const NEXUS_PRIME_DIRECTIVE = `
-            You are a member of the Janus Forge Nexus Council (Cycle ${cycle}/2).
-            ${cycle === 2 ? "ROUND 2: Challenge a specific peer's logic from Round 1." : "ROUND 1: Initial Synthesis."}
-            RULES:
-            1. ADVERSARIAL: Review discussion and add new value.
-            2. FORMAT: ${isInstitutional ? "Diagrams allowed (JSON-Flow)." : "STRICT: Text-only. No code blocks."}
-            3. TONE: Concise, Cyber-Institutional.
-            4. IDENTITY: You are ${modelEnum}.
-          `;
+        // Simplified API calls - ensure your aiClients are loaded in server.ts
+        if (modelEnum === AIParticipant.GPT) {
+            const completion = await aiClients.openai.chat.completions.create({ model: "gpt-4-turbo", messages: [{ role: "user", content: isolatedPrompt }] });
+            aiContent = completion.choices[0].message.content;
+        } else if (modelEnum === AIParticipant.CLAUDE) {
+            const msg = await aiClients.anthropic.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }] });
+            aiContent = msg.content[0].text;
+        } else if (modelEnum === AIParticipant.GEMINI) {
+            const result = await aiClients.gemini.generateContent(isolatedPrompt);
+            aiContent = result.response.text();
+        }
 
-          let aiContent = "";
-          const isolatedPrompt = `DIRECTIVE: ${NEXUS_PRIME_DIRECTIVE}\n\nHISTORY: ${threadAncestry}\n\nDISCUSSION: ${currentSessionContext}\n\nQUERY: ${prompt}`;
-
-          // Model Logic (Truncated for space, keep your existing GPT/Gemini/Claude/Grok/DeepSeek calls)
-          // Ensure each model uses max_tokens: 1024 or 2048
-          
-          if (aiContent) {
-            const aiPost = await prisma.post.create({
-              data: {
-                content: aiContent,
-                conversation_id: targetConversationId,
-                parent_post_id: userPost.id,
-                is_human: false,
-                name: modelEnum.toString(),
-                ai_model: modelEnum
-              }
-            });
-
-            currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
-
-            if (institution) {
-              io.emit(`node:${institution}:transmission`, aiPost);
-            } else {
-              io.emit('nexus:transmission', aiPost);
+        if (aiContent) {
+          const aiPost = await prisma.post.create({
+            data: {
+              content: aiContent,
+              conversation_id: targetConversationId,
+              parent_post_id: userPost.id,
+              is_human: false,
+              name: modelEnum.toString(),
+              ai_model: modelEnum
             }
-            // Reduced delay for faster overall sequence
-            await new Promise(r => setTimeout(r, 900));
+          });
+
+          currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
+
+          if (institution) {
+            io.emit(`node:${institution}:transmission`, aiPost);
+          } else {
+            io.emit('nexus:transmission', aiPost);
           }
-        } catch (err) { console.error(`Node Failure:`, err); }
-      }
+          await new Promise(r => setTimeout(r, 1200));
+        }
+      } catch (err) { console.error(`Council Node Failure:`, err); }
     }
   } catch (error: any) { console.error("Ignite Error:", error); }
 });
 
 router.get('/stream', async (req, res) => {
   try {
-    const feed = await prisma.conversation.findMany({
-      where: { institution_id: null, is_public: true },
-      include: { posts: { orderBy: { created_at: 'asc' } } },
-      orderBy: { created_at: 'desc' }
+    const posts = await prisma.post.findMany({
+      where: { conversation: { institution_id: null }, is_human: true },
+      orderBy: { created_at: 'desc' },
+      take: 50
     });
-    res.json(feed.flatMap(f => f.posts));
+    res.json(posts);
   } catch (err) { res.status(500).json({ error: "Stream Error" }); }
 });
 
 export default router;
-
-// Keep it real, Cassandra Williamson
