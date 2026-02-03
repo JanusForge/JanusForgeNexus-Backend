@@ -20,11 +20,10 @@ router.post('/ignite', async (req: any, res) => {
 
   try {
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
-    if (!currentUser) return res.status(401).json({ error: "Sovereign Node not recognized." });
+    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
 
     let targetConversationId = conversationId;
 
-    // 1. NEON CONVERSATION INITIALIZATION
     if (!targetConversationId || targetConversationId.startsWith('nexus-temp')) {
       const mappedCouncil = (models || ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"]).map((m: string) => {
         const upper = m.toUpperCase();
@@ -58,45 +57,40 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // 2. BROADCAST HUMAN VOICE
+    // 🚀 UNIFIED EMIT: Hubs get their channel, Nexus gets the global one
     if (institution) {
       io.emit(`node:${institution}:transmission`, userPost);
     } else {
       io.emit('nexus:transmission', userPost);
     }
 
-    // 3. HANDSHAKE ACKNOWLEDGEMENT
     res.json({ success: true, conversationId: targetConversationId });
 
-    // 4. AI COUNCIL DISCOURSE
-    const modelPool = models && models.length > 0 ? models : ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"];
-    const validCouncilMembers = modelPool.map((m: string) => {
+    // AI SEQUENCE (Using your working Hub logic keys)
+    const modelPool = (models && models.length > 0) ? models : ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"];
+    const shuffledCouncil = shuffleCouncil(modelPool.map(m => {
         const u = m.toUpperCase();
         if (u.includes('GPT')) return AIParticipant.GPT;
         if (u.includes('CLAUDE')) return AIParticipant.CLAUDE;
         if (u.includes('GEMINI')) return AIParticipant.GEMINI;
         if (u.includes('GROK')) return AIParticipant.GROK;
         if (u.includes('DEEPSEEK')) return AIParticipant.DEEPSEEK;
-        return null;
-    }).filter(Boolean) as AIParticipant[];
-
-    const shuffledCouncil = shuffleCouncil(validCouncilMembers);
-    let currentSessionContext = "";
+        return AIParticipant.GPT;
+    }));
 
     for (const modelEnum of shuffledCouncil) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `IDENTITY: You are ${modelEnum}. RULES: Text-only. Concise. DISCUSSION: ${currentSessionContext} QUERY: ${prompt}`;
+        const isolatedPrompt = `IDENTITY: ${modelEnum}. RULES: Concise. DISCUSSION: ${prompt}`;
 
-        // Simplified API calls - ensure your aiClients are loaded in server.ts
         if (modelEnum === AIParticipant.GPT) {
-            const completion = await aiClients.openai.chat.completions.create({ model: "gpt-4-turbo", messages: [{ role: "user", content: isolatedPrompt }] });
-            aiContent = completion.choices[0].message.content;
+            const chat = await aiClients.GPT4.chat.completions.create({ model: "gpt-4o", messages: [{role:"user", content: isolatedPrompt}]});
+            aiContent = chat.choices[0].message.content || "";
         } else if (modelEnum === AIParticipant.CLAUDE) {
-            const msg = await aiClients.anthropic.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{ role: "user", content: isolatedPrompt }] });
-            aiContent = msg.content[0].text;
+            const msg = await aiClients.CLAUDE.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{role:"user", content: isolatedPrompt}]});
+            aiContent = msg.content[0].type === 'text' ? msg.content[0].text : "";
         } else if (modelEnum === AIParticipant.GEMINI) {
-            const result = await aiClients.gemini.generateContent(isolatedPrompt);
+            const result = await aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" }).generateContent(isolatedPrompt);
             aiContent = result.response.text();
         }
 
@@ -105,14 +99,11 @@ router.post('/ignite', async (req: any, res) => {
             data: {
               content: aiContent,
               conversation_id: targetConversationId,
-              parent_post_id: userPost.id,
               is_human: false,
               name: modelEnum.toString(),
               ai_model: modelEnum
             }
           });
-
-          currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
 
           if (institution) {
             io.emit(`node:${institution}:transmission`, aiPost);
@@ -121,9 +112,9 @@ router.post('/ignite', async (req: any, res) => {
           }
           await new Promise(r => setTimeout(r, 1200));
         }
-      } catch (err) { console.error(`Council Node Failure:`, err); }
+      } catch (err) { console.error(err); }
     }
-  } catch (error: any) { console.error("Ignite Error:", error); }
+  } catch (error: any) { console.error(error); }
 });
 
 router.get('/stream', async (req, res) => {
