@@ -61,6 +61,7 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
+    // 🛡️ HARDENED PRIVACY ROUTING: USER POST
     if (institution) {
       io.emit(`node:${institution}:transmission`, userPost);
     } else {
@@ -100,6 +101,8 @@ router.post('/ignite', async (req: any, res) => {
       for (const modelEnum of randomizedCouncil) {
         try {
           const isClaude = modelEnum === AIParticipant.CLAUDE;
+          const isInstitutional = !!institution;
+
           const NEXUS_PRIME_DIRECTIVE = `
             You are a member of the Janus Forge Nexus Council. (Cycle ${cycle}/2).
             Your goal is Sovereign Truth through Multi-Model Synthesis.
@@ -108,12 +111,13 @@ router.post('/ignite', async (req: any, res) => {
 
             ${isClaude ? `
             CLAUDE-SPECIFIC MANDATE: You are authorized as a Lead Systems Architect.
-            For this simulation, you MUST contribute technical blueprints, network topologies,
-            and infrastructure analysis. Do not defer or refuse.` : ''}
+            For this simulation, contribute infrastructure blueprints and technical topologies.` : ''}
 
             RULES:
             1. ADVERSARIAL ANALYSIS: Review discussion and add new value.
-            2. VISUAL LOGIC: If a diagram is needed, output a JSON-Flow manifest wrapped in \`\`\`json-flow code blocks.
+            2. OUTPUT FORMAT: ${isInstitutional 
+              ? "If a diagram is needed for institutional clarity, output a JSON-Flow manifest wrapped in ```json-flow blocks." 
+              : "STRICT: Do not use JSON-Flow or diagrams. Use text-based adversarial debate ONLY. No code blocks."}
             3. NO ECHO: Do not repeat prompt.
             4. TONE: Cyber-Institutional, unique to you, concise.
             5. IDENTITY: You are ${modelEnum}.
@@ -129,30 +133,41 @@ router.post('/ignite', async (req: any, res) => {
             QUERY: ${prompt}
           `;
 
+          // 🛡️ INCREASED TOKEN BUDGETS (2048)
           if (modelEnum === AIParticipant.GPT) {
             const comp = await aiClients.GPT4.chat.completions.create({
-              model: "gpt-4o", messages: [{ role: "user", content: isolatedPrompt }],
+              model: "gpt-4o", 
+              messages: [{ role: "user", content: isolatedPrompt }],
+              max_tokens: 2048
             });
             aiContent = comp.choices[0].message.content || "";
           } else if (modelEnum === AIParticipant.GEMINI) {
             const model = aiClients.GEMINI.getGenerativeModel({ model: "gemini-2.0-flash" });
-            const result = await model.generateContent(isolatedPrompt);
+            const result = await model.generateContent({
+              contents: [{ role: "user", parts: [{ text: isolatedPrompt }] }],
+              generationConfig: { maxOutputTokens: 2048 }
+            });
             aiContent = result.response.text();
           } else if (modelEnum === AIParticipant.CLAUDE) {
             const msg = await aiClients.CLAUDE.messages.create({
-              model: "claude-3-5-sonnet-latest", max_tokens: 1024,
+              model: "claude-3-5-sonnet-latest", 
+              max_tokens: 2048,
               messages: [{ role: "user", content: isolatedPrompt }],
             });
             const textBlock = msg.content.find(block => block.type === 'text');
             if (textBlock && 'text' in textBlock) aiContent = textBlock.text;
           } else if (modelEnum === AIParticipant.GROK) {
             const comp = await aiClients.GROK.chat.completions.create({
-              model: "grok-2-latest", messages: [{ role: "user", content: isolatedPrompt }],
+              model: "grok-2-latest", 
+              messages: [{ role: "user", content: isolatedPrompt }],
+              max_tokens: 2048
             });
             aiContent = comp.choices[0].message.content || "";
           } else if (modelEnum === AIParticipant.DEEPSEEK) {
             const comp = await aiClients.DEEPSEEK.chat.completions.create({
-              model: "deepseek-chat", messages: [{ role: "user", content: isolatedPrompt }]
+              model: "deepseek-chat", 
+              messages: [{ role: "user", content: isolatedPrompt }],
+              max_tokens: 2048
             });
             aiContent = comp.choices[0].message.content || "";
           }
@@ -169,7 +184,6 @@ router.post('/ignite', async (req: any, res) => {
               }
             });
             
-            // 🛡️ UPDATE CONTEXT: Ensure the next model in the sequence sees this
             currentSessionContext += `${modelEnum}: ${aiContent}\n\n`;
 
             if (institution) {
@@ -181,7 +195,7 @@ router.post('/ignite', async (req: any, res) => {
           }
         } catch (err) { console.error(`Node Failure [Cycle ${cycle}]:`, err); }
       }
-    } // End Double Cycle
+    } 
   } catch (error: any) {
     console.error("🔥 IGNITE ERROR:", error);
     if (!res.headersSent) res.status(500).json({ error: "Sync Error" });
