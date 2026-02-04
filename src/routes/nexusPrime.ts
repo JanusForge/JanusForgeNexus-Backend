@@ -23,19 +23,28 @@ router.post('/ignite', async (req: any, res) => {
 
     let targetId = conversationId;
 
+    // 🚀 INITIALIZE NEON CONVERSATION
     if (!targetId || targetId.startsWith('nexus-temp')) {
       const newConv = await prisma.conversation.create({
         data: {
           user_id: currentUser.id,
           is_public: !institution,
+          is_private: !!institution,
           institution_id: institution || null,
           title: prompt.substring(0, 50),
-          council_members: [AIParticipant.GPT, AIParticipant.CLAUDE, AIParticipant.GEMINI, AIParticipant.GROK, AIParticipant.DEEPSEEK]
+          council_members: [
+            AIParticipant.GPT, 
+            AIParticipant.CLAUDE, 
+            AIParticipant.GEMINI, 
+            AIParticipant.GROK, 
+            AIParticipant.DEEPSEEK
+          ]
         }
       });
       targetId = newConv.id;
     }
 
+    // 🚀 SAVE USER PROMPT TO PERMANENT RECORD
     const userPost = await prisma.post.create({
       data: {
         content: prompt,
@@ -46,47 +55,60 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // DUPLICATE FIX: Return response without io.emit(userPost)
+    // Notify frontend of the real ID - No duplicate emit here
     res.json({ success: true, conversationId: targetId, userPost });
 
-    // 🚀 RESTORING THE RANDOMIZED SHUFFLE
+    // 🚀 RANDOMIZE COUNCIL ORDER
     const councilKeys = ["GPT4", "CLAUDE", "GEMINI", "GROK", "DEEPSEEK"];
     for (let i = councilKeys.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [councilKeys[i], councilKeys[j]] = [councilKeys[j], councilKeys[i]];
     }
-    
-    let rollingHistory = `User (${currentUser.username}): ${prompt}\n\n`;
 
+    // 🚀 SEQUENTIAL COUNCIL LOOP
     for (const key of councilKeys) {
       try {
-        const config = COUNCIL_CONFIG[key as keyof typeof COUNCIL_CONFIG];
-        let aiResponse = "";
+        // 🛡️ DEEP MEMORY: Pull every single post in this thread from the DB
+        const fullHistory = await prisma.post.findMany({
+          where: { conversation_id: targetId },
+          orderBy: { created_at: 'asc' }
+        });
+
+        const historyContext = fullHistory.map(post => 
+          `${post.name} (${post.is_human ? 'HUMAN' : 'AI COUNCIL'}): ${post.content}`
+        ).join("\n\n---\n\n");
 
         const systemInstructions = `
           IDENTITY: You are ${key}, a member of the Janus Forge Sovereign Council.
-          MISSION: Engage in high-fidelity, in-depth philosophical discourse.
-          CONTEXT: You can see the full discussion so far. Acknowledge and build upon or challenge previous members.
-          RULES: No fluff. Minimum 3 paragraphs. Detailed synthesis. 
-          SHUFFLE STATUS: You are speaking in position ${councilKeys.indexOf(key) + 1} of 5.
+          MISSION: High-fidelity philosophical discourse and semantic synthesis.
           
-          DISCUSSION HISTORY:
-          ${rollingHistory}
+          MANDATORY BEDTIME RULE: 
+          1. Start your response with a NEW, ORIGINAL DAD JOKE in **Bold**.
+          2. Provide an in-depth, multi-paragraph synthesis of the discussion.
+          3. Engage DIRECTLY with what has been said before you in the history.
+          4. No fluff. Maximum 400 words.
+          
+          FULL THREAD RECALL (NEON DATABASE):
+          ${historyContext}
           
           YOUR TURN, ${key}:
         `;
 
+        const config = COUNCIL_CONFIG[key as keyof typeof COUNCIL_CONFIG];
+        let aiResponse = "";
+
+        // Execute AI Call based on provider
         if (key === "GPT4") {
           const chat = await aiClients.GPT4.chat.completions.create({
             model: "gpt-4o",
-            max_tokens: 1200,
+            max_tokens: 1000,
             messages: [{ role: "system", content: systemInstructions }]
           });
           aiResponse = chat.choices[0].message.content || "";
         } else if (key === "CLAUDE") {
           const msg = await aiClients.CLAUDE.messages.create({
             model: "claude-3-5-sonnet-latest",
-            max_tokens: 1200,
+            max_tokens: 1000,
             messages: [{ role: "user", content: systemInstructions }]
           });
           aiResponse = msg.content[0].type === 'text' ? msg.content[0].text : "";
@@ -102,7 +124,7 @@ router.post('/ignite', async (req: any, res) => {
         } else if (key === "DEEPSEEK") {
           const chat = await aiClients.DEEPSEEK.chat.completions.create({
             model: "deepseek-chat",
-            max_tokens: 1200,
+            max_tokens: 1000,
             messages: [{ role: "user", content: systemInstructions }]
           });
           aiResponse = chat.choices[0].message.content || "";
@@ -120,25 +142,40 @@ router.post('/ignite', async (req: any, res) => {
             }
           });
 
-          rollingHistory += `${key}: ${aiResponse}\n\n`;
-
-          io.emit(institution ? `node:${institution}:transmission` : 'nexus:transmission', aiPost);
-          await new Promise(r => setTimeout(r, 1500));
+          // Emit to the correct channel
+          const channel = institution ? `node:${institution}:transmission` : 'nexus:transmission';
+          io.emit(channel, aiPost);
+          
+          // 🚀 PACE FOR DEPTH: Wait 3.5 seconds before next AI starts
+          await new Promise(r => setTimeout(r, 3500));
         }
-      } catch (err) { console.error(`${key} failure:`, err); }
+      } catch (err) {
+        console.error(`${key} Node sync failure:`, err);
+      }
     }
-  } catch (error: any) { console.error("Ignite Error:", error); }
+  } catch (error: any) {
+    console.error("Critical Ignite Error:", error);
+  }
 });
 
+// 🚀 ARCHIVE STREAM: Hardened Firewall & 50-item Recall
 router.get('/stream', async (req, res) => {
   try {
     const posts = await prisma.post.findMany({
-      where: { conversation: { institution_id: null } },
+      where: { 
+        conversation: { 
+          institution_id: null,
+          is_public: true 
+        }, 
+        is_human: true 
+      },
       orderBy: { created_at: 'desc' },
-      take: 40
+      take: 50
     });
     res.json(posts);
-  } catch (err) { res.status(500).json({ error: "Stream error" }); }
+  } catch (err) {
+    res.status(500).json({ error: "Mission Archive currently offline." });
+  }
 });
 
 export default router;
