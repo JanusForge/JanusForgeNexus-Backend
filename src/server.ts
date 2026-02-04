@@ -3,13 +3,13 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import mongoose from 'mongoose';
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // --- 🛡️ SOVEREIGN IMPORTS ---
 import { setupNexusSockets } from './services/nexus-core/nexus-socket';
+import { prisma } from './lib/prisma'; // 🟢 NEON PERSISTENCE
 import authRouter from './routes/auth';
 import nexusPrimeRouter from './routes/nexusPrime';
 import stripeRouter from './routes/stripe';
@@ -57,13 +57,16 @@ app.use(cors({
 // --- 3. MIDDLEWARE ---
 app.use(express.json({ limit: '10mb' }));
 
-// --- 4. NEURAL PERSISTENCE ---
-const MONGODB_URI = process.env.MONGODB_URI;
-if (MONGODB_URI) {
-  mongoose.connect(MONGODB_URI)
-    .then(() => console.log("🟢 NEURAL LINK: MongoDB Connected"))
-    .catch((err) => console.error("❌ NEURAL LINK ERROR:", err));
+// --- 4. NEURAL PERSISTENCE (EXCISED MONGODB, ARMED PRISMA) ---
+async function synchronizeCore() {
+  try {
+    await prisma.$connect();
+    console.log("🟢 JANUS CORE: Neon Link Synchronized.");
+  } catch (err) {
+    console.error("❌ JANUS CORE ERROR (Desynchronized):", err);
+  }
 }
+synchronizeCore();
 
 // --- 5. ACTIVE GATEWAYS ---
 app.use('/api/auth', authRouter);
@@ -81,7 +84,6 @@ const io = new Server(httpServer, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  // 🛡️ Render Stability: Allowing automatic transport negotiation
   allowEIO3: true,
   pingTimeout: 60000,
   pingInterval: 25000,
