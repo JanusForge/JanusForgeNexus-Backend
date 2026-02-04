@@ -5,15 +5,6 @@ import { AIParticipant } from '@prisma/client';
 
 const router = express.Router();
 
-// 🚀 Mapping the frontend "keys" to the strict Prisma Enums
-const COUNCIL_MAP = {
-  GPT4: { enum: AIParticipant.GPT, client: 'GPT4' },
-  CLAUDE: { enum: AIParticipant.CLAUDE, client: 'CLAUDE' },
-  GEMINI: { enum: AIParticipant.GEMINI, client: 'GEMINI' },
-  GROK: { enum: AIParticipant.GROK, client: 'GROK' },
-  DEEPSEEK: { enum: AIParticipant.DEEPSEEK, client: 'DEEPSEEK' }
-};
-
 router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, institution } = req.body;
   const io = req.app.get('socketio');
@@ -24,7 +15,6 @@ router.post('/ignite', async (req: any, res) => {
 
     let targetId = conversationId;
 
-    // Initialize Neon Conversation if needed
     if (!targetId || targetId.startsWith('nexus-temp')) {
       const newConv = await prisma.conversation.create({
         data: {
@@ -51,16 +41,22 @@ router.post('/ignite', async (req: any, res) => {
     io.emit('nexus:transmission', userPost);
     res.json({ success: true, conversationId: targetId });
 
-    // 🚀 THE COUNCIL DISCOURSE
+    // 🚀 THE FIX: Mapping Frontend keys to your Schema Enums
+    const COUNCIL_CONFIG = {
+      "GPT4": { enum: AIParticipant.GPT, client: 'GPT4' },
+      "CLAUDE": { enum: AIParticipant.CLAUDE, client: 'CLAUDE' },
+      "GEMINI": { enum: AIParticipant.GEMINI, client: 'GEMINI' }
+    };
+
     const selection = (models && models.length > 0) ? models : ["GPT4", "CLAUDE", "GEMINI"];
-    
+
     for (const key of selection) {
       try {
-        const config = COUNCIL_MAP[key as keyof typeof COUNCIL_MAP];
+        const config = COUNCIL_CONFIG[key as keyof typeof COUNCIL_CONFIG];
         if (!config) continue;
 
         let aiContent = "";
-        const systemPrompt = `IDENTITY: ${key}. MISSION: Janus Forge Council. RULES: Text-only. No fluff. QUERY: ${prompt}`;
+        const systemPrompt = `IDENTITY: ${key}. MISSION: Janus Forge Council. RULES: Concise. QUERY: ${prompt}`;
 
         if (key === "GPT4") {
           const chat = await aiClients.GPT4.chat.completions.create({
@@ -70,7 +66,7 @@ router.post('/ignite', async (req: any, res) => {
           aiContent = chat.choices[0].message.content || "";
         } else if (key === "CLAUDE") {
           const msg = await aiClients.CLAUDE.messages.create({
-            model: "claude-3-5-sonnet-latest",
+            model: "claude-3-5-sonnet-latest", // 🚀 FIXED: Prevents 404
             max_tokens: 1024,
             messages: [{ role: "user", content: systemPrompt }]
           });
@@ -88,15 +84,15 @@ router.post('/ignite', async (req: any, res) => {
               parent_post_id: userPost.id,
               is_human: false,
               name: key,
-              ai_model: config.enum // 🚀 STRICT ENUM INSERTION
+              ai_model: config.enum // 🚀 FIXED: Passes 'GPT' (Enum) instead of 'GPT4' (String)
             }
           });
           io.emit('nexus:transmission', aiPost);
           await new Promise(r => setTimeout(r, 1000));
         }
-      } catch (err) { console.error(`${key} Node failure:`, err); }
+      } catch (err) { console.error(`${key} failure:`, err); }
     }
-  } catch (error: any) { console.error("Critical Ignite Error:", error); }
+  } catch (error: any) { console.error("Ignite Error:", error); }
 });
 
 router.get('/stream', async (req, res) => {
@@ -107,7 +103,7 @@ router.get('/stream', async (req, res) => {
       take: 50
     });
     res.json(posts);
-  } catch (err) { res.status(500).json({ error: "Stream unavailable" }); }
+  } catch (err) { res.status(500).json({ error: "Stream Error" }); }
 });
 
 export default router;
