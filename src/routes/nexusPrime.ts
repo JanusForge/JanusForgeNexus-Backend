@@ -5,46 +5,29 @@ import { AIParticipant } from '@prisma/client';
 
 const router = express.Router();
 
-function shuffleCouncil(array: AIParticipant[]) {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j_rand = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j_rand]] = [shuffled[j_rand], shuffled[i]];
-  }
-  return shuffled;
-}
-
 router.post('/ignite', async (req: any, res) => {
   const { prompt, models, userId, conversationId, institution } = req.body;
   const io = req.app.get('socketio');
 
   try {
+    // 1. NEON HANDSHAKE
     const currentUser = await prisma.user.findUnique({ where: { id: userId } });
     if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
 
     let targetConversationId = conversationId;
 
+    // 2. CREATE CONVERSATION IN NEON (Force explicit Null for Nexus)
     if (!targetConversationId || targetConversationId.startsWith('nexus-temp')) {
-      const mappedCouncil = (models || ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"]).map((m: string) => {
-        const upper = m.toUpperCase();
-        if (upper.includes('GPT')) return AIParticipant.GPT;
-        if (upper.includes('CLAUDE')) return AIParticipant.CLAUDE;
-        if (upper.includes('GEMINI')) return AIParticipant.GEMINI;
-        if (upper.includes('GROK')) return AIParticipant.GROK;
-        if (upper.includes('DEEPSEEK')) return AIParticipant.DEEPSEEK;
-        return AIParticipant.GPT;
-      });
-
-      const newConversation = await prisma.conversation.create({
+      const newConv = await prisma.conversation.create({
         data: {
           user_id: currentUser.id,
           is_public: !institution,
-          institution_id: institution || null,
+          institution_id: institution || null, 
           title: prompt.substring(0, 50),
-          council_members: mappedCouncil
+          council_members: ["GPT", "CLAUDE", "GEMINI"] as any 
         }
       });
-      targetConversationId = newConversation.id;
+      targetConversationId = newConv.id;
     }
 
     const userPost = await prisma.post.create({
@@ -57,7 +40,7 @@ router.post('/ignite', async (req: any, res) => {
       }
     });
 
-    // 🚀 UNIFIED EMIT: Hubs get their channel, Nexus gets the global one
+    // 3. BROADCAST (Global for Nexus, Card-specific for Hubs)
     if (institution) {
       io.emit(`node:${institution}:transmission`, userPost);
     } else {
@@ -66,32 +49,18 @@ router.post('/ignite', async (req: any, res) => {
 
     res.json({ success: true, conversationId: targetConversationId });
 
-    // AI SEQUENCE (Using your working Hub logic keys)
-    const modelPool = (models && models.length > 0) ? models : ["GROK", "GEMINI", "CLAUDE", "GPT4", "DEEPSEEK"];
-    const shuffledCouncil = shuffleCouncil(modelPool.map(m => {
-        const u = m.toUpperCase();
-        if (u.includes('GPT')) return AIParticipant.GPT;
-        if (u.includes('CLAUDE')) return AIParticipant.CLAUDE;
-        if (u.includes('GEMINI')) return AIParticipant.GEMINI;
-        if (u.includes('GROK')) return AIParticipant.GROK;
-        if (u.includes('DEEPSEEK')) return AIParticipant.DEEPSEEK;
-        return AIParticipant.GPT;
-    }));
-
-    for (const modelEnum of shuffledCouncil) {
+    // 4. AI DISCOURSE (Neon-Only)
+    const council = ["GPT4", "CLAUDE", "GEMINI"]; 
+    for (const model of council) {
       try {
         let aiContent = "";
-        const isolatedPrompt = `IDENTITY: ${modelEnum}. RULES: Concise. DISCUSSION: ${prompt}`;
-
-        if (modelEnum === AIParticipant.GPT) {
-            const chat = await aiClients.GPT4.chat.completions.create({ model: "gpt-4o", messages: [{role:"user", content: isolatedPrompt}]});
-            aiContent = chat.choices[0].message.content || "";
-        } else if (modelEnum === AIParticipant.CLAUDE) {
-            const msg = await aiClients.CLAUDE.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{role:"user", content: isolatedPrompt}]});
-            aiContent = msg.content[0].type === 'text' ? msg.content[0].text : "";
-        } else if (modelEnum === AIParticipant.GEMINI) {
-            const result = await aiClients.GEMINI.getGenerativeModel({ model: "gemini-1.5-pro" }).generateContent(isolatedPrompt);
-            aiContent = result.response.text();
+        // Using your exact Hub keys that we know work
+        if (model === "GPT4") {
+           const chat = await aiClients.GPT4.chat.completions.create({ model: "gpt-4o", messages: [{role:"user", content: prompt}]});
+           aiContent = chat.choices[0].message.content || "";
+        } else if (model === "CLAUDE") {
+           const msg = await aiClients.CLAUDE.messages.create({ model: "claude-3-5-sonnet-20240620", max_tokens: 1024, messages: [{role:"user", content: prompt}]});
+           aiContent = msg.content[0].type === 'text' ? msg.content[0].text : "";
         }
 
         if (aiContent) {
@@ -100,8 +69,8 @@ router.post('/ignite', async (req: any, res) => {
               content: aiContent,
               conversation_id: targetConversationId,
               is_human: false,
-              name: modelEnum.toString(),
-              ai_model: modelEnum
+              name: model,
+              ai_model: model as any
             }
           });
 
@@ -110,11 +79,10 @@ router.post('/ignite', async (req: any, res) => {
           } else {
             io.emit('nexus:transmission', aiPost);
           }
-          await new Promise(r => setTimeout(r, 1200));
         }
-      } catch (err) { console.error(err); }
+      } catch (e) { console.error("Council Member failed:", e); }
     }
-  } catch (error: any) { console.error(error); }
+  } catch (error: any) { console.error("Nexus Ignite Error:", error); }
 });
 
 router.get('/stream', async (req, res) => {
