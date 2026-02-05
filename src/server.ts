@@ -16,6 +16,7 @@ import stripeRouter from './routes/stripe';
 import webhookRouter from './routes/webhooks';
 import nodesRouter from './routes/nodes';
 import leaderboardRouter from './routes/admin/leaderboard';
+import nexusPublicRouter from './routes/nexusPublic';
 
 dotenv.config();
 
@@ -76,6 +77,7 @@ app.use('/api/stripe', stripeRouter);
 app.use('/api/webhooks', webhookRouter);
 app.use('/api/nodes', nodesRouter);
 app.use('/api/admin', leaderboardRouter);
+app.use('/api/nexus/public', nexusPublicRouter);
 
 // --- 6. NEURAL LINK (SOCKETS) ---
 const io = new Server(httpServer, {
