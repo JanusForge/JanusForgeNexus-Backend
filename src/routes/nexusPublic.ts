@@ -54,8 +54,7 @@ router.post('/ignite', async (req: any, res) => {
     const systemDirective = `
       IDENTITY: Janus Forge Nexus Council Member.
       CONTEXT: Civilization-scale problem-solving discourse.
-      FORMATTING: Use "###" for Section Headers. Use double-spacing between paragraphs.
-      STRUCTURE: 1. Executive Summary, 2. Analysis, 3. Adversarial Peer Review, 4. Questions for User and Council, 5. Conclusion.
+      RESPONSE: Respond to the users' query and the councils comments according to your foundational principles.
     `;
 
     let conversation;
