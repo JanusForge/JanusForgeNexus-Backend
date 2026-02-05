@@ -23,18 +23,21 @@ router.get('/stream', async (req, res) => {
         is_public: true,
         institution_id: null,
       },
-      include: { 
-        posts: { 
-          orderBy: { created_at: 'asc' } 
-        } 
+      include: {
+        posts: {
+          orderBy: { created_at: 'asc' }
+        }
       },
       orderBy: { created_at: 'desc' },
       take: 50
     });
-    const initialPosts = threads.map(t => t.posts.find(p => p.is_human)).filter(Boolean);
-    res.json(initialPosts);
-  } catch (err) { 
-    res.status(500).json({ error: "Public Archive Fault" }); 
+    
+    // 🚀 THE UPDATE: Flatten ALL posts from these threads into a single array
+    // This ensures clicking a title in the sidebar pulls the full history, not just the query.
+    const allPosts = threads.flatMap(t => t.posts);
+    res.json(allPosts);
+  } catch (err) {
+    res.status(500).json({ error: "Public Archive Fault" });
   }
 });
 
@@ -74,12 +77,12 @@ router.post('/ignite', async (req: any, res) => {
     }
 
     const userPost = await prisma.post.create({
-      data: { 
-        content: prompt, 
-        user_id: currentUser.id, 
-        conversation_id: conversation.id, 
-        is_human: true, 
-        name: currentUser.username || "Architect" 
+      data: {
+        content: prompt,
+        user_id: currentUser.id,
+        conversation_id: conversation.id,
+        is_human: true,
+        name: currentUser.username || "Architect"
       }
     });
 
@@ -108,7 +111,7 @@ router.post('/ignite', async (req: any, res) => {
                   if (aiContent) break;
                 } catch (e) { console.warn(`GPT ${m} failed`); }
               }
-            } 
+            }
             else if (modelEnum === AIParticipant.GEMINI) {
               const fallbacks = ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-1.5-pro", "gemini-1.5-flash"];
               for (const m of fallbacks) {
@@ -119,7 +122,7 @@ router.post('/ignite', async (req: any, res) => {
                   if (aiContent) break;
                 } catch (e) { console.warn(`Gemini ${m} failed`); }
               }
-            } 
+            }
             else if (modelEnum === AIParticipant.CLAUDE) {
               const fallbacks = ["claude-3-5-sonnet-latest", "claude-3-haiku-20240307", "claude-3-opus-20240229"];
               for (const m of fallbacks) {
@@ -132,7 +135,7 @@ router.post('/ignite', async (req: any, res) => {
                   if (textBlock && 'text' in textBlock) { aiContent = textBlock.text; break; }
                 } catch (e) { console.warn(`Claude ${m} failed`); }
               }
-            } 
+            }
             else if (modelEnum === AIParticipant.GROK) {
               const fallbacks = ["grok-4.1-fast", "grok-4-fast", "grok-3-mini"];
               for (const m of fallbacks) {
@@ -144,7 +147,7 @@ router.post('/ignite', async (req: any, res) => {
                   if (aiContent) break;
                 } catch (e) { console.warn(`Grok ${m} failed`); }
               }
-            } 
+            }
             else if (modelEnum === AIParticipant.DEEPSEEK) {
               try {
                 const comp = await aiClients.DEEPSEEK.chat.completions.create({
@@ -169,15 +172,15 @@ router.post('/ignite', async (req: any, res) => {
               io.emit('nexus:transmission', aiPost);
               await new Promise(r => setTimeout(r, 1500));
             }
-          } catch (err) { 
-            console.error(`Council Cycle Fault:`, err); 
+          } catch (err) {
+            console.error(`Council Cycle Fault:`, err);
           }
         }
       } catch (innerError) {
         console.error("Background Loop Fault:", innerError);
       }
     });
-  } catch (error) { 
+  } catch (error) {
     console.error("🔥 PUBLIC IGNITE ERROR:", error);
     if (!res.headersSent) res.status(500).json({ error: "Public Ignite Failure" });
   }
